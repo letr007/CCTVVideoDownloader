@@ -159,13 +159,10 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
         # # thread.start()
         # # thread.wait()
         # # self.output("[视频下载]下载完成")
-        thread = ThreadHandle()
-        thread.transfer_VideoInfo(self.dict1[self.dl_index][1])
+        self.thread = ThreadHandle()
+        self.thread.transfer_VideoInfo(self.dict1[self.dl_index][1])
+        self.thread.main()
 
-
-
-    def dl_h(self, num) -> None:
-        self.dialog_ui.progressBar_1.setValue(int(num))
 
     def output(self, msg:str) -> None:
         self.textBrowser.append(msg)
