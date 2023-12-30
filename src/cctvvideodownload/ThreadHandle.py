@@ -9,6 +9,9 @@ from cctvvideodownload.DialogUI import Ui_Dialog
 from cctvvideodownload.DlHandle import VideoDownload
 
 class ThreadHandle():
+    # 创建信号
+    download_finish = Signal(bool)
+
     def __init__(self) -> None:
         # Dialog()
         # self.main()
@@ -25,8 +28,8 @@ class ThreadHandle():
         self.dialog.progressBar_all.setValue(0)
         self.dialog.tableWidget.setColumnWidth(0, 30)
         self.dialog.tableWidget.setColumnWidth(1, 55)
-        self.dialog.tableWidget.setColumnWidth(2, 160)
-        self.dialog.tableWidget.setColumnWidth(3, 43)
+        self.dialog.tableWidget.setColumnWidth(2, 155)
+        self.dialog.tableWidget.setColumnWidth(3, 48)
         # 获得视频链接
         vd = VideoDownload()
         Vinfo = vd.GetHttpVideoInfo(self.VDinfo)
@@ -71,33 +74,55 @@ class ThreadHandle():
         self.new_worker1()
         self.new_worker2()
         self.new_worker3()
+        # 初始化总进度及状态
+        self.all_value = 0
+        self.finish_value = len(self.info_list) * 100
+        self.work1_finish = False
+        self.work2_finish = False
+        self.work3_finish = False
         
+
+    def is_finish(self) -> None:
+        '''下载完成后执行方法'''
+        if self.work1_finish and self.work2_finish and self.work3_finish:
+            self.dialog_ui.close() # 关闭窗体
+            self.download_finish.emit(True) # 发送信号
     
     def new_worker1(self) -> None:
+        '''任务循环方法'''
+        # 通过判断任务列表长度确定任务是否完成
         if len(self.work1_list) != 0:
+            # 建立新任务
             self.worker1.transfer(self.work1_list[0])
             del self.work1_list[0]
             self.worker1.start()
         else:
-            pass
+            self.work1_finish = True
+            self.is_finish()
 
     def new_worker2(self) -> None:
+        '''任务循环方法'''
         if len(self.work2_list) != 0:
             self.worker2.transfer(self.work2_list[0])
             del self.work2_list[0]
             self.worker2.start()
         else:
-            pass
+            # 设置完成状态为True，并调用完成方法
+            self.work2_finish = True
+            self.is_finish()
 
     def new_worker3(self) -> None:
+        '''任务循环方法'''
         if len(self.work3_list) != 0:
             self.worker3.transfer(self.work3_list[0])
             del self.work3_list[0]
             self.worker3.start()
         else:
-            pass
+            self.work3_finish = True
+            self.is_finish()
 
     def split_list(self, lst, n) -> list:
+        '''列表分割方法'''
         avg = len(lst) / float(n)
         result = []
         last = 0.0
@@ -106,19 +131,30 @@ class ThreadHandle():
             last += avg
         return result
     
-    def update_all_value(self) -> None:
-        pass
+    def update_all_value(self, value:float) -> None:
+        '''更新下载进度到进度条'''
+        self.all_value = self.all_value + value
+        # print(self.all_value)
+        # print(self.finish_value)
+        # 计算下载进度
+        self.process_value = int((self.all_value / self.finish_value) * 6.4)
+        # print(self.process_value)
+        self.dialog.progressBar_all.setValue(self.process_value)
 
     def callback(self, info) -> None:
+        '''回调，更新下载信息到表格'''
         item1 = QtWidgets.QTableWidgetItem(info[0])
         item2 = QtWidgets.QTableWidgetItem(info[1])
         item3 = QtWidgets.QTableWidgetItem(info[2])
-        item4 = QtWidgets.QTableWidgetItem(info[3] + "%")
+        item4 = QtWidgets.QTableWidgetItem(str(int(float(info[3]))) + "%")
         self.dialog.tableWidget.setItem(int(info[0])-1, 0, item1)
         self.dialog.tableWidget.setItem(int(info[0])-1, 1, item2)
         self.dialog.tableWidget.setItem(int(info[0])-1, 2, item3)
         self.dialog.tableWidget.setItem(int(info[0])-1, 3, item4)
         self.dialog.tableWidget.viewport().update()
+        # 调用更新进度条
+        self.update_all_value(float(info[3]))
+
 
 
 
