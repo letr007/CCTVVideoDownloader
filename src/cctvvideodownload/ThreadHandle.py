@@ -8,14 +8,12 @@ from PySide6.QtCore import Signal,QRunnable,QThreadPool,QThread
 from cctvvideodownload.DialogUI import Ui_Dialog
 from cctvvideodownload.DlHandle import VideoDownload
 
-class ThreadHandle():
+class ThreadHandle(QObject):
     # 创建信号
     download_finish = Signal(bool)
 
     def __init__(self) -> None:
-        # Dialog()
-        # self.main()
-        pass
+        super(ThreadHandle, self).__init__()
 
     def main(self) -> None:
         # 创建显示窗体
@@ -239,3 +237,36 @@ class DownloadVideo(QThread, QObject):
                 self.info.emit(list2)
                 Run = False
                 return
+            
+class ConcatThread(QThread, QObject):
+    # 创建信号
+    concat_finish = Signal(str)
+
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+        
+
+    def run(self):
+        Run = True
+        while Run:
+            import os, shutil, re
+            path = "C:\\"
+            # 获取文件列表
+            files = os.listdir("%s/ctvd_tmp" % path)
+            files.sort()
+            # 生成合并列表文件
+            with open("%s/ctvd_tmp/video.txt" %path, "w+") as f:
+                for i in files:
+                    if re.match(r"\d+.mp4", i):
+                        tmp = "file '" + i + "'\n"
+                        f.write(tmp)
+            # 合并
+            os.system("cd C:\\ctvd_tmp && ffmpeg -f concat -i video.txt -c copy concat.mp4")
+            if not os.path.exists("C:/Video"):
+                os.makedirs("C:/Video")
+            
+            shutil.move("C:/ctvd_tmp/concat.mp4", "C:/Video/%s.mp4" % self.name)
+            shutil.rmtree("C:/ctvd_tmp")
+            Run = False
+            self.concat_finish.emit(self.name)

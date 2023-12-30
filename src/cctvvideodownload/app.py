@@ -1,7 +1,7 @@
 """
 央视频下载器
 """
-import sys
+import sys,os
 
 try:
     from importlib import metadata as importlib_metadata
@@ -15,7 +15,7 @@ from PySide6.QtCore import Signal
 from cctvvideodownload.MainUI import Ui_MainWindow
 from cctvvideodownload.DialogUI import Ui_Dialog
 from cctvvideodownload.DlHandle import VideoDownload
-from cctvvideodownload.ThreadHandle import ThreadHandle
+from cctvvideodownload.ThreadHandle import ThreadHandle,ConcatThread
 
 
 
@@ -38,19 +38,19 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
         # 菜单栏动作
         self.actionexit.triggered.connect(self.close)
         self.actionin.triggered.connect(self.config_in)
+        self.actionexit.triggered.connect(self.exit)
+        self.actionfile.triggered.connect(self.open_file_path)
         # 槽绑定
         self.pushButton_Download.clicked.connect(self.download_start)
         self.pushButton_FlashConfig.clicked.connect(self.config_reload)
         self.tableWidget_Config.cellClicked.connect(self.choose_config)
         self.pushButton_FlashList.clicked.connect(self.flash_list)
         self.tableWidget_List.cellClicked.connect(self.list_choose)
-        self.log_signal.connect(self.log_signal_event)
 
-    def log_signal_event(self, p_int) -> None:
-        # self.dialog_ui.label_num1
-        self.dialog_ui.progressBar_all.setValue(p_int)
+        self.pushButton_Download.setEnabled(False)
+        self.pushButton_FlashList.setEnabled(False)
+        
 
-    
 
     def flash_list(self) -> None:
         '''刷新视频列表'''
@@ -67,12 +67,14 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
             num += 1
         self.tableWidget_List.viewport().update()
         self.output("[视频信息]获取成功")
+        self.pushButton_Download.setEnabled(True)
 
     def list_choose(self, r:int, c:int) -> None:
         '''接受信号，表格'''
         choose_item = self.tableWidget_List.item(r,0).text()
         self.output("[视频信息]已选中 %s" %choose_item)
         self.dl_index = r + 1
+        self.choose_name = choose_item
 
 
 
@@ -83,6 +85,7 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
         # self.config_choise = r + 1
         self.choise_id = self.tableWidget_Config.item(r,1).text()
         self.output("[配置信息]已选中 %s" %choose_item)
+        
         
         
 
@@ -131,26 +134,47 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
                 num += 1
             self.tableWidget_Config.viewport().update()
             self.output("[重载配置]重载完成")
+            self.pushButton_FlashList.setEnabled(True)
 
         except Exception as e:
             self.output(str(e))
             self.output("[ERROR]配置重载失败。可能是缺失配置文件，请导入配置")
 
+    def concat(self, finish:bool) -> None:
+        '''合并视频方法'''
+        if finish:
+            self.output("[视频下载]下载完成!")
+            self.output("[视频合并]开始合并...")
+            self.work = ConcatThread(self.choose_name)
+            self.work.start()
+            self.work.concat_finish.connect(self.concat_finish)
 
+    def concat_finish(self, name:str) -> None:
+        '''合并完成'''
+        self.output("[视频合并]视频 %s 合并完成!" % name)
+        self.pushButton_Download.setEnabled(True)
 
     def download_start(self) -> None:
+        '''开始下载'''
+        self.output("[视频下载]开始下载...")
+        self.pushButton_Download.setEnabled(False)
         self.thread = ThreadHandle()
         self.thread.transfer_VideoInfo(self.dict1[self.dl_index][1])
         self.thread.main()
+        self.thread.download_finish.connect(self.concat)
         
 
 
     def output(self, msg:str) -> None:
         self.textBrowser.append(msg)
 
-    # def exit(self) -> None:
-    #     '''关闭方法'''
-    #     self.close()
+    def open_file_path(self) -> None:
+        path = "C:\\Video"
+        os.system("start explorer %s" % path)
+
+    def exit(self) -> None:
+        '''关闭方法'''
+        self.close()
 
 
 def main():
