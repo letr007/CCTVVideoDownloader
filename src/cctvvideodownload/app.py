@@ -139,27 +139,28 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
 
 
     def download_start(self) -> None:
-        # 创建显示窗体
-        self.dialog = QtWidgets.QDialog()
-        self.dialog_ui = Ui_Dialog()
-        self.dialog_ui.setupUi(self.dialog)
-        self.dialog.show()
-        # 重置信息
-        self.dialog_ui.progressBar_all.setValue(0)
-        self.dialog_ui.tableWidget.setColumnWidth(0, 30)
-        self.dialog_ui.tableWidget.setColumnWidth(1, 55)
-        self.dialog_ui.tableWidget.setColumnWidth(2, 200)
-        self.dialog_ui.tableWidget.setColumnWidth(3, 43)
-        # 获得视频链接
-        vd = VideoDownload()
-        Vinfo = vd.GetHttpVideoInfo(self.dict1[self.dl_index][1])
-        urls = vd.GetDownloadUrls(Vinfo)
-        # # 开启多线程下载
-        # thread = ThreadHandle(urls, self)
-        # thread.start()
-        # thread.wait()
-        # self.output("[视频下载]下载完成")
-        
+        # # 创建显示窗体
+        # self.dialog = QtWidgets.QDialog()
+        # self.dialog_ui = Ui_Dialog()
+        # self.dialog_ui.setupUi(self.dialog)
+        # self.dialog.show()
+        # # 重置信息
+        # self.dialog_ui.progressBar_all.setValue(0)
+        # self.dialog_ui.tableWidget.setColumnWidth(0, 30)
+        # self.dialog_ui.tableWidget.setColumnWidth(1, 55)
+        # self.dialog_ui.tableWidget.setColumnWidth(2, 200)
+        # self.dialog_ui.tableWidget.setColumnWidth(3, 43)
+        # # 获得视频链接
+        # vd = VideoDownload()
+        # Vinfo = vd.GetHttpVideoInfo(self.dict1[self.dl_index][1])
+        # urls = vd.GetDownloadUrls(Vinfo)
+        # # # 开启多线程下载
+        # # thread = ThreadHandle(urls, self)
+        # # thread.start()
+        # # thread.wait()
+        # # self.output("[视频下载]下载完成")
+        thread = ThreadHandle()
+        thread.transfer_VideoInfo(self.dict1[self.dl_index][1])
 
 
 
