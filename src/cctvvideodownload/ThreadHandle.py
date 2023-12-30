@@ -51,12 +51,75 @@ class ThreadHandle():
             num += 1
             self.info_list.append(info_list)
         self.display(self.info_list)
-        # 抽取thread_logo
-        self.thread_logo_list = []
-        for i in self.info_list:
-            tmp = i[0]
-            self.thread_logo_list.append(tmp)
+        # 派分任务
+        list_tmp = self.split_list(self.info_list, 3)
+        self.work1_list = list_tmp[0]
+        self.work2_list = list_tmp[1]
+        self.work3_list = list_tmp[2]
+        # 多线程下载
+        # print(self.info_list)
+        self.worker1 = DownloadVideo()
+        self.worker2 = DownloadVideo()
+        self.worker3 = DownloadVideo()
+        self.worker1.info.connect(self.callback)
+        self.worker2.info.connect(self.callback)
+        self.worker3.info.connect(self.callback)
+        self.worker1.finished.connect(self.new_worker1)
+        self.worker2.finished.connect(self.new_worker2)
+        self.worker3.finished.connect(self.new_worker3)
+        # 调用一次方法，开始线程
+        self.new_worker1()
+        self.new_worker2()
+        self.new_worker3()
         
+    
+    def new_worker1(self) -> None:
+        if len(self.work1_list) != 0:
+            self.worker1.transfer(self.work1_list[0])
+            del self.work1_list[0]
+            self.worker1.start()
+        else:
+            pass
+
+    def new_worker2(self) -> None:
+        if len(self.work2_list) != 0:
+            self.worker2.transfer(self.work2_list[0])
+            del self.work2_list[0]
+            self.worker2.start()
+        else:
+            pass
+
+    def new_worker3(self) -> None:
+        if len(self.work3_list) != 0:
+            self.worker3.transfer(self.work3_list[0])
+            del self.work3_list[0]
+            self.worker3.start()
+        else:
+            pass
+
+    def split_list(self, lst, n) -> list:
+        avg = len(lst) / float(n)
+        result = []
+        last = 0.0
+        while last < len(lst):
+            result.append(lst[int(last):int(last + avg)])
+            last += avg
+        return result
+    
+    def update_all_value(self) -> None:
+        pass
+
+    def callback(self, info) -> None:
+        item1 = QtWidgets.QTableWidgetItem(info[0])
+        item2 = QtWidgets.QTableWidgetItem(info[1])
+        item3 = QtWidgets.QTableWidgetItem(info[2])
+        item4 = QtWidgets.QTableWidgetItem(info[3] + "%")
+        self.dialog.tableWidget.setItem(int(info[0])-1, 0, item1)
+        self.dialog.tableWidget.setItem(int(info[0])-1, 1, item2)
+        self.dialog.tableWidget.setItem(int(info[0])-1, 2, item3)
+        self.dialog.tableWidget.setItem(int(info[0])-1, 3, item4)
+        self.dialog.tableWidget.viewport().update()
+
 
 
     def display(self, info:list) -> None:
@@ -102,15 +165,15 @@ class DownloadVideo(QThread, QObject):
         Run = True
         # 主要下载逻辑
         while Run:
-            response = requests.get(self.url, stream=False)
+            response = requests.get(self.url, stream=True)
             chunk_size = 1024*1024
             size = 0
             self.state = "下载中"
-            
+            # 下载块
             content_size = int(response.headers['content-length'])
             path = "C:\\"
             if response.status_code == 200:
-                p = path + "ctvd_tmp/" + self.thread_logo + ".mp4"
+                p = path + "ctvd_tmp/" + str(self.thread_logo) + ".mp4"
                 size = content_size/chunk_size/1024
                 (size,content_size)
                 with open(p, "wb") as f:
@@ -139,3 +202,4 @@ class DownloadVideo(QThread, QObject):
                                 ]
                 self.info.emit(list2)
                 Run = False
+                return
