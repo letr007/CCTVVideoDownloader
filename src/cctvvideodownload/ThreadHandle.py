@@ -33,10 +33,30 @@ class ThreadHandle():
         self.urls = vd.GetDownloadUrls(Vinfo)
         
         self.dialog.tableWidget.setRowCount(len(self.urls))
+
         # list1 = [["1","等待","https://www.cctv.com/aa/aaa/aa/bb","0"],
         #          ["2","完成","https://www.cctv.com/aa/aaa/aa/bb","100"],
         #          ["3","下载中","https://www.cctv.com/aa/aaa/aa/bb","36"]]
-        # self.display(list1)
+       
+        # 生成信息列表
+        num = 1
+        self.info_list = []
+        for i in self.urls:
+            info_list = [
+                str(num),
+                "等待",
+                i,
+                "0"
+            ]
+            num += 1
+            self.info_list.append(info_list)
+        self.display(self.info_list)
+        # 抽取thread_logo
+        self.thread_logo_list = []
+        for i in self.info_list:
+            tmp = i[0]
+            self.thread_logo_list.append(tmp)
+        
 
 
     def display(self, info:list) -> None:
@@ -59,8 +79,63 @@ class ThreadHandle():
         '''传入视频信息'''
         self.VDinfo = info
 
-class DownloadVideo(QThread):
+class DownloadVideo(QThread, QObject):
+    # 定义信号
+    info = Signal(list)
+
     def __init__(self) -> None:
         super(DownloadVideo, self).__init__()
+        # 检查路径
+        path = "C:\\"
+        if not os.path.exists("%s/ctvd_tmp"%path):
+            os.makedirs("%s/ctvd_tmp"%path)
+
+
+    def transfer(self, list:list) -> None:
+        '''传入下载参数'''
+        self.thread_logo = int(list[0])
+        self.state = list[1]
+        self.url = list[2]
+        self.value = int(list[3])
 
     def run(self):
+        Run = True
+        # 主要下载逻辑
+        while Run:
+            response = requests.get(self.url, stream=False)
+            chunk_size = 1024*1024
+            size = 0
+            self.state = "下载中"
+            
+            content_size = int(response.headers['content-length'])
+            path = "C:\\"
+            if response.status_code == 200:
+                p = path + "ctvd_tmp/" + self.thread_logo + ".mp4"
+                size = content_size/chunk_size/1024
+                (size,content_size)
+                with open(p, "wb") as f:
+                    # f.write(response.content)
+                    for data in response.iter_content(chunk_size=chunk_size):
+                        f.write(data)
+                        size += len(data)
+                        # print(size)
+                        value = size*100 / content_size
+                        #print(int(value))
+                        self.value = value
+                        list2 = [
+                            str(self.thread_logo),
+                            self.state,
+                            self.url,
+                            str(self.value)
+                                ]
+                        self.info.emit(list2)
+
+                self.state = "完成"        
+                list2 = [
+                            str(self.thread_logo),
+                            self.state,
+                            self.url,
+                            str(self.value)
+                                ]
+                self.info.emit(list2)
+                Run = False
