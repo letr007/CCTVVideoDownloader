@@ -6,6 +6,8 @@ CCTVVideoDownload
 consider** `becoming a financial member of BeeWare`_.
 
 央视频下载器
+用于下载央视网的视频，如今日说法
+
 
 .. _`Briefcase`: https://briefcase.readthedocs.io/
 .. _`The BeeWare Project`: https://beeware.org/
