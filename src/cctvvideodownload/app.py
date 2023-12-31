@@ -49,6 +49,12 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
 
         self.pushButton_Download.setEnabled(False)
         self.pushButton_FlashList.setEnabled(False)
+
+        self.output("-"*38)
+        self.output("初次使用请先 配置>导入配置")
+        self.output("使用方法:重载配置>选中一个配置>刷新列表>选中一个视频>下载视频")
+        self.output("下载完成后 程序>打开文件位置")
+        self.output("-"*38)
         
 
 
@@ -93,7 +99,7 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
         '''导入配置方法'''
         # import json
         # 文件选择
-        filepath, _ = QtWidgets.QFileDialog.getOpenFileName(self, "选择配置文件", r"C://", "CTVD配置文件(*.cdi)")
+        filepath, _ = QtWidgets.QFileDialog.getOpenFileName(self, "选择配置文件",os.path.abspath(r"C:\\"), "CTVD配置文件(*.cdi)")
         if filepath != "":
             self.output("[导入配置]%s > config.ini" % filepath)
             # 将*.cdi配置写入config.ini，便于重载
@@ -102,8 +108,8 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
             with open("config.ini", "w+") as f:
                 f.write(config)
             # 重载配置
-            self.config = config
-            self.config_reload(config)
+            # self.config = config
+            self.config_reload()
         else:
             self.output("[导入配置]已取消")
         
@@ -114,7 +120,7 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
         '''配置重载方法'''
         import json
         try:
-            with open("config.ini", "r", encoding="utf-8") as f:
+            with open(os.path.abspath("config.ini"), "r", encoding="utf-8") as f:
                 content = f.read()
             config = json.loads(content)
             # 表格操作

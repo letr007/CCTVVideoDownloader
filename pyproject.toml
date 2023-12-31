@@ -24,6 +24,7 @@ test_sources = [
 requires = [
     "PySide6-Essentials~=6.5",
     # "PySide6-Addons~=6.5",
+    "requests",
 ]
 test_requires = [
     "pytest",
