@@ -1,8 +1,4 @@
-from typing import Optional
-import PySide6.QtCore
 import requests
-from PySide6 import QtCore
-from PySide6.QtCore import Signal,QThread
 
 
 class VideoDownload():

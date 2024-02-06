@@ -1,12 +1,12 @@
-from typing import Optional
-import PySide6.QtCore
-import requests,os
-from PySide6 import QtCore,QtWidgets
+import os
+import requests
+from PySide6 import QtWidgets
 from PySide6.QtCore import QObject
-from PySide6.QtCore import Signal,QRunnable,QThreadPool,QThread
+from PySide6.QtCore import Signal, QThread
 
 from cctvvideodownload.DialogUI import Ui_Dialog
 from cctvvideodownload.DlHandle import VideoDownload
+
 
 class ThreadHandle(QObject):
     # 创建信号
@@ -253,16 +253,28 @@ class ConcatThread(QThread, QObject):
             import os, shutil, re
             path = "C:\\"
             # 获取文件列表
-            files = os.listdir("%s/ctvd_tmp" % path)
-            files.sort()
+            file_list = os.listdir("%s/ctvd_tmp" % path)
+            # print(files)
+            # ['1.mp4', '10.mp4', '11.mp4', '12.mp4', '13.mp4', '14.mp4', '2.mp4', '3.mp4', '4.mp4', '5.mp4', '6.mp4', '7.mp4', '8.mp4', '9.mp4', 'video.txt']
+            # 对列表进行排序,lambda提取数字
+            # print(file_list)
+            files = []
+            for i in file_list:
+                if re.match(r"\d+.mp4", i):
+                    files.append(i)
+            files = sorted(files, key=lambda x: int(x.split('.')[0]))
+            print(files)
             # 生成合并列表文件
             with open("%s/ctvd_tmp/video.txt" %path, "w+") as f:
                 for i in files:
                     if re.match(r"\d+.mp4", i):
                         tmp = "file '" + i + "'\n"
                         f.write(tmp)
+
             # 合并
             os.system("cd C:\\ctvd_tmp && ffmpeg -f concat -i video.txt -c copy concat.mp4")
+            # os.system("cd C:\\ctvd_tmp && ffmpeg -f concat -i video.txt -c copy concat.mp4")
+            print("os")
             if not os.path.exists("C:/Video"):
                 os.makedirs("C:/Video")
             
