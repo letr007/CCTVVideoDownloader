@@ -50,11 +50,11 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
         self.pushButton_Download.setEnabled(False)
         self.pushButton_FlashList.setEnabled(False)
 
-        self.output("-"*38)
-        self.output("初次使用请先 配置>导入配置")
-        self.output("使用方法:重载配置>选中一个配置>刷新列表>选中一个视频>下载视频")
-        self.output("下载完成后 程序>打开文件位置")
-        self.output("-"*38)
+        # self.output("-"*38)
+        # self.output("初次使用请先 配置>导入配置")
+        # self.output("使用方法:重载配置>选中一个配置>刷新列表>选中一个视频>下载视频")
+        # self.output("下载完成后 程序>打开文件位置")
+        # self.output("-"*38)f
         
 
 
@@ -165,7 +165,7 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
         self.output("[视频下载]开始下载...")
         self.pushButton_Download.setEnabled(False)
         self.thread = ThreadHandle()
-        self.thread.transfer_VideoInfo(self.dict1[self.dl_index][1])
+        self.thread.transfer(self.dict1[self.dl_index][1], 10)
         self.thread.main()
         self.thread.download_finish.connect(self.concat)
         

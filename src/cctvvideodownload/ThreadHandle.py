@@ -14,6 +14,15 @@ class ThreadHandle(QObject):
 
     def __init__(self) -> None:
         super(ThreadHandle, self).__init__()
+        # 初始化一些属性
+        self.work_finish_flags = []
+        self.workers = []
+        self.Threading_num = 0
+        self.task_list = []
+        self.task_list_names = []
+        self.task_list_values = []
+
+
 
     def main(self) -> None:
         # 创建显示窗体
@@ -31,7 +40,9 @@ class ThreadHandle(QObject):
         # 获得视频链接
         vd = VideoDownload()
         Vinfo = vd.GetHttpVideoInfo(self.VDinfo)
-        self.urls = vd.GetDownloadUrls(Vinfo)
+        # self.urls = vd.GetDownloadUrls(Vinfo)
+        self.urls = vd.GetM3U8Urls(Vinfo)
+
         
         self.dialog.tableWidget.setRowCount(len(self.urls))
 
@@ -43,81 +54,112 @@ class ThreadHandle(QObject):
         num = 1
         self.info_list = []
         for i in self.urls:
-            info_list = [
-                str(num),
-                "等待",
-                i,
-                "0"
-            ]
+            info = [str(num), "等待", i, "0"]
             num += 1
-            self.info_list.append(info_list)
+            self.info_list.append(info)
+
         self.display(self.info_list)
-        # 派分任务
-        list_tmp = self.split_list(self.info_list, 3)
-        self.work1_list = list_tmp[0]
-        self.work2_list = list_tmp[1]
-        self.work3_list = list_tmp[2]
+
+        # 生成状态列表
+        for i in range(self.Threading_num):
+            self.work_finish_flags.append(False)
+
+        # 均分任务
+        # self.work1_list, self.work2_list, self.work3_list = self.split_list(self.info_list, 3)
+        self.task_list = self.split_list(self.info_list, self.Threading_num)
+        # 通过循环创建属性名称和值
+        self.task_list_names = []
+        for i in range(self.Threading_num):
+            attr_name = "task%s_list" %str(i + 1)
+            self.task_list_names.append(attr_name)
+            self.task_list_values.append(self.task_list[i])
+        # 将其添加为属性
+        for attr_name, attr_value in zip(self.task_list_names, self.task_list_values):
+            setattr(self, attr_name, attr_value)
+        
         # 多线程下载
-        # print(self.info_list)
-        self.worker1 = DownloadVideo()
-        self.worker2 = DownloadVideo()
-        self.worker3 = DownloadVideo()
-        self.worker1.info.connect(self.callback)
-        self.worker2.info.connect(self.callback)
-        self.worker3.info.connect(self.callback)
-        self.worker1.finished.connect(self.new_worker1)
-        self.worker2.finished.connect(self.new_worker2)
-        self.worker3.finished.connect(self.new_worker3)
+        for index in range(self.Threading_num):
+            worker = DownloadVideo()
+            # 设置回调
+            worker.info.connect(self.callback)
+            # worker.finished.connect(getattr(self, f"new_worker{index+1}"))
+            worker.finished.connect(lambda:self.new_work(index + 1)) # 此处采用lambda表达式以在完成后执行new_work
+            self.workers.append(worker)
+            setattr(self, f"worker{index + 1}", worker)
+            # worker.start_download(getattr(self, f"task{index+1}_list"))
+            self.new_work(index + 1)
+
         # 调用一次方法，开始线程
-        self.new_worker1()
-        self.new_worker2()
-        self.new_worker3()
+        for worker in self.workers:
+            worker.start()
         # 初始化总进度及状态
         self.all_value = 0
         self.finish_value = len(self.info_list) * 100
-        self.work1_finish = False
-        self.work2_finish = False
-        self.work3_finish = False
+        # self.work1_finish = False
+        # self.work2_finish = False
+        # self.work3_finish = False
         
-
+    def new_work(self, index:int) -> None:
+        '''创建新任务'''
+        task_list = getattr(self, f"task{index}_list")
+        if len(task_list) != 0:
+            index2 = int(task_list[0][0])
+            # print(task_list)
+            # print(self.workers)
+            # print(len(self.workers))
+            self.workers[index2 - 1].transfer(task_list[0])
+            del task_list[0]
+            self.workers[index2 - 1].start()
+        else:
+            self.work_finish_flags[index2 - 1] = True
+            self.is_finish()
+        
     def is_finish(self) -> None:
         '''下载完成后执行方法'''
-        if self.work1_finish and self.work2_finish and self.work3_finish:
+        if all(self.work_finish_flags):
             self.dialog_ui.close() # 关闭窗体
             self.download_finish.emit(True) # 发送信号
+
+
+
+    # def is_finish(self) -> None:
+    #     '''下载完成后执行方法'''
+    #     if self.work1_finish and self.work2_finish and self.work3_finish:
+    #         self.dialog_ui.close() # 关闭窗体
+    #         self.download_finish.emit(True) # 发送信号
     
-    def new_worker1(self) -> None:
-        '''任务循环方法'''
-        # 通过判断任务列表长度确定任务是否完成
-        if len(self.work1_list) != 0:
-            # 建立新任务
-            self.worker1.transfer(self.work1_list[0])
-            del self.work1_list[0]
-            self.worker1.start()
-        else:
-            self.work1_finish = True
-            self.is_finish()
+    # def new_worker1(self) -> None:
+    #     '''任务循环方法'''
+    #     # 通过判断任务列表长度确定任务是否完成
+    #     if len(self.work1_list) != 0:
+    #         # 建立新任务
+    #         self.worker1.transfer(self.work1_list[0])
+    #         del self.work1_list[0]
+    #         self.worker1.start()
+    #     else:
+    #         self.work1_finish = True
+    #         self.is_finish()
 
-    def new_worker2(self) -> None:
-        '''任务循环方法'''
-        if len(self.work2_list) != 0:
-            self.worker2.transfer(self.work2_list[0])
-            del self.work2_list[0]
-            self.worker2.start()
-        else:
-            # 设置完成状态为True，并调用完成方法
-            self.work2_finish = True
-            self.is_finish()
+    # def new_worker2(self) -> None:
+    #     '''任务循环方法'''
+    #     if len(self.work2_list) != 0:
+    #         self.worker2.transfer(self.work2_list[0])
+    #         del self.work2_list[0]
+    #         self.worker2.start()
+    #     else:
+    #         # 设置完成状态为True，并调用完成方法
+    #         self.work2_finish = True
+    #         self.is_finish()
 
-    def new_worker3(self) -> None:
-        '''任务循环方法'''
-        if len(self.work3_list) != 0:
-            self.worker3.transfer(self.work3_list[0])
-            del self.work3_list[0]
-            self.worker3.start()
-        else:
-            self.work3_finish = True
-            self.is_finish()
+    # def new_worker3(self) -> None:
+    #     '''任务循环方法'''
+    #     if len(self.work3_list) != 0:
+    #         self.worker3.transfer(self.work3_list[0])
+    #         del self.work3_list[0]
+    #         self.worker3.start()
+    #     else:
+    #         self.work3_finish = True
+    #         self.is_finish()
 
     def split_list(self, lst, n) -> list:
         '''列表分割方法'''
@@ -172,9 +214,17 @@ class ThreadHandle(QObject):
             self.dialog.tableWidget.viewport().update()
 
 
-    def transfer_VideoInfo(self, info:any) -> None:
-        '''传入视频信息'''
-        self.VDinfo = info
+    # def transfer_VideoInfo(self, info:any) -> None:
+    #     '''传入视频信息'''
+    #     self.VDinfo = info
+        
+    def transfer(self, VideoInfo:list, Threading_num:int) -> None:
+        '''传参方法
+        VideoInfo:下载相关信息
+        Threading_num:使用的线程数'''
+        self.VDinfo = VideoInfo
+        self.Threading_num = Threading_num
+
 
 class DownloadVideo(QThread, QObject):
     # 定义信号
