@@ -1,4 +1,4 @@
-import requests
+import requests,re
 
 
 class VideoDownload():
@@ -79,6 +79,26 @@ class VideoDownload():
         hls_head = hls_url.split("/")[2] # eg:hls.cntv.myhwcdn.cn
         HD_m3u8_url = "https://" + hls_head + HD_m3u8_url
         # print(HD_m3u8_url)
-        # 获取1200.m3u8，即
+        # 获取1200.m3u8，即高清m3u8文件，内含ts
+        video_m3u8 = requests.get(HD_m3u8_url)
+        # print(video_m3u8.status_code)
+        # 提取ts列表
+        video_m3u8_list = video_m3u8.text.split("\n")
+        video_list = []
+        for i in video_m3u8_list:
+            if re.match(r"\d+.ts", i):
+                video_list.append(i)
+        # print(video_list)
+        # 转化为urls列表
+        dl_url_head = HD_m3u8_url[:-9]
+        urls = []
+        for i in video_list:
+            tmp = dl_url_head + i
+            urls.append(tmp)
+        # print(urls)
+        return urls
+
+
+
 
 
