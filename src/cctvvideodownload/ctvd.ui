@@ -25,6 +25,9 @@
   <property name="windowTitle">
    <string>MainWindow</string>
   </property>
+  <property name="styleSheet">
+   <string notr="true"/>
+  </property>
   <widget class="QWidget" name="centralwidget">
    <widget class="QTextBrowser" name="textBrowser">
     <property name="geometry">
@@ -40,9 +43,9 @@
     <property name="geometry">
      <rect>
       <x>240</x>
-      <y>0</y>
-      <width>3</width>
-      <height>500</height>
+      <y>-1</y>
+      <width>2</width>
+      <height>501</height>
      </rect>
     </property>
     <property name="orientation">
@@ -72,7 +75,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>重载配置</string>
+     <string>重载节目信息</string>
     </property>
     <property name="icon">
      <iconset>
@@ -89,7 +92,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>刷新列表</string>
+     <string>刷新视频列表</string>
     </property>
     <property name="icon">
      <iconset>
@@ -104,6 +107,9 @@
       <width>200</width>
       <height>60</height>
      </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true"/>
     </property>
     <property name="text">
      <string>下载视频</string>
@@ -149,7 +155,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>配置信息</string>
+     <string>节目信息</string>
     </property>
    </widget>
    <widget class="QTableWidget" name="tableWidget_Config">
@@ -202,12 +208,13 @@
      <string>程序</string>
     </property>
     <addaction name="actionfile"/>
+    <addaction name="actionsetting"/>
     <addaction name="separator"/>
     <addaction name="actionexit"/>
    </widget>
    <widget class="QMenu" name="menu_2">
     <property name="title">
-     <string>配置</string>
+     <string>节目</string>
     </property>
     <addaction name="actionin"/>
     <addaction name="actionout"/>
@@ -227,12 +234,17 @@
   </action>
   <action name="actionin">
    <property name="text">
-    <string>导入配置</string>
+    <string>导入节目单</string>
    </property>
   </action>
   <action name="actionout">
    <property name="text">
-    <string>导出配置</string>
+    <string>导出节目单</string>
+   </property>
+  </action>
+  <action name="actionsetting">
+   <property name="text">
+    <string>设置</string>
    </property>
   </action>
  </widget>

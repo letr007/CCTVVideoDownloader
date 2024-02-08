@@ -19,7 +19,6 @@ from cctvvideodownload.ThreadHandle import ThreadHandle,ConcatThread
 
 
 
-
 class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
     # 定义信号
     log_signal = Signal(int)
@@ -62,23 +61,28 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
         '''刷新视频列表'''
         # 获取视频列表信息
         vd = VideoDownload()
-        self.output("[视频信息]获取列表...")
-        self.dict1 = vd.GetVideoList(self.choise_id)
-        self.tableWidget_List.setRowCount(len(self.dict1))
-        self.tableWidget_List.setColumnWidth(0, 200)
-        num = 0
-        for i in self.dict1:
-            item1 = QtWidgets.QTableWidgetItem(self.dict1[i][0])
-            self.tableWidget_List.setItem(num, 0, item1)
-            num += 1
-        self.tableWidget_List.viewport().update()
-        self.output("[视频信息]获取成功")
-        self.pushButton_Download.setEnabled(True)
+        self.output("INFO","视频信息","获取列表...")
+        try:
+            self.dict1 = vd.GetVideoList(self.choise_id)
+            self.tableWidget_List.setRowCount(len(self.dict1))
+            self.tableWidget_List.setColumnWidth(0, 200)
+            num = 0
+            for i in self.dict1:
+                item1 = QtWidgets.QTableWidgetItem(self.dict1[i][0])
+                self.tableWidget_List.setItem(num, 0, item1)
+                num += 1
+            self.tableWidget_List.viewport().update()
+            self.output("OKEY","视频信息","获取成功")
+            self.pushButton_Download.setEnabled(True)
+        except Exception as e:
+            self.output("ERROR", "获取失败\n错误信息:%s"%e)
+
+            
 
     def list_choose(self, r:int, c:int) -> None:
         '''接受信号，表格'''
         choose_item = self.tableWidget_List.item(r,0).text()
-        self.output("[视频信息]已选中 %s" %choose_item)
+        self.output("INFO","视频信息","已选中 %s" %choose_item)
         self.dl_index = r + 1
         self.choose_name = choose_item
 
@@ -90,28 +94,33 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
         choose_item = self.tableWidget_Config.item(r,0).text()
         # self.config_choise = r + 1
         self.choise_id = self.tableWidget_Config.item(r,1).text()
-        self.output("[配置信息]已选中 %s" %choose_item)
+        self.output("INFO", "节目信息", "已选中 %s" %choose_item)
         
         
         
 
     def config_in(self) -> None:
         '''导入配置方法'''
-        # import json
+        import json
         # 文件选择
-        filepath, _ = QtWidgets.QFileDialog.getOpenFileName(self, "选择配置文件",os.path.abspath(r"C:\\"), "CTVD配置文件(*.cdi)")
+        filepath, _ = QtWidgets.QFileDialog.getOpenFileName(self, "选择节目单文件", os.path.abspath(r"C:\\"), "CTVD节目单(*.cdi)")
         if filepath != "":
-            self.output("[导入配置]%s > config.ini" % filepath)
-            # 将*.cdi配置写入config.ini，便于重载
             with open(filepath, "r", encoding="utf-8") as f:
-                config = f.read()
-            with open("config.ini", "w+") as f:
-                f.write(config)
+                config = json.load(f)  # 解析文件内容为字典
+                print(config)
+                # 将其添加到字典
+                with open("config.json", "r", encoding='utf-8') as file_1:
+                    config_json = json.load(file_1)
+                    config_json['programme'] = config
+                with open("config.json", "w", encoding='utf-8') as file_2:
+                    json.dump(config_json, file_2, ensure_ascii=False, indent=4)  # 禁用 ASCII 编码以保持原格式
+
+            self.output("OKEY", "节目信息", "%s > config.json" % filepath)
             # 重载配置
             # self.config = config
             self.config_reload()
         else:
-            self.output("[导入配置]已取消")
+            self.output("INFO", "节目信息", "导入已取消")
         
         # self.output(str(config))
         
@@ -120,9 +129,9 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
         '''配置重载方法'''
         import json
         try:
-            with open(os.path.abspath("config.ini"), "r", encoding="utf-8") as f:
-                content = f.read()
-            config = json.loads(content)
+            with open(os.path.abspath("config.json"), "r", encoding="utf-8") as f:
+                content = json.load(f.read())
+            config = content["programme"]
             # 表格操作
             # print(config)
             self.tableWidget_Config.setRowCount(len(config))
@@ -139,12 +148,12 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
                 self.tableWidget_Config.setItem(num, 1, item2)
                 num += 1
             self.tableWidget_Config.viewport().update()
-            self.output("[重载配置]重载完成")
+            self.output("OKEY","节目信息", "节目信息重载完成")
             self.pushButton_FlashList.setEnabled(True)
 
         except Exception as e:
             self.output(str(e))
-            self.output("[ERROR]配置重载失败。可能是缺失配置文件，请导入配置")
+            self.output("ERROR","节目信息重载失败")
 
     def concat(self, finish:bool) -> None:
         '''合并视频方法'''
@@ -171,8 +180,14 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
         
 
 
-    def output(self, msg:str) -> None:
-        self.textBrowser.append(msg)
+    def output(self, type:str, *msg) -> None:
+        if type == "OKEY":
+            string = "[<font color='#0000FF'>"+msg[0]+"</font>]<font color='#00FF00'>"+msg[1]+"</font>"
+        elif type == "ERROR":
+            string = "[<font color='#FF0000'>ERROR</font>]<font color='#FF4500'>"+msg[0]+"</font>"
+        elif type == "INFO":
+            string = "[<font color='#0000FF'>"+msg[0]+"</font>]<font color='#4169E1'>"+msg[1]+"</font>"
+        self.textBrowser.append(string)
 
     def open_file_path(self) -> None:
         path = "C:\\Video"

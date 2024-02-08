@@ -1,5 +1,6 @@
 import os
 import requests
+import concurrent.futures
 from PySide6 import QtWidgets
 from PySide6.QtCore import QObject
 from PySide6.QtCore import Signal, QThread
@@ -60,68 +61,121 @@ class ThreadHandle(QObject):
 
         self.display(self.info_list)
 
-        # 生成状态列表
-        for i in range(self.Threading_num):
-            self.work_finish_flags.append(False)
-
-        # 均分任务
-        # self.work1_list, self.work2_list, self.work3_list = self.split_list(self.info_list, 3)
         self.task_list = self.split_list(self.info_list, self.Threading_num)
-        # 通过循环创建属性名称和值
-        self.task_list_names = []
-        for i in range(self.Threading_num):
-            attr_name = "task%s_list" %str(i + 1)
-            self.task_list_names.append(attr_name)
-            self.task_list_values.append(self.task_list[i])
-        # 将其添加为属性
-        for attr_name, attr_value in zip(self.task_list_names, self.task_list_values):
-            setattr(self, attr_name, attr_value)
-        
-        # 多线程下载
-        for index in range(self.Threading_num):
-            worker = DownloadVideo()
-            # 设置回调
-            worker.info.connect(self.callback)
-            # worker.finished.connect(getattr(self, f"new_worker{index+1}"))
-            worker.finished.connect(lambda idx=index + 1: self.new_work(idx)) # 此处采用lambda表达式以在完成后执行new_work
-            self.workers.append(worker)
-            print(self.workers)
-            setattr(self, f"worker{index + 1}", worker)
-            # worker.start_download(getattr(self, f"task{index+1}_list"))
-            # 循环结束后再启动所有的 DownloadVideo 对象
-        for index in range(self.Threading_num):
-            self.new_work(index + 1)
-
-        # 调用一次方法，开始线程
-        for worker in self.workers:
-            worker.start()
-        # 初始化总进度及状态
         self.all_value = 0
         self.finish_value = len(self.info_list) * 100
-        # self.work1_finish = False
-        # self.work2_finish = False
-        # self.work3_finish = False
-        
-    def new_work(self, index:int) -> None:
-        '''创建新任务'''
-        task_list = getattr(self, f"task{index}_list")
-        if len(task_list) != 0:
-            index2 = int(task_list[0][0])
-            print(task_list)
-            print(self.workers)
-            print(len(self.workers))
-            self.workers[index].transfer(task_list[0])
-            del task_list[0]
-            self.workers[index].start()
+        # 多线程
+        # self.start_download(self.info_list, self.Threading_num)
+        # 暂时不再使用多线程
+        self.worker = DownloadVideo()
+        self.worker.info.connect(self.callback)
+        self.worker.finished.connect(self._new_work)
+        self._new_work()
+
+    def _new_work(self) -> None:
+        '''派发新任务'''
+        if len(self.info_list) != 0:
+            self.worker.transfer(self.info_list[0])
+            del self.info_list[0]
+            self.worker.start()
         else:
-            self.work_finish_flags[index] = True
-            self.is_finish()
-        
-    def is_finish(self) -> None:
-        '''下载完成后执行方法'''
-        if all(self.work_finish_flags):
             self.dialog_ui.close() # 关闭窗体
             self.download_finish.emit(True) # 发送信号
+        
+        
+    def start_download(self, task_list, threading_num):
+        self.task_list = task_list
+        self.Threading_num = threading_num
+
+        self.work_finish_flags = [False] * self.Threading_num
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.Threading_num) as executor:
+            for index in range(self.Threading_num):
+                worker = DownloadVideo()
+                worker.info.connect(self.callback)
+                future = executor.submit(self._download_task, worker, index)
+                future.add_done_callback(lambda:self._on_worker_finish(index))
+
+                self.workers.append(worker)
+
+    def _download_task(self, worker, index):
+        for task in self.task_list[index::self.Threading_num]:
+            worker.transfer(task)
+            worker.start()
+            del self.task_list[self.task_list.index(task)]
+
+    def _on_worker_finish(self, index):
+        self.work_finish_flags[index] = True
+        if all(self.work_finish_flags):
+            self._is_finished()
+
+    def _is_finished(self):
+        # Perform actions after all workers finish
+        self.dialog_ui.close() # 关闭窗体
+        self.download_finish.emit(True) # 发送信号
+
+    #     # 生成状态列表
+    #     for i in range(self.Threading_num):
+    #         self.work_finish_flags.append(False)
+
+    #     # 均分任务
+    #     # self.work1_list, self.work2_list, self.work3_list = self.split_list(self.info_list, 3)
+    #     self.task_list = self.split_list(self.info_list, self.Threading_num)
+    #     # 通过循环创建属性名称和值
+    #     self.task_list_names = []
+    #     for i in range(self.Threading_num):
+    #         attr_name = "task%s_list" %str(i + 1)
+    #         self.task_list_names.append(attr_name)
+    #         self.task_list_values.append(self.task_list[i])
+    #     # 将其添加为属性
+    #     for attr_name, attr_value in zip(self.task_list_names, self.task_list_values):
+    #         setattr(self, attr_name, attr_value)
+        
+    #     # 多线程下载
+    #     for index in range(self.Threading_num):
+    #         worker = DownloadVideo()
+    #         # 设置回调
+    #         worker.info.connect(self.callback)
+    #         # worker.finished.connect(getattr(self, f"new_worker{index+1}"))
+    #         worker.finished.connect(lambda idx=index + 1: self.new_work(idx)) # 此处采用lambda表达式以在完成后执行new_work
+    #         self.workers.append(worker)
+    #         print(self.workers)
+    #         setattr(self, f"worker{index + 1}", worker)
+    #         # worker.start_download(getattr(self, f"task{index+1}_list"))
+    #         # 循环结束后再启动所有的 DownloadVideo 对象
+    #     for index in range(self.Threading_num):
+    #         self.new_work(index + 1)
+
+    #     # 调用一次方法，开始线程
+    #     for worker in self.workers:
+    #         worker.start()
+    #     # 初始化总进度及状态
+    #     self.all_value = 0
+    #     self.finish_value = len(self.info_list) * 100
+    #     # self.work1_finish = False
+    #     # self.work2_finish = False
+    #     # self.work3_finish = False
+        
+    # def new_work(self, index:int) -> None:
+    #     '''创建新任务'''
+    #     task_list = getattr(self, f"task{index}_list")
+    #     if len(task_list) != 0:
+    #         index2 = int(task_list[0][0])
+    #         print(task_list)
+    #         print(self.workers)
+    #         print(len(self.workers))
+    #         self.workers[index].transfer(task_list[0])
+    #         del task_list[0]
+    #         self.workers[index].start()
+    #     else:
+    #         self.work_finish_flags[index] = True
+    #         self.is_finish()
+        
+    # def is_finish(self) -> None:
+    #     '''下载完成后执行方法'''
+    #     if all(self.work_finish_flags):
+    #         self.dialog_ui.close() # 关闭窗体
+    #         self.download_finish.emit(True) # 发送信号
 
 
     def split_list(self, lst, n) -> list:
@@ -188,68 +242,49 @@ class ThreadHandle(QObject):
         self.VDinfo = VideoInfo
         self.Threading_num = Threading_num
 
-
-class DownloadVideo(QThread, QObject):
-    # 定义信号
+class DownloadVideo(QThread):
     info = Signal(list)
 
-    def __init__(self) -> None:
-        super(DownloadVideo, self).__init__()
-        # 检查路径
+    def __init__(self):
+        super().__init__()
+        self.thread_logo = None
+        self.state = None
+        self.url = None
+        self.value = 0
+
         path = "C:\\"
-        if not os.path.exists("%s/ctvd_tmp"%path):
-            os.makedirs("%s/ctvd_tmp"%path)
+        if not os.path.exists(f"{path}\\ctvd_tmp"):
+            os.makedirs(f"{path}\\ctvd_tmp")
 
-
-    def transfer(self, list:list) -> None:
-        '''传入下载参数'''
-        self.thread_logo = int(list[0])
-        self.state = list[1]
-        self.url = list[2]
-        self.value = int(list[3])
+    def transfer(self, data_list):
+        self.thread_logo = int(data_list[0])
+        self.state = data_list[1]
+        self.url = data_list[2]
+        self.value = int(data_list[3])
 
     def run(self):
-        Run = True
-        # 主要下载逻辑
-        while Run:
-            response = requests.get(self.url, stream=True)
-            chunk_size = 1024*1024
-            size = 0
-            self.state = "下载中"
-            # 下载块
-            content_size = int(response.headers['content-length'])
-            path = "C:\\"
-            if response.status_code == 200:
-                p = path + "ctvd_tmp/" + str(self.thread_logo) + ".mp4"
-                size = content_size/chunk_size/1024
-                (size,content_size)
-                with open(p, "wb") as f:
-                    # f.write(response.content)
-                    for data in response.iter_content(chunk_size=chunk_size):
-                        f.write(data)
-                        size += len(data)
-                        # print(size)
-                        value = size*100 / content_size
-                        #print(int(value))
-                        self.value = value
-                        list2 = [
-                            str(self.thread_logo),
-                            self.state,
-                            self.url,
-                            str(self.value)
-                                ]
-                        self.info.emit(list2)
+        response = requests.get(self.url, stream=True)
+        chunk_size = 1024 * 1024
+        size = 0
+        self.state = "下载中"
+        
+        content_size = int(response.headers['content-length'])
+        path = "C:\\"
+        if response.status_code == 200:
+            file_path = f"{path}\\ctvd_tmp\\{self.thread_logo}.ts"
+            with open(file_path, "wb") as f:
+                for data in response.iter_content(chunk_size=chunk_size):
+                    f.write(data)
+                    size += len(data)
+                    value = size * 100 / content_size
+                    self.value = value
+                    data_list = [str(self.thread_logo), self.state, self.url, str(self.value)]
+                    self.info.emit(data_list)
 
-                self.state = "完成"        
-                list2 = [
-                            str(self.thread_logo),
-                            self.state,
-                            self.url,
-                            str(self.value)
-                                ]
-                self.info.emit(list2)
-                Run = False
-                return
+        self.state = "完成"
+        data_list = [str(self.thread_logo), self.state, self.url, str(self.value)]
+        self.info.emit(data_list)
+
             
 class ConcatThread(QThread, QObject):
     # 创建信号
@@ -276,7 +311,7 @@ class ConcatThread(QThread, QObject):
                 if re.match(r"\d+.mp4", i):
                     files.append(i)
             files = sorted(files, key=lambda x: int(x.split('.')[0]))
-            print(files)
+            # print(files)
             # 生成合并列表文件
             with open("%s/ctvd_tmp/video.txt" %path, "w+") as f:
                 for i in files:
