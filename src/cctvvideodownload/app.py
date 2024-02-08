@@ -13,32 +13,42 @@ from PySide6 import QtWidgets
 from PySide6.QtCore import Signal
 
 from cctvvideodownload.MainUI import Ui_MainWindow
-from cctvvideodownload.DialogUI import Ui_Dialog
+from cctvvideodownload.DialogUI import Ui_Dialog as DownloadDialog
+from cctvvideodownload.SettingUI import Ui_Dialog as SettingDialog
 from cctvvideodownload.DlHandle import VideoDownload
 from cctvvideodownload.ThreadHandle import ThreadHandle,ConcatThread
 
 
 
-class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
+class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, DownloadDialog, SettingDialog):
     # 定义信号
     log_signal = Signal(int)
     def __init__(self, parent=None):
         super(CCTVVideoDownload, self).__init__(parent)
+        self.SETTINGS = {}
+        self._DEFAULT_SETTINGS = r"""
+{
+    "settings":{
+        "file_save_path":"C:\\Video",
+        "threading_num":"1",
+        "whether_transcode":"False"
+    },
+    "programme": {
+                
+    }
+}
+"""
         self.init_ui()
 
     def init_ui(self):
         self.setupUi(self)
         self.setWindowTitle('央视频下载器')
-        self.config_choise = None
-        self.main()
-        self.show()
-
-    def main(self) -> None:
         # 菜单栏动作
         self.actionexit.triggered.connect(self.close)
         self.actionin.triggered.connect(self.config_in)
         self.actionexit.triggered.connect(self.exit)
         self.actionfile.triggered.connect(self.open_file_path)
+        self.actionsetting.triggered.connect(self.setting)
         # 槽绑定
         self.pushButton_Download.clicked.connect(self.download_start)
         self.pushButton_FlashConfig.clicked.connect(self.config_reload)
@@ -49,11 +59,69 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
         self.pushButton_Download.setEnabled(False)
         self.pushButton_FlashList.setEnabled(False)
 
-        # self.output("-"*38)
-        # self.output("初次使用请先 配置>导入配置")
-        # self.output("使用方法:重载配置>选中一个配置>刷新列表>选中一个视频>下载视频")
-        # self.output("下载完成后 程序>打开文件位置")
-        # self.output("-"*38)f
+        # 检查配置文件
+        self.check_config()
+
+        self.show()
+
+    # def main(self) -> None:
+    #     # 菜单栏动作
+    #     self.actionexit.triggered.connect(self.close)
+    #     self.actionin.triggered.connect(self.config_in)
+    #     self.actionexit.triggered.connect(self.exit)
+    #     self.actionfile.triggered.connect(self.open_file_path)
+    #     # 槽绑定
+    #     self.pushButton_Download.clicked.connect(self.download_start)
+    #     self.pushButton_FlashConfig.clicked.connect(self.config_reload)
+    #     self.tableWidget_Config.cellClicked.connect(self.choose_config)
+    #     self.pushButton_FlashList.clicked.connect(self.flash_list)
+    #     self.tableWidget_List.cellClicked.connect(self.list_choose)
+
+    #     self.pushButton_Download.setEnabled(False)
+    #     self.pushButton_FlashList.setEnabled(False)
+
+    #     # self.output("-"*38)
+    #     # self.output("初次使用请先 配置>导入配置")
+    #     # self.output("使用方法:重载配置>选中一个配置>刷新列表>选中一个视频>下载视频")
+    #     # self.output("下载完成后 程序>打开文件位置")
+    #     # self.output("-"*38)
+        
+    def check_config(self) -> None:
+        '''检查配置文件并添加到属性settings'''
+        import json
+        if not os.path.exists("./config.json"):
+            self.output("INFO", "配置检查", "未找到配置文件")
+            self.output("INFO", "配置检查", "重建配置文件...")
+            try:
+                with open("config.json", "w+") as f:
+                    f.write(self._DEFAULT_SETTINGS)
+                self.output("OKEY", "配置检查", "配置文件重建完成")
+            except Exception as e:
+                self.output("ERROR", "重建配置文件时出现错误\n错误详情:%s"% e)
+        try:
+            with open("./config.json", "r", encoding='utf-8') as f:
+                config = json.load(f) # 将文件解析为字典
+                self.SETTINGS = config["settings"]
+        except Exception as e:
+            self.output("ERROR", "加载配置文件时出现错误\n错误详情:%s"% e)
+
+        
+        
+    def setting(self) -> None:
+        '''设置项'''
+        # 实例化设置窗口
+        self.dialog_base = QtWidgets.QDialog()
+        self.dialog_setting = SettingDialog()
+        self.dialog_setting.setupUi(self.dialog_base)
+        self.dialog_base.show()
+        # 加载保存的设置
+        self.dialog_setting.lineEdit_file_save_path.setText(str(self.SETTINGS["file_save_path"]))
+        self.dialog_setting.spinBox.setValue(int(self.SETTINGS["threading_num"]))
+        if self.SETTINGS["whether_transcode"] == "True":
+            self.dialog_setting.radioButton_mp4.setChecked(True)
+        elif self.SETTINGS["whether_transcode"] == "False":
+            self.dialog_setting.radioButton_ts.setChecked(True)
+        
         
 
 
@@ -107,7 +175,7 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
         if filepath != "":
             with open(filepath, "r", encoding="utf-8") as f:
                 config = json.load(f)  # 解析文件内容为字典
-                print(config)
+                # print(config)
                 # 将其添加到字典
                 with open("config.json", "r", encoding='utf-8') as file_1:
                     config_json = json.load(file_1)
@@ -126,11 +194,11 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
         
         
     def config_reload(self) -> None:
-        '''配置重载方法'''
+        '''config重载方法'''
         import json
         try:
             with open(os.path.abspath("config.json"), "r", encoding="utf-8") as f:
-                content = json.load(f.read())
+                content = json.loads(f.read())
             config = content["programme"]
             # 表格操作
             # print(config)
@@ -152,8 +220,7 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, Ui_Dialog):
             self.pushButton_FlashList.setEnabled(True)
 
         except Exception as e:
-            self.output(str(e))
-            self.output("ERROR","节目信息重载失败")
+            self.output("ERROR","节目信息重载失败\n错误信息:%s"% e)
 
     def concat(self, finish:bool) -> None:
         '''合并视频方法'''

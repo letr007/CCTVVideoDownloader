@@ -268,22 +268,26 @@ class DownloadVideo(QThread):
         size = 0
         self.state = "下载中"
         
-        content_size = int(response.headers['content-length'])
-        path = "C:\\"
-        if response.status_code == 200:
-            file_path = f"{path}\\ctvd_tmp\\{self.thread_logo}.ts"
-            with open(file_path, "wb") as f:
-                for data in response.iter_content(chunk_size=chunk_size):
-                    f.write(data)
-                    size += len(data)
-                    value = size * 100 / content_size
-                    self.value = value
-                    data_list = [str(self.thread_logo), self.state, self.url, str(self.value)]
-                    self.info.emit(data_list)
+        try:
+            content_size = int(response.headers['content-length'])
+            path = "C:\\"
+            if response.status_code == 200:
+                file_path = f"{path}\\ctvd_tmp\\{self.thread_logo}.ts"
+                with open(file_path, "wb") as f:
+                    for data in response.iter_content(chunk_size=chunk_size):
+                        f.write(data)
+                        size += len(data)
+                        value = size * 100 / content_size
+                        self.value = value
+                        data_list = [str(self.thread_logo), self.state, self.url, str(self.value)]
+                        self.info.emit(data_list)
 
-        self.state = "完成"
-        data_list = [str(self.thread_logo), self.state, self.url, str(self.value)]
-        self.info.emit(data_list)
+            self.state = "完成"
+            data_list = [str(self.thread_logo), self.state, self.url, str(self.value)]
+            self.info.emit(data_list)
+        except Exception as e:
+            # 异常向上抛出，交由上层类处理
+            raise
 
             
 class ConcatThread(QThread, QObject):
