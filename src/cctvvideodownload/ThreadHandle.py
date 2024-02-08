@@ -99,10 +99,13 @@ class ThreadHandle(QObject):
                 self.workers.append(worker)
 
     def _download_task(self, worker, index):
-        for task in self.task_list[index::self.Threading_num]:
-            worker.transfer(task)
-            worker.start()
-            del self.task_list[self.task_list.index(task)]
+        try:
+            for task in self.task_list[index::self.Threading_num]:
+                worker.transfer(task)
+                worker.start()
+                del self.task_list[self.task_list.index(task)]
+        except Exception as e:
+            raise
 
     def _on_worker_finish(self, index):
         self.work_finish_flags[index] = True

@@ -113,6 +113,7 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, DownloadDialog, Se
         self.dialog_base = QtWidgets.QDialog()
         self.dialog_setting = SettingDialog()
         self.dialog_setting.setupUi(self.dialog_base)
+        self.dialog_base.setModal(True)
         self.dialog_base.show()
         # 加载保存的设置
         self.dialog_setting.lineEdit_file_save_path.setText(str(self.SETTINGS["file_save_path"]))
@@ -121,8 +122,32 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, DownloadDialog, Se
             self.dialog_setting.radioButton_mp4.setChecked(True)
         elif self.SETTINGS["whether_transcode"] == "False":
             self.dialog_setting.radioButton_ts.setChecked(True)
-        
-        
+        # 槽绑定
+        self.dialog_setting.pushButton_open.clicked.connect(self.open_file_save_path)
+        self.dialog_setting.buttonBox.accepted.connect(self.save_settings)
+            
+    def open_file_save_path(self) -> None:
+        file_save_path = QtWidgets.QFileDialog.getExistingDirectory(self, "选择文件夹", "C:\\")
+        self.dialog_setting.lineEdit_file_save_path.setText(str(file_save_path))
+
+    def save_settings(self) -> None:
+        '''保存设置项'''
+        import json
+        self.SETTINGS["file_save_path"] = self.dialog_setting.lineEdit_file_save_path.text()
+        self.SETTINGS["threading_num"] = str(self.dialog_setting.spinBox.value())
+        if self.dialog_setting.radioButton_mp4.isChecked():
+            self.SETTINGS["whether_transcode"] = "True"
+        else:
+            self.SETTINGS["whether_transcode"] = "False"
+        # 写入JSON
+        try:
+            with open("config.json", "r", encoding='utf-8') as f:
+                config = json.load(f)
+                config["settings"] = self.SETTINGS
+            with open("config.json", "w", encoding='utf-8') as file:
+                    json.dump(config, file, ensure_ascii=False, indent=4)
+        except Exception as e:
+            self.output("ERROR", "写入配置文件时出现错误\n错误详情:%s"%e)
 
 
     def flash_list(self) -> None:
@@ -143,7 +168,7 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, DownloadDialog, Se
             self.output("OKEY","视频信息","获取成功")
             self.pushButton_Download.setEnabled(True)
         except Exception as e:
-            self.output("ERROR", "获取失败\n错误信息:%s"%e)
+            self.output("ERROR", "在获取视频信息时出现错误\n错误详情:%s"%e)
 
             
 
@@ -220,30 +245,33 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, DownloadDialog, Se
             self.pushButton_FlashList.setEnabled(True)
 
         except Exception as e:
-            self.output("ERROR","节目信息重载失败\n错误信息:%s"% e)
+            self.output("ERROR","在重载节目信息时出现错误\n错误详情:%s"% e)
 
     def concat(self, finish:bool) -> None:
         '''合并视频方法'''
         if finish:
-            self.output("[视频下载]下载完成!")
-            self.output("[视频合并]开始合并...")
+            self.output("OKEY","视频下载","下载完成!")
+            self.output("INFO","视频合并","开始合并...")
             self.work = ConcatThread(self.choose_name)
             self.work.start()
             self.work.concat_finish.connect(self.concat_finish)
 
     def concat_finish(self, name:str) -> None:
         '''合并完成'''
-        self.output("[视频合并]视频 %s 合并完成!" % name)
+        self.output("OKEY","视频合并","视频 %s 合并完成!" % name)
         self.pushButton_Download.setEnabled(True)
 
     def download_start(self) -> None:
         '''开始下载'''
-        self.output("[视频下载]开始下载...")
+        self.output("INFO","视频下载","开始下载...")
         self.pushButton_Download.setEnabled(False)
-        self.thread = ThreadHandle()
-        self.thread.transfer(self.dict1[self.dl_index][1], 10)
-        self.thread.main()
-        self.thread.download_finish.connect(self.concat)
+        try:
+            self.thread = ThreadHandle()
+            self.thread.transfer(self.dict1[self.dl_index][1], 10)
+            self.thread.main()
+            self.thread.download_finish.connect(self.concat)
+        except Exception as e:
+            self.output("ERROR","在下载视频时出现错误\n错误详情:%s"% e)
         
 
 
