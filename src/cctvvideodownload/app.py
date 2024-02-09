@@ -11,7 +11,7 @@ except ImportError:
 
 from PySide6 import QtWidgets
 from PySide6.QtCore import Signal,QUrl,QSize,Qt
-from PySide6.QtGui import QDesktopServices,QMovie
+from PySide6.QtGui import QDesktopServices,QMovie,QIcon
 
 from cctvvideodownload.MainUI import Ui_MainWindow
 from cctvvideodownload.DialogUI import Ui_Dialog as DownloadDialog
@@ -48,6 +48,7 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, DownloadDialog, Se
     def init_ui(self):
         self.setupUi(self)
         self.setWindowTitle('央视频下载器')
+        self.setWindowIcon(QIcon(":/resources/ico.ico"))
         # 菜单栏动作
         self.actionexit.triggered.connect(self.close)
         self.actionin.triggered.connect(self.config_in)

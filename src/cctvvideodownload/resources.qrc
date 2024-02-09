@@ -2,5 +2,7 @@
 <RCC>
     <qresource>
         <file>resources/afraid.gif</file>
+        <file>resources/ico.png</file>
+        <file>resources/ico.ico</file>
     </qresource>
 </RCC>
