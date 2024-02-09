@@ -10,13 +10,18 @@ except ImportError:
     import importlib_metadata
 
 from PySide6 import QtWidgets
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal,QUrl,QSize,Qt
+from PySide6.QtGui import QDesktopServices,QMovie
 
 from cctvvideodownload.MainUI import Ui_MainWindow
 from cctvvideodownload.DialogUI import Ui_Dialog as DownloadDialog
 from cctvvideodownload.SettingUI import Ui_Dialog as SettingDialog
+from cctvvideodownload.AboutUI import Ui_Dialog as AboutDialog
 from cctvvideodownload.DlHandle import VideoDownload
 from cctvvideodownload.ThreadHandle import ThreadHandle,ConcatThread
+
+import cctvvideodownload.compiled_resources
+
 
 
 
@@ -49,6 +54,7 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, DownloadDialog, Se
         self.actionexit.triggered.connect(self.exit)
         self.actionfile.triggered.connect(self.open_file_path)
         self.actionsetting.triggered.connect(self.setting)
+        self.actionabout.triggered.connect(self.about)
         # 槽绑定
         self.pushButton_Download.clicked.connect(self.download_start)
         self.pushButton_FlashConfig.clicked.connect(self.config_reload)
@@ -149,6 +155,20 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, DownloadDialog, Se
         except Exception as e:
             self.output("ERROR", "写入配置文件时出现错误\n错误详情:%s"%e)
 
+    def about(self) -> None:
+        self.about_base = QtWidgets.QDialog()
+        self.dialog_about = AboutDialog()
+        self.dialog_about.setupUi(self.about_base)
+        self.movie = QMovie(":/resources/afraid.gif")
+        self.dialog_about.label_img.setMovie(self.movie)
+        self.movie.setScaledSize(QSize(100,100))
+        self.about_base.show()
+        self.movie.start()
+        self.dialog_about.label_link.setOpenExternalLinks(True)
+        self.dialog_about.label_link.linkActivated.connect(self.open_link)
+
+    def open_link(self) -> None:
+        QDesktopServices.openUrl(QUrl("https://github.com/letr007/CCTVVideoDownload"))
 
     def flash_list(self) -> None:
         '''刷新视频列表'''

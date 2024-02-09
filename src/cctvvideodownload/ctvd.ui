@@ -209,6 +209,7 @@
     </property>
     <addaction name="actionfile"/>
     <addaction name="actionsetting"/>
+    <addaction name="actionabout"/>
     <addaction name="separator"/>
     <addaction name="actionexit"/>
    </widget>
@@ -245,6 +246,11 @@
   <action name="actionsetting">
    <property name="text">
     <string>设置</string>
+   </property>
+  </action>
+  <action name="actionabout">
+   <property name="text">
+    <string>关于...</string>
    </property>
   </action>
  </widget>
