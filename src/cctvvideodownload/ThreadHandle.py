@@ -1,6 +1,8 @@
 import os
 import requests
 import concurrent.futures
+import subprocess
+import shutil
 from PySide6 import QtWidgets
 from PySide6.QtCore import QObject
 from PySide6.QtCore import Signal, QThread
@@ -23,6 +25,8 @@ class ThreadHandle(QObject):
         self.task_list_names = []
         self.task_list_values = []
 
+        self.path = r"C:/"
+
 
 
     def main(self) -> None:
@@ -42,6 +46,7 @@ class ThreadHandle(QObject):
         vd = VideoDownload()
         Vinfo = vd.GetHttpVideoInfo(self.VDinfo)
         # self.urls = vd.GetDownloadUrls(Vinfo)
+        # 由于央视更新，改用M3U8下载通道
         self.urls = vd.GetM3U8Urls(Vinfo)
 
         
@@ -63,7 +68,7 @@ class ThreadHandle(QObject):
 
         self.task_list = self.split_list(self.info_list, self.Threading_num)
         self.all_value = 0
-        self.finish_value = len(self.info_list) * 100
+        self.finish_value = len(self.info_list)
         # 多线程
         # self.start_download(self.info_list, self.Threading_num)
         # 暂时不再使用多线程
@@ -74,6 +79,8 @@ class ThreadHandle(QObject):
 
     def _new_work(self) -> None:
         '''派发新任务'''
+        # 每创建一个新线程即为一个下载任务完成，更新进度，总完成任务+1
+        self.update_all_value() 
         if len(self.info_list) != 0:
             self.worker.transfer(self.info_list[0])
             del self.info_list[0]
@@ -82,41 +89,48 @@ class ThreadHandle(QObject):
             self.dialog_ui.close() # 关闭窗体
             self.download_finish.emit(True) # 发送信号
         
-        
-    def start_download(self, task_list, threading_num):
-        self.task_list = task_list
-        self.Threading_num = threading_num
+    
+    ##############################################################################################
+    #                                     现在的多线程                                             #
+    ##############################################################################################
+    # def start_download(self, task_list, threading_num):
+    #     self.task_list = task_list
+    #     self.Threading_num = threading_num
 
-        self.work_finish_flags = [False] * self.Threading_num
+    #     self.work_finish_flags = [False] * self.Threading_num
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.Threading_num) as executor:
-            for index in range(self.Threading_num):
-                worker = DownloadVideo()
-                worker.info.connect(self.callback)
-                future = executor.submit(self._download_task, worker, index)
-                future.add_done_callback(lambda:self._on_worker_finish(index))
+    #     with concurrent.futures.ThreadPoolExecutor(max_workers=self.Threading_num) as executor:
+    #         for index in range(self.Threading_num):
+    #             worker = DownloadVideo()
+    #             worker.info.connect(self.callback)
+    #             future = executor.submit(self._download_task, worker, index)
+    #             future.add_done_callback(lambda:self._on_worker_finish(index))
 
-                self.workers.append(worker)
+    #             self.workers.append(worker)
 
-    def _download_task(self, worker, index):
-        try:
-            for task in self.task_list[index::self.Threading_num]:
-                worker.transfer(task)
-                worker.start()
-                del self.task_list[self.task_list.index(task)]
-        except Exception as e:
-            raise
+    # def _download_task(self, worker, index):
+    #     try:
+    #         for task in self.task_list[index::self.Threading_num]:
+    #             worker.transfer(task)
+    #             worker.start()
+    #             del self.task_list[self.task_list.index(task)]
+    #     except Exception as e:
+    #         raise
 
-    def _on_worker_finish(self, index):
-        self.work_finish_flags[index] = True
-        if all(self.work_finish_flags):
-            self._is_finished()
+    # def _on_worker_finish(self, index):
+    #     self.work_finish_flags[index] = True
+    #     if all(self.work_finish_flags):
+    #         self._is_finished()
 
-    def _is_finished(self):
-        # Perform actions after all workers finish
-        self.dialog_ui.close() # 关闭窗体
-        self.download_finish.emit(True) # 发送信号
+    # def _is_finished(self):
+    #     # Perform actions after all workers finish
+    #     self.dialog_ui.close() # 关闭窗体
+    #     self.download_finish.emit(True) # 发送信号
+    ##############################################################################################
 
+    ##############################################################################################
+    #                                        原多线程实现                                         #
+    ##############################################################################################
     #     # 生成状态列表
     #     for i in range(self.Threading_num):
     #         self.work_finish_flags.append(False)
@@ -179,10 +193,12 @@ class ThreadHandle(QObject):
     #     if all(self.work_finish_flags):
     #         self.dialog_ui.close() # 关闭窗体
     #         self.download_finish.emit(True) # 发送信号
+    ##############################################################################################
 
-
-    def split_list(self, lst, n) -> list:
-        '''列表分割方法'''
+    def split_list(self, lst:list, n:int) -> list:
+        '''列表分割方法
+        lst:列表对象
+        n:分割段数'''
         avg = len(lst) / float(n)
         result = []
         last = 0.0
@@ -191,18 +207,19 @@ class ThreadHandle(QObject):
             last += avg
         return result
     
-    def update_all_value(self, value:float) -> None:
-        '''更新下载进度到进度条'''
-        self.all_value = self.all_value + value
-        # print(self.all_value)
-        # print(self.finish_value)
-        # 计算下载进度
-        self.process_value = int((self.all_value / self.finish_value) * 6.4)
-        # print(self.process_value)
+    def update_all_value(self) -> None:
+        '''更新下载进度到进度条
+        value:总下载进度'''
+        self.all_value += 1
+        # print("all_value:",self.all_value,"\nfinish_value:",self.finish_value)
+        self.process_value = int((self.all_value / self.finish_value) * 100)  # 将总体进度百分比计算为整数
+        # print("process_value:",self.process_value)
         self.dialog.progressBar_all.setValue(self.process_value)
+        
 
-    def callback(self, info) -> None:
-        '''回调，更新下载信息到表格'''
+    def callback(self, info:list) -> None:
+        '''回调，更新下载信息到表格
+        info:下载时的信息'''
         item1 = QtWidgets.QTableWidgetItem(info[0])
         item2 = QtWidgets.QTableWidgetItem(info[1])
         item3 = QtWidgets.QTableWidgetItem(info[2])
@@ -213,10 +230,7 @@ class ThreadHandle(QObject):
         self.dialog.tableWidget.setItem(int(info[0])-1, 3, item4)
         self.dialog.tableWidget.viewport().update()
         # 调用更新进度条
-        self.update_all_value(float(info[3]))
-
-
-
+        # self.update_all_value(float(info[3])) # 更新总体进度值
 
     def display(self, info:list) -> None:
         '''将信息显示到表格中'''
@@ -238,12 +252,14 @@ class ThreadHandle(QObject):
     #     '''传入视频信息'''
     #     self.VDinfo = info
         
-    def transfer(self, VideoInfo:list, Threading_num:int) -> None:
+    def transfer(self, VideoInfo:list, Threading_num:int, FileSavePath:str) -> None:
         '''传参方法
         VideoInfo:下载相关信息
-        Threading_num:使用的线程数'''
+        Threading_num:使用的线程数
+        FileSavePath:文件保存路径'''
         self.VDinfo = VideoInfo
         self.Threading_num = Threading_num
+        self.path = FileSavePath
 
 class DownloadVideo(QThread):
     info = Signal(list)
@@ -259,7 +275,10 @@ class DownloadVideo(QThread):
         if not os.path.exists(f"{path}\\ctvd_tmp"):
             os.makedirs(f"{path}\\ctvd_tmp")
 
-    def transfer(self, data_list):
+    def transfer(self, data_list:list):
+        '''传参方法
+        data_list:一个包含下载信息的列表
+        '''
         self.thread_logo = int(data_list[0])
         self.state = data_list[1]
         self.url = data_list[2]
@@ -272,18 +291,26 @@ class DownloadVideo(QThread):
         self.state = "下载中"
         
         try:
-            content_size = int(response.headers['content-length'])
-            path = "C:\\"
+            content_size = int(response.headers['content-length']) # 获取content-length字段
+            # print("content_size:",content_size)
+            path = "C:\\" # 注意!这个路径是临时文件存放路径,别傻fufu去传参!
             if response.status_code == 200:
                 file_path = f"{path}\\ctvd_tmp\\{self.thread_logo}.ts"
                 with open(file_path, "wb") as f:
-                    for data in response.iter_content(chunk_size=chunk_size):
-                        f.write(data)
+                    for data in response.iter_content(chunk_size=chunk_size): # 以chunk取出数据
+                        # print('-'*10)
+                        # print("data:",len(data),"\nchunk:")
+                        f.write(data) # 写入
+                        # 计算百分比
                         size += len(data)
+                        # print("size:",size)
                         value = size * 100 / content_size
-                        self.value = value
+                        # print("value:",value)
+                        # print('-'*10)
+                        self.value = value # 将进度传给属性
+                        # 生成回传信息列表
                         data_list = [str(self.thread_logo), self.state, self.url, str(self.value)]
-                        self.info.emit(data_list)
+                        self.info.emit(data_list) # 回传参数
 
             self.state = "完成"
             data_list = [str(self.thread_logo), self.state, self.url, str(self.value)]
@@ -293,47 +320,42 @@ class DownloadVideo(QThread):
             raise
 
             
-class ConcatThread(QThread, QObject):
-    # 创建信号
+class ConcatThread(QThread):
     concat_finish = Signal(str)
 
-    def __init__(self, name):
+    def __init__(self):
         super().__init__()
-        self.name = name
         
 
-    def run(self):
-        Run = True
-        while Run:
-            import os, shutil, re
-            path = "C:\\"
-            # 获取文件列表
-            file_list = os.listdir("%s/ctvd_tmp" % path)
-            # print(files)
-            # ['1.mp4', '10.mp4', '11.mp4', '12.mp4', '13.mp4', '14.mp4', '2.mp4', '3.mp4', '4.mp4', '5.mp4', '6.mp4', '7.mp4', '8.mp4', '9.mp4', 'video.txt']
-            # 对列表进行排序,lambda提取数字
-            # print(file_list)
-            files = []
-            for i in file_list:
-                if re.match(r"\d+.mp4", i):
-                    files.append(i)
-            files = sorted(files, key=lambda x: int(x.split('.')[0]))
-            # print(files)
-            # 生成合并列表文件
-            with open("%s/ctvd_tmp/video.txt" %path, "w+") as f:
-                for i in files:
-                    if re.match(r"\d+.mp4", i):
-                        tmp = "file '" + i + "'\n"
-                        f.write(tmp)
+    def transfer(self, name:str, file_save_path:str) -> None:
+        self.file_save_path = file_save_path
+        self.name = name
 
-            # 合并
-            os.system("cd C:\\ctvd_tmp && ffmpeg -f concat -i video.txt -c copy concat.mp4")
-            # os.system("cd C:\\ctvd_tmp && ffmpeg -f concat -i video.txt -c copy concat.mp4")
-            print("os")
-            if not os.path.exists("C:/Video"):
-                os.makedirs("C:/Video")
-            
-            shutil.move("C:/ctvd_tmp/concat.mp4", "C:/Video/%s.mp4" % self.name)
-            shutil.rmtree("C:/ctvd_tmp")
-            Run = False
-            self.concat_finish.emit(self.name)
+    def run(self):
+        import re
+        path = "C:/"
+
+        # 获取文件列表
+        file_list = os.listdir("%s/ctvd_tmp" % path)
+        ts_files = [i for i in file_list if re.match(r"\d+\.ts", i)]
+        ts_files = sorted(ts_files, key=lambda x: int(x.split('.')[0]))
+
+        # 生成合并列表文件
+        with open("%s/ctvd_tmp/video_list.txt" % path, "w+") as f:
+            for ts_file in ts_files:
+                tmp = "file '" + ts_file + "'\n"
+                f.write(tmp)
+
+        # 合并视频文件为单个 .ts 文件
+        command = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', f'{path}/ctvd_tmp/video_list.txt', '-c', 'copy', '-y', f'{path}/ctvd_tmp/concat.ts']
+        subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        file_save_path = self.file_save_path
+        if not os.path.exists(f"{file_save_path}"):
+            os.makedirs(f"{file_save_path}")
+
+        # 移动合并后的 .ts 文件并发出信号
+        shutil.move("C:/ctvd_tmp/concat.ts", f"C:/Video/{file_save_path}.ts")
+        shutil.rmtree("C:/ctvd_tmp")
+
+        self.concat_finish.emit(self.name)

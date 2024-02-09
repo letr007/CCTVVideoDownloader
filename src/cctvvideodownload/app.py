@@ -252,7 +252,8 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, DownloadDialog, Se
         if finish:
             self.output("OKEY","视频下载","下载完成!")
             self.output("INFO","视频合并","开始合并...")
-            self.work = ConcatThread(self.choose_name)
+            self.work = ConcatThread()
+            self.work.transfer(self.choose_name, self.SETTINGS["file_save_path"])
             self.work.start()
             self.work.concat_finish.connect(self.concat_finish)
 
@@ -267,7 +268,7 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, DownloadDialog, Se
         self.pushButton_Download.setEnabled(False)
         try:
             self.thread = ThreadHandle()
-            self.thread.transfer(self.dict1[self.dl_index][1], 10)
+            self.thread.transfer(self.dict1[self.dl_index][1], 10, self.SETTINGS["file_save_path"])
             self.thread.main()
             self.thread.download_finish.connect(self.concat)
         except Exception as e:
