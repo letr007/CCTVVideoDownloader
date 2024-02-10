@@ -132,6 +132,9 @@ class CCTVVideoDownload(QtWidgets.QMainWindow, Ui_MainWindow, DownloadDialog, Se
         # 槽绑定
         self.dialog_setting.pushButton_open.clicked.connect(self.open_file_save_path)
         self.dialog_setting.buttonBox.accepted.connect(self.save_settings)
+        # 锁
+        self.dialog_setting.spinBox.setEnabled(False)
+        self.dialog_setting.radioButton_mp4.setEnabled(False)
             
     def open_file_save_path(self) -> None:
         file_save_path = QtWidgets.QFileDialog.getExistingDirectory(self, "选择文件夹", "C:\\")

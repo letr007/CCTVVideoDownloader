@@ -355,7 +355,7 @@ class ConcatThread(QThread):
             os.makedirs(f"{file_save_path}")
 
         # 移动合并后的 .ts 文件并发出信号
-        shutil.move("C:/ctvd_tmp/concat.ts", f"C:/Video/{file_save_path}.ts")
+        shutil.move("C:/ctvd_tmp/concat.ts", f"{file_save_path}/{self.name}.ts")
         shutil.rmtree("C:/ctvd_tmp")
 
         self.concat_finish.emit(self.name)
