@@ -29,16 +29,6 @@
    <string notr="true"/>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <widget class="QTextBrowser" name="textBrowser">
-    <property name="geometry">
-     <rect>
-      <x>259</x>
-      <y>259</y>
-      <width>221</width>
-      <height>201</height>
-     </rect>
-    </property>
-   </widget>
    <widget class="Line" name="line_2">
     <property name="geometry">
      <rect>
@@ -50,73 +40,6 @@
     </property>
     <property name="orientation">
      <enum>Qt::Vertical</enum>
-    </property>
-   </widget>
-   <widget class="Line" name="line_3">
-    <property name="geometry">
-     <rect>
-      <x>250</x>
-      <y>240</y>
-      <width>240</width>
-      <height>3</height>
-     </rect>
-    </property>
-    <property name="orientation">
-     <enum>Qt::Horizontal</enum>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="pushButton_FlashConfig">
-    <property name="geometry">
-     <rect>
-      <x>270</x>
-      <y>20</y>
-      <width>200</width>
-      <height>60</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>重载节目信息</string>
-    </property>
-    <property name="icon">
-     <iconset>
-      <normaloff>:/flash.png</normaloff>:/flash.png</iconset>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="pushButton_FlashList">
-    <property name="geometry">
-     <rect>
-      <x>270</x>
-      <y>90</y>
-      <width>200</width>
-      <height>60</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>刷新视频列表</string>
-    </property>
-    <property name="icon">
-     <iconset>
-      <normaloff>:/flash.png</normaloff>:/flash.png</iconset>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="pushButton_Download">
-    <property name="geometry">
-     <rect>
-      <x>270</x>
-      <y>160</y>
-      <width>200</width>
-      <height>60</height>
-     </rect>
-    </property>
-    <property name="styleSheet">
-     <string notr="true"/>
-    </property>
-    <property name="text">
-     <string>下载视频</string>
-    </property>
-    <property name="icon">
-     <iconset>
-      <normaloff>:/download.png</normaloff>:/download.png</iconset>
     </property>
    </widget>
    <widget class="Line" name="line">
@@ -193,6 +116,161 @@
      </property>
     </column>
    </widget>
+   <widget class="QPushButton" name="flash_program">
+    <property name="geometry">
+     <rect>
+      <x>205</x>
+      <y>6</y>
+      <width>25</width>
+      <height>25</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+    <property name="icon">
+     <iconset resource="../Python project/CCTVVideoDownload/src/resources.qrc">
+      <normaloff>:/resources/flash.png</normaloff>:/resources/flash.png</iconset>
+    </property>
+    <property name="iconSize">
+     <size>
+      <width>20</width>
+      <height>20</height>
+     </size>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="flash_list">
+    <property name="geometry">
+     <rect>
+      <x>205</x>
+      <y>242</y>
+      <width>25</width>
+      <height>25</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+    <property name="icon">
+     <iconset resource="../Python project/CCTVVideoDownload/src/resources.qrc">
+      <normaloff>:/resources/flash.png</normaloff>:/resources/flash.png</iconset>
+    </property>
+    <property name="iconSize">
+     <size>
+      <width>20</width>
+      <height>20</height>
+     </size>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_img">
+    <property name="geometry">
+     <rect>
+      <x>250</x>
+      <y>10</y>
+      <width>240</width>
+      <height>141</height>
+     </rect>
+    </property>
+    <property name="frameShape">
+     <enum>QFrame::StyledPanel</enum>
+    </property>
+    <property name="text">
+     <string>暂无图片qwq</string>
+    </property>
+    <property name="scaledContents">
+     <bool>true</bool>
+    </property>
+    <property name="alignment">
+     <set>Qt::AlignCenter</set>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_title">
+    <property name="geometry">
+     <rect>
+      <x>250</x>
+      <y>160</y>
+      <width>240</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="frameShape">
+     <enum>QFrame::StyledPanel</enum>
+    </property>
+    <property name="text">
+     <string>暂无标题</string>
+    </property>
+   </widget>
+   <widget class="QScrollArea" name="scrollArea">
+    <property name="geometry">
+     <rect>
+      <x>250</x>
+      <y>190</y>
+      <width>240</width>
+      <height>170</height>
+     </rect>
+    </property>
+    <property name="frameShape">
+     <enum>QFrame::StyledPanel</enum>
+    </property>
+    <property name="widgetResizable">
+     <bool>true</bool>
+    </property>
+    <widget class="QWidget" name="scrollAreaWidgetContents">
+     <property name="geometry">
+      <rect>
+       <x>0</x>
+       <y>0</y>
+       <width>238</width>
+       <height>168</height>
+      </rect>
+     </property>
+     <widget class="QLabel" name="label_introduce">
+      <property name="geometry">
+       <rect>
+        <x>5</x>
+        <y>0</y>
+        <width>235</width>
+        <height>170</height>
+       </rect>
+      </property>
+      <property name="frameShape">
+       <enum>QFrame::NoFrame</enum>
+      </property>
+      <property name="text">
+       <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;暂无介绍&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+      </property>
+     </widget>
+    </widget>
+   </widget>
+   <widget class="QPushButton" name="pushButton">
+    <property name="geometry">
+     <rect>
+      <x>250</x>
+      <y>430</y>
+      <width>240</width>
+      <height>40</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>下载</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_3">
+    <property name="geometry">
+     <rect>
+      <x>250</x>
+      <y>370</y>
+      <width>240</width>
+      <height>50</height>
+     </rect>
+    </property>
+    <property name="frameShape">
+     <enum>QFrame::StyledPanel</enum>
+    </property>
+    <property name="text">
+     <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;暂无时间&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+    </property>
+   </widget>
   </widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
@@ -200,7 +278,7 @@
      <x>0</x>
      <y>0</y>
      <width>500</width>
-     <height>21</height>
+     <height>23</height>
     </rect>
    </property>
    <widget class="QMenu" name="menu">
@@ -217,7 +295,14 @@
     <property name="title">
      <string>节目</string>
     </property>
-    <addaction name="actionin"/>
+    <widget class="QMenu" name="menu_3">
+     <property name="title">
+      <string>导入节目单</string>
+     </property>
+     <addaction name="actionfrom_file"/>
+     <addaction name="actionfrom_link"/>
+    </widget>
+    <addaction name="menu_3"/>
     <addaction name="actionout"/>
    </widget>
    <addaction name="menu"/>
@@ -225,17 +310,12 @@
   </widget>
   <action name="actionfile">
    <property name="text">
-    <string>打开文件位置</string>
+    <string>打开文件保存位置</string>
    </property>
   </action>
   <action name="actionexit">
    <property name="text">
     <string>退出</string>
-   </property>
-  </action>
-  <action name="actionin">
-   <property name="text">
-    <string>导入节目单</string>
    </property>
   </action>
   <action name="actionout">
@@ -253,7 +333,19 @@
     <string>关于...</string>
    </property>
   </action>
+  <action name="actionfrom_file">
+   <property name="text">
+    <string>从文件导入</string>
+   </property>
+  </action>
+  <action name="actionfrom_link">
+   <property name="text">
+    <string>从链接导入</string>
+   </property>
+  </action>
  </widget>
- <resources/>
+ <resources>
+  <include location="../Python project/CCTVVideoDownload/src/resources.qrc"/>
+ </resources>
  <connections/>
 </ui>
