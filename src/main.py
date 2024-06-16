@@ -2,11 +2,13 @@ from PyQt5 import QtCore,QtWidgets
 from PyQt5.QtGui import QIcon
 from MainUI import Ui_MainWindow as MainUI
 from logger import CustomLogger
+import api
 
 class CCTVVideoDownload():
     def __init__(self):
         self.mainUI = None
         self._SETTINGS = {}
+        self._PROGRAMME = {}
 
     def setup_ui(self) -> None:
         '''初始化'''
@@ -34,10 +36,14 @@ class CCTVVideoDownload():
         # 显示UI
         self.mainUI.show()
         self._logger.info("程序初始化完成")
+
+    def _initialization_info(self) -> None:
+        '''初始化列表信息'''
+        pass
         
     def _function_connect(self) -> None:
         '''连接信号与槽'''
-        
+        pass
 
     def _checkout_config(self) -> None:
         '''检查配置文件'''
@@ -60,6 +66,7 @@ class CCTVVideoDownload():
                 # 读取配置文件
                 config = json.load(f)
                 self._SETTINGS = config["settings"]
+                self._PROGRAMME = config["programme"]
                 self._logger.info("读取配置文件成功")
         except Exception as e:
             self._logger.error("读取配置文件失败")
@@ -68,7 +75,7 @@ class CCTVVideoDownload():
             return
 
     def _raise_error(self, error: Exception) -> None:
-        '''错误抛出'''
+        '''错误抛出,仅抛出引发程序异常退出的错误'''
         self._logger.critical("程序异常退出")
         self._logger.critical(f"错误详情:{error}")
         # 给出错误提示窗口

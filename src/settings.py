@@ -9,4 +9,4 @@ DEFAULT_CONFIG = {
     }
 }
 
-# programme关键字为以后预留
+# programme为节目单
