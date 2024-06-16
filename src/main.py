@@ -2,13 +2,15 @@ from PyQt5 import QtCore,QtWidgets
 from PyQt5.QtGui import QIcon
 from MainUI import Ui_MainWindow as MainUI
 from logger import CustomLogger
-import api
+from api import CCTVVideoDownloadAPI
 
 class CCTVVideoDownload():
     def __init__(self):
-        self.mainUI = None
+        self._mainUI = None
         self._SETTINGS = {}
         self._PROGRAMME = {}
+
+        self._SELECT_ID = 0
 
     def setup_ui(self) -> None:
         '''初始化'''
@@ -16,30 +18,65 @@ class CCTVVideoDownload():
         self._logger = CustomLogger("CCTVVideoDownload", "CCTVVideoDownload.log")
         self._logger.info("程序初始化...")
         # 加载主UI
-        self.mainUI = QtWidgets.QMainWindow()
+        self._mainUI = QtWidgets.QMainWindow()
         # 实例化主UI
-        _main_ui = MainUI()
+        self.main_ui = MainUI()
 
         self._logger.info("加载主UI...")
         # 加载UI
-        _main_ui.setupUi(self.mainUI)
+        self.main_ui.setupUi(self._mainUI)
         # 锁定下载按钮
-        _main_ui.pushButton.setEnabled(False)
+        self.main_ui.pushButton.setEnabled(False)
         # 设置标题
-        self.mainUI.setWindowTitle("央视频下载器")
+        self._mainUI.setWindowTitle("央视频下载器")
         # 设置图标
-        self.mainUI.setWindowIcon(QIcon(":/resources/cctvvideodownload.ico"))
+        self._mainUI.setWindowIcon(QIcon(":/resources/cctvvideodownload.ico"))
 
         # 检查配置文件
         self._checkout_config()
 
+        # 初始化
+        self._flash_programme_list()
+        self._flash_video_list()
+
+        # 连接信号与槽
+        self._function_connect()
+
         # 显示UI
-        self.mainUI.show()
+        self._mainUI.show()
         self._logger.info("程序初始化完成")
 
-    def _initialization_info(self) -> None:
-        '''初始化列表信息'''
-        pass
+    def _flash_programme_list(self) -> None:
+        '''刷新节目列表'''
+        config = self._PROGRAMME
+        self.main_ui.tableWidget_Config.setRowCount(len(config))
+        # 遍历
+        num = 0
+        for i in config:
+            dict_tmp = config[i]
+            name = dict_tmp['name']
+            id = dict_tmp['id']
+            # 加入表格
+            item1 = QtWidgets.QTableWidgetItem(name)
+            item2 = QtWidgets.QTableWidgetItem(id)
+            self.main_ui.tableWidget_Config.setItem(num, 0, item1)
+            self.main_ui.tableWidget_Config.setItem(num, 1, item2)
+            num += 1
+        # 更新
+        self.main_ui.tableWidget_Config.viewport().update()
+        self._logger.info("节目列表刷新完成")
+
+    def _flash_video_list(self) -> None:
+        '''刷新视频列表'''
+        api = CCTVVideoDownloadAPI()
+        video_information = api.get_video_list(self._PROGRAMME[self._SELECT_ID])
+        self.main_ui.tableWidget_List.setRowCount(len(video_information))
+        self.main_ui.tableWidget_List.setColumnWidth(0, 200)
+
+    
+    def _is_program_selected(self, r:int, c:int) -> None:
+        selected_item = self.main_ui.tableWidget_Config.item(r, c).text()
+
         
     def _function_connect(self) -> None:
         '''连接信号与槽'''
@@ -53,7 +90,7 @@ class CCTVVideoDownload():
             from settings import DEFAULT_CONFIG
             # 创建配置文件
             try:
-                with open("config.json", "w+") as f:
+                with open("config.json", "w+", encoding="utf-8") as f:
                     f.write(json.dumps(DEFAULT_CONFIG))
                     self._logger.info("创建配置文件成功")
             except Exception as e:
@@ -62,9 +99,9 @@ class CCTVVideoDownload():
                 self._raise_error(e)
                 return
         try:
-            with open("config.json", "r") as f:
+            with open("config.json", "r", encoding="utf-8") as f:
                 # 读取配置文件
-                config = json.load(f)
+                config = json.loads(f.read())
                 self._SETTINGS = config["settings"]
                 self._PROGRAMME = config["programme"]
                 self._logger.info("读取配置文件成功")

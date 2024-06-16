@@ -13,5 +13,4 @@ class DownloadEngine:
         '''传递下载参数'''
         self.url = url
         self.save_path = save_path
-        self.file_name = file_name
         self.file_path = os.path.join(self.save_path, self.file_name)

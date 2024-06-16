@@ -5,7 +5,7 @@ class CCTVVideoDownloadAPI:
     def __init__(self):
         pass
 
-    def _get_video_list(self, id:str) -> Dict[str, List[str]]:
+    def get_video_list(self, id:str) -> Dict[str, List[str]]:
         api_url = f"https://api.cntv.cn/NewVideo/getVideoListByColumn?id={id}&n=20&sort=desc&p=1&mode=0&serviceId=tvcctv"
         response = requests.get(api_url)
         # json格式解析
@@ -66,12 +66,7 @@ class CCTVVideoDownloadAPI:
             urls.append(tmp)
         # print(urls)
         return urls
-    
-    def get_video_info(self, id:str, index:int) -> Dict:
-        video_list = self._get_video_list(id)
-        video_info = video_list[index]
-        video_guid = video_info[0]
-        video_info = self._get_http_video_info(video_guid)
+
     
             
 if __name__ == "__main__":
