@@ -3,7 +3,7 @@ from typing import Dict,List
 
 class CCTVVideoDownloadAPI:
     def __init__(self):
-        pass
+        self._COLUMN_INFO = None
 
     def get_video_list(self, id:str) -> Dict[str, List[str]]:
         api_url = f"https://api.cntv.cn/NewVideo/getVideoListByColumn?id={id}&n=20&sort=desc&p=1&mode=0&serviceId=tvcctv"
@@ -25,7 +25,50 @@ class CCTVVideoDownloadAPI:
             index += 1
         # 列表转字典
         dict_information = dict(zip(list_index, list_information))
-        return dict_information
+        self._COLUMN_INFO = dict_information
+        return self._COLUMN_INFO
+    
+    def get_column_info(self, index: int) -> Dict[str, str]:
+        if self._COLUMN_INFO != None:
+            video_info = self._COLUMN_INFO[index]
+            time = video_info[1]
+            title = video_info[2]
+            brief = self.brief_formating(video_info[4])
+            # 获取图片
+            try:
+                response = requests.get(video_info[3])
+                if response.status_code == 200:
+                    image = response.content
+                else:
+                    image = None
+            except Exception:
+                image = None
+            column_info = {
+                "time": time,
+                "title": title,
+                "brief": brief,
+                "image": image
+                
+            }
+            return column_info
+        
+    def brief_formating(self, s:str) -> str:
+        '''格式化介绍信息'''
+        # 首先替换所有空格和\r为换行符
+        replaced = s.replace(' ', '\n')
+        replaced = replaced.replace('\r', '\n')
+        
+        # 消除连续的换行符
+        import re
+        result = re.sub(r'\n+', '\n', replaced)
+
+        # string = ""
+        # for i in range(0, len(result), 13):
+        #     string += result[i:i+13] + '\n'
+
+        return result
+    
+
     
     def _get_http_video_info(self, guid:str) -> Dict:
         api_url = f"https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid={guid}"
@@ -54,6 +97,7 @@ class CCTVVideoDownloadAPI:
         # 提取ts列表
         video_m3u8_list = video_m3u8.text.split("\n")
         video_list = []
+        import re
         for i in video_m3u8_list:
             if re.match(r"\d+.ts", i):
                 video_list.append(i)
@@ -71,9 +115,12 @@ class CCTVVideoDownloadAPI:
             
 if __name__ == "__main__":
     api = CCTVVideoDownloadAPI()
-    list1 = api.get_video_list("TOPC1451559180488841")
-    print(list1)
-    list2 = api._get_http_video_info("230e579a10f14ab18ad0ce407964a9cb")
-    print(list2)
+    list1 = api.get_video_list("TOPC1451464665008914")
+    # print(list1)
+    # list2 = api._get_http_video_info("230e579a10f14ab18ad0ce407964a9cb")
+    # print(list2)
+    tmp = api.get_column_info(0)
+    print(tmp)
+
 
 
