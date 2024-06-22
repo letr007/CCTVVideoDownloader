@@ -216,6 +216,9 @@
      <bool>true</bool>
     </property>
     <widget class="QWidget" name="scrollAreaWidgetContents">
+     <property name="enabled">
+      <bool>true</bool>
+     </property>
      <property name="geometry">
       <rect>
        <x>0</x>
@@ -255,7 +258,7 @@
      <string>下载</string>
     </property>
    </widget>
-   <widget class="QLabel" name="label_3">
+   <widget class="QLabel" name="label_time">
     <property name="geometry">
      <rect>
       <x>250</x>
@@ -278,7 +281,7 @@
      <x>0</x>
      <y>0</y>
      <width>500</width>
-     <height>23</height>
+     <height>22</height>
     </rect>
    </property>
    <widget class="QMenu" name="menu">
@@ -295,14 +298,7 @@
     <property name="title">
      <string>节目</string>
     </property>
-    <widget class="QMenu" name="menu_3">
-     <property name="title">
-      <string>导入节目单</string>
-     </property>
-     <addaction name="actionfrom_file"/>
-     <addaction name="actionfrom_link"/>
-    </widget>
-    <addaction name="menu_3"/>
+    <addaction name="actionimport"/>
     <addaction name="actionout"/>
    </widget>
    <addaction name="menu"/>
@@ -341,6 +337,11 @@
   <action name="actionfrom_link">
    <property name="text">
     <string>从链接导入</string>
+   </property>
+  </action>
+  <action name="actionimport">
+   <property name="text">
+    <string>导入节目</string>
    </property>
   </action>
  </widget>

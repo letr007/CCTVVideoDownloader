@@ -1,5 +1,6 @@
 import requests
 from typing import Dict,List
+from bs4 import BeautifulSoup
 
 class CCTVVideoDownloadAPI:
     def __init__(self):
@@ -110,17 +111,48 @@ class CCTVVideoDownloadAPI:
             urls.append(tmp)
         # print(urls)
         return urls
+    
+    def get_play_column_info(self, url:str) -> List:
+        '''从视频播放页链接获取栏目标题和ID'''
+        try:
+            response = requests.get(url)
+        except Exception:
+            return None
+        # 检测网页的编码，并重新编码为 utf-8
+        response.encoding = response.apparent_encoding
+        # 使用BeautifulSoup解析
+        soup = BeautifulSoup(response.text, "html.parser")
+        # 查找script
+        script_tags = soup.find_all("script")
+        import re
+        # 取第一个script标签
+        script = str(script_tags[0])
+        # 匹配标题和ID
+        match_title = re.search(r'var commentTitle\s*=\s*["\'](.*?)["\'];', script)
+        match_id = re.search(r'var column_id\s*=\s*["\'](.*?)["\'];', script)
 
+        if match_title and match_id:
+            # 对标题处理
+            match_title = match_title.group(1).split(" ")[0]
+
+            column_value = [match_title, match_id.group(1)]
+            return column_value
+        else:
+            return None
+
+        
+        
     
             
 if __name__ == "__main__":
     api = CCTVVideoDownloadAPI()
-    list1 = api.get_video_list("TOPC1451464665008914")
-    # print(list1)
-    # list2 = api._get_http_video_info("230e579a10f14ab18ad0ce407964a9cb")
-    # print(list2)
-    tmp = api.get_column_info(0)
-    print(tmp)
+    # list1 = api.get_video_list("TOPC1451464665008914")
+    # # print(list1)
+    # # list2 = api._get_http_video_info("230e579a10f14ab18ad0ce407964a9cb")
+    # # print(list2)
+    # tmp = api.get_column_info(0)
+    # print(tmp)
+    print(api.get_play_column_info("https://tv.cctv.com/2024/06/21/VIDEs2DfNN70XHJ1OySUipyV240621.shtml?spm=C31267.PXDaChrrDGdt.EbD5Beq0unIQ.3"))
 
 
 

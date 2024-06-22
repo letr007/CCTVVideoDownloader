@@ -5,6 +5,7 @@ from MainUI import Ui_MainWindow as MainUI
 from logger import CustomLogger
 from api import CCTVVideoDownloadAPI as API
 from download_engine import DownloadEngine as engine
+from ImportUI import Ui_Dialog as ImportUI
 
 class CCTVVideoDownload():
     def __init__(self):
@@ -14,6 +15,8 @@ class CCTVVideoDownload():
 
         self._SELECT_ID = None # 选中的栏目ID
         self._SELECT_INDEX = None # 选中的节目索引
+
+        self.api = API()
 
     def setup_ui(self) -> None:
         '''初始化'''
@@ -50,6 +53,9 @@ class CCTVVideoDownload():
 
     def _flash_programme_list(self) -> None:
         '''刷新节目列表'''
+        self._logger.info("刷新节目列表...")
+        # 检查更新节目单
+        self._checkout_config()
         config = self._PROGRAMME
         self.main_ui.tableWidget_Config.setRowCount(len(config))
         # 遍历
@@ -70,7 +76,7 @@ class CCTVVideoDownload():
 
     def _flash_video_list(self) -> None:
         '''刷新视频列表'''
-        self.api = API()
+        self._logger.info("刷新视频列表...")
         if self._SELECT_ID != None:
             if self._PROGRAMME != {}:
                 # 获取节目信息
@@ -81,6 +87,8 @@ class CCTVVideoDownload():
                     item1 = QtWidgets.QTableWidgetItem(video_information[i][2])
                     self.main_ui.tableWidget_List.setItem(i, 0, item1)
                 self.main_ui.tableWidget_List.viewport().update()
+
+                self._logger.info("视频列表刷新完成")
             else:
                 self._logger.error("节目单为空!")
                 self._raise_warning("节目单为空!")
@@ -103,13 +111,14 @@ class CCTVVideoDownload():
                 self.main_ui.label_img.setPixmap(pixmap)
             else:
                 self.main_ui.label_img.setText("图片加载失败")
-                self._logger("图片加载失败")
+                self._raise_warning("图片获取失败")
+                self._logger.warning("图片获取失败")
         else:
             pass
-            
 
-
-    
+        # 恢复下载按钮
+        self.main_ui.pushButton.setEnabled(True)
+             
     def _is_program_selected(self, r:int, c:int) -> None:
         # 获取ID
         selected_item_id = self.main_ui.tableWidget_Config.item(r, 1).text()
@@ -129,17 +138,59 @@ class CCTVVideoDownload():
         self._logger.info(f"选中节目索引:{self._SELECT_INDEX}")
 
         self._display_video_info()
+
+    def _dialog_import(self) -> None:
+        '''节目导入对话框'''
+        self._logger.info("打开节目导入")
+        self._dialog_base = QtWidgets.QDialog()
+        self.dialog_import = ImportUI()
+        self.dialog_import.setupUi(self._dialog_base)
+        self._dialog_base.show()
+        url = None
+        def url():
+            # 获取值
+            url = self.dialog_import.lineEdit.text()
+            self._dialog_base.close()
+            # 请求获取节目信息
+            column_info = self.api.get_play_column_info(url)
+            if column_info != None:
+                import json
+                with open("config.json", "r", encoding="utf-8") as f:
+                # 读取配置文件
+                    config = json.loads(f.read())
+                # 获取当前最大的 key 值，并自增
+                max_key = max(map(int, config["programme"].keys())) + 1 if config["programme"] else 1
+                # 检查 id 是否已经存在
+                for prog in config["programme"].values():
+                    if prog["id"] == column_info[1]:
+                        self._logger.warning(f"节目ID [{column_info[1]}] 已存在")
+                        return
+                    
+                config["programme"][str(max_key)] = {"name": column_info[0], "id": column_info[1]}
+                with open("config.json", "w+", encoding="utf-8") as f:
+                    # 写入配置文件
+                    f.write(json.dumps(config, indent=4))
+                
+                self._logger.info(f"导入节目:{column_info[0]}")
+
+        self.dialog_import.buttonBox.accepted.connect(url)
+
+
+
         
     def _function_connect(self) -> None:
         '''连接信号与槽'''
         # 绑定退出
         self.main_ui.actionexit.triggered.connect(self._mainUI.close)
-        # 刷新节目列表
+        # 绑定刷新按钮
+        self.main_ui.flash_list.clicked.connect(self._flash_video_list)
         self.main_ui.flash_program.clicked.connect(self._flash_programme_list)
         # 绑定栏目表格点击事件
         self.main_ui.tableWidget_Config.cellClicked.connect(self._is_program_selected)
         # 绑定节目表格点击事件
         self.main_ui.tableWidget_List.cellClicked.connect(self._is_video_selected)
+        # 绑定导入
+        self.main_ui.actionimport.triggered.connect(self._dialog_import)
 
 
     def _checkout_config(self) -> None:
