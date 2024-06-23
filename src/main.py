@@ -174,7 +174,21 @@ class CCTVVideoDownload():
             if file_save_path:
                 self.dialog_setting.lineEdit_file_save_path.setText(file_save_path)
 
+        def save_settings():
+            file_save_path = self.dialog_setting.lineEdit_file_save_path.text()
+            self._SETTINGS["file_save_path"] = file_save_path
+            self._logger.info(f"保存设置:{self._SETTINGS}")
+            # 更新配置
+            import json
+            with open("config.json", "r", encoding="utf-8") as f:
+                config = json.loads(f.read())
+            config["settings"] = self._SETTINGS
+            with open("config.json", "w", encoding="utf-8") as f:
+                f.write(json.dumps(config, indent=4))
+            self._logger.info("配置已更新")
+
         self.dialog_setting.pushButton_open.clicked.connect(open_file_save_path)
+        self.dialog_setting.buttonBox.accepted.connect(save_settings)
 
 
 

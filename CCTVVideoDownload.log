@@ -785,3 +785,43 @@
 2024-06-23 16:47:45,624 - CCTVVideoDownload - INFO - 刷新视频列表...
 2024-06-23 16:47:46,093 - CCTVVideoDownload - INFO - 视频列表刷新完成
 2024-06-23 16:47:46,827 - CCTVVideoDownload - INFO - 选中节目索引:0
+2024-06-23 17:34:46,119 - CCTVVideoDownload - INFO - 程序初始化...
+2024-06-23 17:34:46,119 - CCTVVideoDownload - INFO - 加载主UI...
+2024-06-23 17:34:46,337 - CCTVVideoDownload - INFO - 读取配置文件成功
+2024-06-23 17:34:46,337 - CCTVVideoDownload - INFO - 刷新节目列表...
+2024-06-23 17:34:46,337 - CCTVVideoDownload - INFO - 读取配置文件成功
+2024-06-23 17:34:46,337 - CCTVVideoDownload - INFO - 栏目列表刷新完成
+2024-06-23 17:34:46,416 - CCTVVideoDownload - INFO - 程序初始化完成
+2024-06-23 17:34:48,380 - CCTVVideoDownload - INFO - 打开设置
+2024-06-23 17:34:56,098 - CCTVVideoDownload - INFO - 保存设置:{'file_save_path': 'C:/bin_ico', 'threading_num': '1', 'whether_transcode': 'False'}
+2024-06-23 17:34:56,100 - CCTVVideoDownload - INFO - 配置已更新
+2024-06-23 17:35:13,737 - CCTVVideoDownload - INFO - 程序初始化...
+2024-06-23 17:35:13,737 - CCTVVideoDownload - INFO - 加载主UI...
+2024-06-23 17:35:13,926 - CCTVVideoDownload - INFO - 读取配置文件成功
+2024-06-23 17:35:13,926 - CCTVVideoDownload - INFO - 刷新节目列表...
+2024-06-23 17:35:13,926 - CCTVVideoDownload - INFO - 读取配置文件成功
+2024-06-23 17:35:13,926 - CCTVVideoDownload - INFO - 栏目列表刷新完成
+2024-06-23 17:35:14,014 - CCTVVideoDownload - INFO - 程序初始化完成
+2024-06-23 17:35:15,622 - CCTVVideoDownload - INFO - 打开设置
+2024-06-23 17:35:22,728 - CCTVVideoDownload - INFO - 保存设置:{'file_save_path': 'C:/Video', 'threading_num': '1', 'whether_transcode': 'False'}
+2024-06-23 17:35:22,737 - CCTVVideoDownload - INFO - 配置已更新
+2024-06-23 17:36:22,392 - CCTVVideoDownload - INFO - 程序初始化...
+2024-06-23 17:36:22,393 - CCTVVideoDownload - INFO - 加载主UI...
+2024-06-23 17:36:22,559 - CCTVVideoDownload - INFO - 读取配置文件成功
+2024-06-23 17:36:22,559 - CCTVVideoDownload - INFO - 刷新节目列表...
+2024-06-23 17:36:22,559 - CCTVVideoDownload - INFO - 读取配置文件成功
+2024-06-23 17:36:22,559 - CCTVVideoDownload - INFO - 栏目列表刷新完成
+2024-06-23 17:36:22,633 - CCTVVideoDownload - INFO - 程序初始化完成
+2024-06-23 17:36:23,960 - CCTVVideoDownload - INFO - 打开设置
+2024-06-23 17:36:28,569 - CCTVVideoDownload - INFO - 保存设置:{'file_save_path': 'C:/Intel', 'threading_num': '1', 'whether_transcode': 'False'}
+2024-06-23 17:36:28,579 - CCTVVideoDownload - INFO - 配置已更新
+2024-06-23 17:36:38,178 - CCTVVideoDownload - INFO - 程序初始化...
+2024-06-23 17:36:38,178 - CCTVVideoDownload - INFO - 加载主UI...
+2024-06-23 17:36:38,365 - CCTVVideoDownload - INFO - 读取配置文件成功
+2024-06-23 17:36:38,365 - CCTVVideoDownload - INFO - 刷新节目列表...
+2024-06-23 17:36:38,365 - CCTVVideoDownload - INFO - 读取配置文件成功
+2024-06-23 17:36:38,365 - CCTVVideoDownload - INFO - 栏目列表刷新完成
+2024-06-23 17:36:38,455 - CCTVVideoDownload - INFO - 程序初始化完成
+2024-06-23 17:36:40,828 - CCTVVideoDownload - INFO - 打开设置
+2024-06-23 17:36:47,958 - CCTVVideoDownload - INFO - 保存设置:{'file_save_path': 'C:/Video', 'threading_num': '1', 'whether_transcode': 'False'}
+2024-06-23 17:36:47,968 - CCTVVideoDownload - INFO - 配置已更新
