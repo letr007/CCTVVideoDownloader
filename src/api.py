@@ -8,7 +8,7 @@ class CCTVVideoDownloadAPI:
 
     def get_video_list(self, id:str) -> Dict[str, List[str]]:
         api_url = f"https://api.cntv.cn/NewVideo/getVideoListByColumn?id={id}&n=20&sort=desc&p=1&mode=0&serviceId=tvcctv"
-        response = requests.get(api_url)
+        response = requests.get(api_url, timeout=10)
         # json格式解析
         resp_format = response.json()
         list_detials = resp_format["data"]["list"]
@@ -73,7 +73,7 @@ class CCTVVideoDownloadAPI:
     
     def _get_http_video_info(self, guid:str) -> Dict:
         api_url = f"https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid={guid}"
-        response = requests.get(api_url)
+        response = requests.get(api_url, timeout=10)
         # json格式解析
         resp_format = response.json()
         return resp_format
@@ -81,7 +81,7 @@ class CCTVVideoDownloadAPI:
     def get_m3u8_urls(self, videoinfo:List) -> List:
         hls_url = str(videoinfo["hls_url"])
         # 获取main.m3u8
-        main_m3u8 = requests.get(hls_url)
+        main_m3u8 = requests.get(hls_url, timeout=5)
         # print(main_m3u8.status_code)
         main_m3u8_txt = main_m3u8.text
         # print(main_m3u8_txt)
@@ -115,7 +115,7 @@ class CCTVVideoDownloadAPI:
     def get_play_column_info(self, url:str) -> List:
         '''从视频播放页链接获取栏目标题和ID'''
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=5)
         except Exception:
             return None
         # 检测网页的编码，并重新编码为 utf-8
@@ -146,13 +146,13 @@ class CCTVVideoDownloadAPI:
             
 if __name__ == "__main__":
     api = CCTVVideoDownloadAPI()
-    # list1 = api.get_video_list("TOPC1451464665008914")
-    # # print(list1)
+    list1 = api.get_video_list("TOPC1451464665008914")
+    print(list1)
     # # list2 = api._get_http_video_info("230e579a10f14ab18ad0ce407964a9cb")
     # # print(list2)
     # tmp = api.get_column_info(0)
     # print(tmp)
-    print(api.get_play_column_info("https://tv.cctv.com/2024/06/21/VIDEs2DfNN70XHJ1OySUipyV240621.shtml?spm=C31267.PXDaChrrDGdt.EbD5Beq0unIQ.3"))
+    # print(api.get_play_column_info("https://tv.cctv.com/2024/06/21/VIDEs2DfNN70XHJ1OySUipyV240621.shtml?spm=C31267.PXDaChrrDGdt.EbD5Beq0unIQ.3"))
 
 
 

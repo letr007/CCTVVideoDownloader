@@ -1,1 +1,29 @@
-{"settings": {"file_save_path": "C:\\Video", "threading_num": "1", "whether_transcode": "False"}, "programme": {"1": {"name": "\u65b0\u95fb\u5468\u520a", "id": "TOPC1451559180488841"}, "2": {"name": "\u4e16\u754c\u5468\u520a", "id": "TOPC1451558687534149"}, "3": {"name": "\u4eca\u65e5\u8bf4\u6cd5", "id": "TOPC1451464665008914"}, "4": {"name": "\u300a\u65b0\u95fb\u8054\u64ad\u300b", "id": "TOPC1451528971114112"}}}
+{
+    "settings": {
+        "file_save_path": "C:\\Video",
+        "threading_num": "1",
+        "whether_transcode": "False"
+    },
+    "programme": {
+        "1": {
+            "name": "\u65b0\u95fb\u5468\u520a",
+            "id": "TOPC1451559180488841"
+        },
+        "2": {
+            "name": "\u4e16\u754c\u5468\u520a",
+            "id": "TOPC1451558687534149"
+        },
+        "3": {
+            "name": "\u4eca\u65e5\u8bf4\u6cd5",
+            "id": "TOPC1451464665008914"
+        },
+        "4": {
+            "name": "\u300a\u767e\u5bb6\u8bb2\u575b\u300b",
+            "id": "TOPC1451557052519584"
+        },
+        "5": {
+            "name": "\u300a\u671d\u95fb\u5929\u4e0b\u300b",
+            "id": "TOPC1451558496100826"
+        }
+    }
+}

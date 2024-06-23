@@ -1,11 +1,14 @@
+import subprocess
 from PyQt5 import QtCore,QtWidgets
-from PyQt5.QtGui import QIcon,QPixmap
+from PyQt5.QtGui import QIcon,QPixmap,QMovie,QDesktopServices
 
 from MainUI import Ui_MainWindow as MainUI
 from logger import CustomLogger
 from api import CCTVVideoDownloadAPI as API
 from download_engine import DownloadEngine as engine
 from ImportUI import Ui_Dialog as ImportUI
+from AboutUI import Ui_Dialog as AboutUI
+from SettingUI import Ui_Dialog as SettingUI
 
 class CCTVVideoDownload():
     def __init__(self):
@@ -33,6 +36,9 @@ class CCTVVideoDownload():
         self.main_ui.setupUi(self._mainUI)
         # 锁定下载按钮
         self.main_ui.pushButton.setEnabled(False)
+        # 设置表格只读
+        self.main_ui.tableWidget_Config.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.main_ui.tableWidget_List.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         # 设置标题
         self._mainUI.setWindowTitle("央视频下载器")
         # 设置图标
@@ -139,18 +145,75 @@ class CCTVVideoDownload():
 
         self._display_video_info()
 
+    def _open_save_location(self) -> None:
+        '''打开文件保存位置'''
+        path = self._SETTINGS["file_save_path"]
+        command = ["explorer", path]
+        # 创建STARTUPINFO对象以隐藏命令行窗口
+        startupinfo = subprocess.STARTUPINFO()
+        # startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        subprocess.run(command, startupinfo=startupinfo)
+
+    def _dialog_setting(self) -> None:
+        '''设置对话框'''
+        self._logger.info("打开设置")
+        self._dialog_setting_base = QtWidgets.QDialog()
+        self.dialog_setting = SettingUI()
+        self.dialog_setting.setupUi(self._dialog_setting_base)
+        # 锁定
+        self.dialog_setting.radioButton_ts.setChecked(True)
+        self.dialog_setting.radioButton_mp4.setEnabled(False)
+        self.dialog_setting.radioButton_ts.setEnabled(False)
+        self.dialog_setting.spinBox.setEnabled(False)
+        # 填充默认路径
+        self.dialog_setting.lineEdit_file_save_path.setText(self._SETTINGS["file_save_path"])
+        # 绑定按钮
+        def open_file_save_path():
+            file_save_path = self.dialog_setting.lineEdit_file_save_path.text()
+            file_save_path = QtWidgets.QFileDialog.getExistingDirectory(self._dialog_setting_base, "选择保存路径", file_save_path)
+            if file_save_path:
+                self.dialog_setting.lineEdit_file_save_path.setText(file_save_path)
+
+        self.dialog_setting.pushButton_open.clicked.connect(open_file_save_path)
+
+
+
+        self._dialog_setting_base.show()
+
+    def _dialog_about(self) -> None:
+        '''关于对话框'''
+        # 输出日志
+        self._logger.info("打开关于")
+        self._dialog_about_base = QtWidgets.QDialog()
+        self.dialog_about = AboutUI()
+        self.dialog_about.setupUi(self._dialog_about_base)
+        # 显示动图
+        self._movie = QMovie(":/resources/afraid.gif")
+        self.dialog_about.label_img.setMovie(self._movie)
+        self._movie.setScaledSize(QtCore.QSize(100,100))
+        # 设置模态
+        self._dialog_about_base.setModal(True)
+
+        self._dialog_about_base.show()
+        self._movie.start()
+        # 链接
+        self.dialog_about.label_link.setOpenExternalLinks(True)
+        self.dialog_about.label_link.linkActivated.connect(lambda: QDesktopServices.openUrl(QtCore.QUrl("https://github.com/letr007/CCTVVideoDownload")))
+
     def _dialog_import(self) -> None:
         '''节目导入对话框'''
         self._logger.info("打开节目导入")
-        self._dialog_base = QtWidgets.QDialog()
+        self._dialog_import_base = QtWidgets.QDialog()
         self.dialog_import = ImportUI()
-        self.dialog_import.setupUi(self._dialog_base)
-        self._dialog_base.show()
+        self.dialog_import.setupUi(self._dialog_import_base)
+        # 设置模态
+        self._dialog_import_base.setModal(True)
+        self._dialog_import_base.show()
         url = None
         def url():
             # 获取值
             url = self.dialog_import.lineEdit.text()
-            self._dialog_base.close()
+            self._dialog_import_base.close()
             # 请求获取节目信息
             column_info = self.api.get_play_column_info(url)
             if column_info != None:
@@ -170,6 +233,8 @@ class CCTVVideoDownload():
                 with open("config.json", "w+", encoding="utf-8") as f:
                     # 写入配置文件
                     f.write(json.dumps(config, indent=4))
+
+                self._flash_programme_list()
                 
                 self._logger.info(f"导入节目:{column_info[0]}")
 
@@ -191,6 +256,12 @@ class CCTVVideoDownload():
         self.main_ui.tableWidget_List.cellClicked.connect(self._is_video_selected)
         # 绑定导入
         self.main_ui.actionimport.triggered.connect(self._dialog_import)
+        # 绑定关于
+        self.main_ui.actionabout.triggered.connect(self._dialog_about)
+        # 绑定打开文件保存位置
+        self.main_ui.actionfile.triggered.connect(self._open_save_location)
+        # 绑定设置
+        self.main_ui.actionsetting.triggered.connect(self._dialog_setting)
 
 
     def _checkout_config(self) -> None:
@@ -240,6 +311,8 @@ class CCTVVideoDownload():
         
 def main():
     import sys
+    QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
+    QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps)
     # 创建QApplication对象，它是整个应用程序的入口
     app = QtWidgets.QApplication(sys.argv)
     # 实例化主类

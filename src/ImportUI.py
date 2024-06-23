@@ -15,15 +15,15 @@ class Ui_Dialog(object):
     def setupUi(self, Dialog):
         Dialog.setObjectName("Dialog")
         Dialog.resize(260, 150)
-        Dialog.setMinimumSize(QtCore.QSize(170, 110))
-        Dialog.setMaximumSize(QtCore.QSize(999, 999))
+        Dialog.setMinimumSize(QtCore.QSize(260, 150))
+        Dialog.setMaximumSize(QtCore.QSize(260, 150))
         self.buttonBox = QtWidgets.QDialogButtonBox(Dialog)
         self.buttonBox.setGeometry(QtCore.QRect(50, 100, 150, 30))
         self.buttonBox.setOrientation(QtCore.Qt.Horizontal)
         self.buttonBox.setStandardButtons(QtWidgets.QDialogButtonBox.Cancel|QtWidgets.QDialogButtonBox.Ok)
         self.buttonBox.setObjectName("buttonBox")
         self.lineEdit = QtWidgets.QLineEdit(Dialog)
-        self.lineEdit.setGeometry(QtCore.QRect(20, 60, 190, 30))
+        self.lineEdit.setGeometry(QtCore.QRect(20, 60, 220, 30))
         self.lineEdit.setObjectName("lineEdit")
         self.label = QtWidgets.QLabel(Dialog)
         self.label.setGeometry(QtCore.QRect(20, 20, 220, 30))
@@ -31,9 +31,9 @@ class Ui_Dialog(object):
         font.setPointSize(14)
         self.label.setFont(font)
         self.label.setObjectName("label")
-        self.toolButton = QtWidgets.QToolButton(Dialog)
-        self.toolButton.setGeometry(QtCore.QRect(210, 60, 30, 30))
-        self.toolButton.setObjectName("toolButton")
+        # self.toolButton = QtWidgets.QToolButton(Dialog)
+        # self.toolButton.setGeometry(QtCore.QRect(210, 60, 30, 30))
+        # self.toolButton.setObjectName("toolButton")
 
         self.retranslateUi(Dialog)
         self.buttonBox.accepted.connect(Dialog.accept) # type: ignore
@@ -43,5 +43,5 @@ class Ui_Dialog(object):
     def retranslateUi(self, Dialog):
         _translate = QtCore.QCoreApplication.translate
         Dialog.setWindowTitle(_translate("Dialog", "ID导入"))
-        self.label.setText(_translate("Dialog", "请输入网址"))
-        self.toolButton.setText(_translate("Dialog", "..."))
+        self.label.setText(_translate("Dialog", "请输入视频播放页链接"))
+        # self.toolButton.setText(_translate("Dialog", "..."))
