@@ -9,6 +9,8 @@ from download_engine import DownloadEngine as engine
 from ImportUI import Ui_Dialog as ImportUI
 from AboutUI import Ui_Dialog as AboutUI
 from SettingUI import Ui_Dialog as SettingUI
+from DownloadUI import Ui_Dialog as DownloadUI
+from download_engine import DownloadEngine
 
 class CCTVVideoDownload():
     def __init__(self):
@@ -194,6 +196,26 @@ class CCTVVideoDownload():
 
         self._dialog_setting_base.show()
 
+    def _dialog_download(self) -> None:
+        '''下载对话框'''
+        self._logger.info("开始下载")
+        # 获取下载视频参数
+        self._DOWNLOAD_INFO = 
+        self._dialog_download_base = QtWidgets.QDialog()
+        self.dialog_download = DownloadUI()
+        self.dialog_download.setupUi(self._dialog_download_base)
+        # 设置模态
+        self._dialog_download_base.setModal(True)
+        self._dialog_download_base.show()
+        # 开始下载
+        worker = DownloadEngine()
+        worker.transfer()
+        def display_info():
+            pass
+
+
+        
+
     def _dialog_about(self) -> None:
         '''关于对话框'''
         # 输出日志
@@ -276,6 +298,8 @@ class CCTVVideoDownload():
         self.main_ui.actionfile.triggered.connect(self._open_save_location)
         # 绑定设置
         self.main_ui.actionsetting.triggered.connect(self._dialog_setting)
+        # 绑定下载
+        self.main_ui.pushButton.clicked.connect(self._dialog_download)
 
 
     def _checkout_config(self) -> None:

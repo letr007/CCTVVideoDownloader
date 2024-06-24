@@ -78,23 +78,21 @@ class CCTVVideoDownloadAPI:
         resp_format = response.json()
         return resp_format
     
-    def get_m3u8_urls(self, videoinfo:List) -> List:
-        hls_url = str(videoinfo["hls_url"])
+    def get_m3u8_urls(self, guid:str) -> List:
+        api_url = f"https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid={guid}"
+        response = requests.get(api_url, timeout=10)
+        resp_format = response.json()
+        hls_enc2_url = resp_format["manifest"]["hls_enc2_url"]
         # 获取main.m3u8
-        main_m3u8 = requests.get(hls_url, timeout=5)
-        # print(main_m3u8.status_code)
+        main_m3u8 = requests.get(hls_enc2_url, timeout=5)
         main_m3u8_txt = main_m3u8.text
-        # print(main_m3u8_txt)
         # 切分
         main_m3u8_list = main_m3u8_txt.split("\n")
-        # print(main_m3u8_list)
         HD_m3u8_url = main_m3u8_list[-2]
-        hls_head = hls_url.split("/")[2] # eg:hls.cntv.myhwcdn.cn
+        hls_head = hls_enc2_url.split("/")[2] # eg:dhls2.cntv.qcloudcdn.com
         HD_m3u8_url = "https://" + hls_head + HD_m3u8_url
-        # print(HD_m3u8_url)
-        # 获取1200.m3u8，即高清m3u8文件，内含ts
+        # 获取2000.m3u8，即高清m3u8文件，内含ts
         video_m3u8 = requests.get(HD_m3u8_url)
-        # print(video_m3u8.status_code)
         # 提取ts列表
         video_m3u8_list = video_m3u8.text.split("\n")
         video_list = []
@@ -102,7 +100,6 @@ class CCTVVideoDownloadAPI:
         for i in video_m3u8_list:
             if re.match(r"\d+.ts", i):
                 video_list.append(i)
-        # print(video_list)
         # 转化为urls列表
         dl_url_head = HD_m3u8_url[:-9]
         urls = []
@@ -146,10 +143,13 @@ class CCTVVideoDownloadAPI:
             
 if __name__ == "__main__":
     api = CCTVVideoDownloadAPI()
+    import json
     list1 = api.get_video_list("TOPC1451464665008914")
-    print(list1)
-    # # list2 = api._get_http_video_info("230e579a10f14ab18ad0ce407964a9cb")
-    # # print(list2)
+    # print(list1)
+    # list2 = api._get_http_video_info("8665a11a622e5601e64663a77355af15")
+    # print(json.dumps(list2, indent=4))
+    list3 = api.get_m3u8_urls("a5324e8cdda44d72bd569d1dba2e4988")
+    print(list3)
     # tmp = api.get_column_info(0)
     # print(tmp)
     # print(api.get_play_column_info("https://tv.cctv.com/2024/06/21/VIDEs2DfNN70XHJ1OySUipyV240621.shtml?spm=C31267.PXDaChrrDGdt.EbD5Beq0unIQ.3"))
