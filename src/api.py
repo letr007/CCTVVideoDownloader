@@ -2,7 +2,7 @@ import requests
 from typing import Dict,List
 from bs4 import BeautifulSoup
 
-class CCTVVideoDownloadAPI:
+class CCTVVideoDownloaderAPI:
     def __init__(self):
         self._COLUMN_INFO = None
 
@@ -143,7 +143,7 @@ class CCTVVideoDownloadAPI:
     
             
 if __name__ == "__main__":
-    api = CCTVVideoDownloadAPI()
+    api = CCTVVideoDownloaderAPI()
     import json
     list1 = api.get_video_list("TOPC1451464665008914")
     print(list1)

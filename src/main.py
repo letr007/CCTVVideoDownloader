@@ -4,7 +4,7 @@ from PyQt5.QtGui import QIcon,QPixmap,QMovie,QDesktopServices
 
 from MainUI import Ui_MainWindow as MainUI
 from logger import CustomLogger
-from api import CCTVVideoDownloadAPI as API
+from api import CCTVVideoDownloaderAPI as API
 from download_engine import DownloadEngine as engine
 from ImportUI import Ui_Dialog as ImportUI
 from AboutUI import Ui_Dialog as AboutUI
@@ -12,7 +12,7 @@ from SettingUI import Ui_Dialog as SettingUI
 from DownloadUI import Ui_Dialog as DownloadUI
 from download_engine import DownloadEngine
 
-class CCTVVideoDownload():
+class CCTVVideoDownloader():
     def __init__(self):
         self._mainUI = None
         self._SETTINGS = {}
@@ -27,7 +27,7 @@ class CCTVVideoDownload():
     def setup_ui(self) -> None:
         '''初始化'''
         # 初始化日志
-        self._logger = CustomLogger("CCTVVideoDownload", "CCTVVideoDownload.log")
+        self._logger = CustomLogger("CCTVVideoDownloader", "CCTVVideoDownloader.log")
         self._logger.info("程序初始化...")
         # 加载主UI
         self._mainUI = QtWidgets.QMainWindow()
@@ -290,7 +290,7 @@ class CCTVVideoDownload():
         self._movie.start()
         # 链接
         self.dialog_about.label_link.setOpenExternalLinks(True)
-        self.dialog_about.label_link.linkActivated.connect(lambda: QDesktopServices.openUrl(QtCore.QUrl("https://github.com/letr007/CCTVVideoDownload")))
+        self.dialog_about.label_link.linkActivated.connect(lambda: QDesktopServices.openUrl(QtCore.QUrl("https://github.com/letr007/CCTVVideoDownloader")))
 
     def _dialog_import(self) -> None:
         '''节目导入对话框'''
@@ -394,7 +394,7 @@ class CCTVVideoDownload():
         # 给出错误提示窗口
         import sys,os
         path = os.getcwd()
-        path = os.path.join(path, "CCTVVideoDownload.log")
+        path = os.path.join(path, "CCTVVideoDownloader.log")
         QtWidgets.QMessageBox.critical(self._mainUI, "错误", f"错误详情:\n{error}\n请检查日志文件\n{path}")
         sys.exit(1)
 
@@ -410,7 +410,7 @@ def main():
     # 创建QApplication对象，它是整个应用程序的入口
     app = QtWidgets.QApplication(sys.argv)
     # 实例化主类
-    CTVD = CCTVVideoDownload()
+    CTVD = CCTVVideoDownloader()
     # 初始化UI
     CTVD.setup_ui()
     # 进入主循环
