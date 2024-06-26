@@ -22,6 +22,7 @@ class CCTVVideoDownload():
         self._SELECT_INDEX = None # 选中的节目索引
 
         self.api = API()
+        self.worker = DownloadEngine()
 
     def setup_ui(self) -> None:
         '''初始化'''
@@ -89,6 +90,7 @@ class CCTVVideoDownload():
             if self._PROGRAMME != {}:
                 # 获取节目信息
                 video_information = self.api.get_video_list(self._SELECT_ID)
+                self.VIDEO_INFO = video_information
                 self.main_ui.tableWidget_List.setRowCount(len(video_information))
                 self.main_ui.tableWidget_List.setColumnWidth(0, 300)
                 for i in range(len(video_information)):
@@ -144,6 +146,11 @@ class CCTVVideoDownload():
         self._SELECT_INDEX = self.main_ui.tableWidget_List.currentRow()
         # 输出日志
         self._logger.info(f"选中节目索引:{self._SELECT_INDEX}")
+        # 节目信息
+        self._WILL_DOWNLOAD = {
+            "name": self.VIDEO_INFO[self._SELECT_INDEX][2],
+            "guid": self.VIDEO_INFO[self._SELECT_INDEX][0],
+        }
 
         self._display_video_info()
 
@@ -166,9 +173,12 @@ class CCTVVideoDownload():
         self.dialog_setting.radioButton_ts.setChecked(True)
         self.dialog_setting.radioButton_mp4.setEnabled(False)
         self.dialog_setting.radioButton_ts.setEnabled(False)
-        self.dialog_setting.spinBox.setEnabled(False)
-        # 填充默认路径
+        # 锁定线程数上限与下限
+        self.dialog_setting.spinBox.setMaximum(5)
+        self.dialog_setting.spinBox.setMinimum(1)
+        # 填充默认值
         self.dialog_setting.lineEdit_file_save_path.setText(self._SETTINGS["file_save_path"])
+        self.dialog_setting.spinBox.setValue(int(self._SETTINGS["threading_num"]))
         # 绑定按钮
         def open_file_save_path():
             file_save_path = self.dialog_setting.lineEdit_file_save_path.text()
@@ -178,7 +188,9 @@ class CCTVVideoDownload():
 
         def save_settings():
             file_save_path = self.dialog_setting.lineEdit_file_save_path.text()
+            thread_num = self.dialog_setting.spinBox.value()
             self._SETTINGS["file_save_path"] = file_save_path
+            self._SETTINGS["threading_num"] = str(thread_num)
             self._logger.info(f"保存设置:{self._SETTINGS}")
             # 更新配置
             import json
@@ -199,22 +211,66 @@ class CCTVVideoDownload():
     def _dialog_download(self) -> None:
         '''下载对话框'''
         self._logger.info("开始下载")
+        self._logger.info(f"使用线程数:{self._SETTINGS['threading_num']}")
         # 获取下载视频参数
-        self._DOWNLOAD_INFO = 
+        urls = self.api.get_m3u8_urls_450(self._WILL_DOWNLOAD["guid"])
+        file_save_path = self._SETTINGS["file_save_path"]
+        name = self._WILL_DOWNLOAD["name"]
+        # self._DOWNLOAD_INFO = 
         self._dialog_download_base = QtWidgets.QDialog()
         self.dialog_download = DownloadUI()
         self.dialog_download.setupUi(self._dialog_download_base)
+        self._dialog_download_base.closeEvent = lambda event: self.worker.quit()
         # 设置模态
         self._dialog_download_base.setModal(True)
-        self._dialog_download_base.show()
-        # 开始下载
-        worker = DownloadEngine()
-        worker.transfer()
-        def display_info():
-            pass
+        # 初始化表格
+        self.dialog_download.tableWidget.setRowCount(len(urls) - 1)
+        self.dialog_download.progressBar_all.setValue(0)
+        self.dialog_download.tableWidget.setColumnWidth(0, 55)
+        self.dialog_download.tableWidget.setColumnWidth(1, 85)
+        self.dialog_download.tableWidget.setColumnWidth(2, 65)
+        self.dialog_download.tableWidget.setColumnWidth(3, 70)
 
+        self._dialog_download_base.show()
+
+        self._progress_dict = {i: 0 for i in range(len(urls))}
+
+        # 开始下载
+        self.worker.transfer(name, urls, file_save_path, int(self._SETTINGS["threading_num"]))
+        self.worker.start()
+        def display_info(info: list):
+            '''将信息显示到表格中'''
+            item1 = QtWidgets.QTableWidgetItem(str(info[0]))
+            if info[1] == 1:
+                item2 = QtWidgets.QTableWidgetItem("下载中")
+            elif info[1] == 0:
+                item2 = QtWidgets.QTableWidgetItem("完成")
+            elif info[1] == -1:
+                item2 = QtWidgets.QTableWidgetItem("等待")
+            item3 = QtWidgets.QTableWidgetItem(info[2])
+            item4 = QtWidgets.QTableWidgetItem(str(int(info[3])) + "%")
+            self.dialog_download.tableWidget.setItem(int(info[0])-1, 0, item1)
+            self.dialog_download.tableWidget.setItem(int(info[0])-1, 1, item2)
+            self.dialog_download.tableWidget.setItem(int(info[0])-1, 2, item3)
+            self.dialog_download.tableWidget.setItem(int(info[0])-1, 3, item4)
+
+            self._progress_dict[info[0]] = int(info[3])
+            total_progress = sum(self._progress_dict.values()) / len(self._progress_dict) * 2
+            self.dialog_download.progressBar_all.setValue(int(total_progress))
+
+            self.dialog_download.tableWidget.viewport().update()
+
+        # 生成信息列表
+        num = 1
+        info_list = []
+        for i in urls:
+            info = [str(num), -1, i, "0"]
+            num += 1
+            display_info(info)
 
         
+        self.worker.download_info.connect(display_info)
+
 
     def _dialog_about(self) -> None:
         '''关于对话框'''

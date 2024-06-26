@@ -71,6 +71,7 @@ class CCTVVideoDownloadAPI:
     
 
     
+    #  已弃用
     def _get_http_video_info(self, guid:str) -> Dict:
         api_url = f"https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid={guid}"
         response = requests.get(api_url, timeout=10)
@@ -78,11 +79,11 @@ class CCTVVideoDownloadAPI:
         resp_format = response.json()
         return resp_format
     
-    def get_m3u8_urls(self, guid:str) -> List:
+    def get_m3u8_urls_450(self, guid:str) -> List:
         api_url = f"https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid={guid}"
         response = requests.get(api_url, timeout=10)
         resp_format = response.json()
-        hls_enc2_url = resp_format["manifest"]["hls_enc2_url"]
+        hls_enc2_url = resp_format["hls_url"]
         # 获取main.m3u8
         main_m3u8 = requests.get(hls_enc2_url, timeout=5)
         main_m3u8_txt = main_m3u8.text
@@ -101,7 +102,7 @@ class CCTVVideoDownloadAPI:
             if re.match(r"\d+.ts", i):
                 video_list.append(i)
         # 转化为urls列表
-        dl_url_head = HD_m3u8_url[:-9]
+        dl_url_head = HD_m3u8_url[:-8]
         urls = []
         for i in video_list:
             tmp = dl_url_head + i
@@ -145,11 +146,11 @@ if __name__ == "__main__":
     api = CCTVVideoDownloadAPI()
     import json
     list1 = api.get_video_list("TOPC1451464665008914")
-    # print(list1)
+    print(list1)
     # list2 = api._get_http_video_info("8665a11a622e5601e64663a77355af15")
     # print(json.dumps(list2, indent=4))
-    list3 = api.get_m3u8_urls("a5324e8cdda44d72bd569d1dba2e4988")
-    print(list3)
+    list3 = api.get_m3u8_urls_450("a5324e8cdda44d72bd569d1dba2e4988")
+    # print(list3)
     # tmp = api.get_column_info(0)
     # print(tmp)
     # print(api.get_play_column_info("https://tv.cctv.com/2024/06/21/VIDEs2DfNN70XHJ1OySUipyV240621.shtml?spm=C31267.PXDaChrrDGdt.EbD5Beq0unIQ.3"))

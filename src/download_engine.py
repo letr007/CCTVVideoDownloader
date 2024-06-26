@@ -1,95 +1,86 @@
 import requests
 import os
-from typing import List,Dict
+from typing import List
+import concurrent.futures
 
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, QObject
 
-class DownloadEngine:
-    
-    # 创建信号
+class DownloadWorker(QThread):
+    download_info = pyqtSignal(list)
 
-    def __init__(self) -> None:
-        self.url = None
-        self.save_path = None
-        self.file_name = None
-
-    def transfer(self, name: str, url: List, save_path: str, thread_num: 1) -> None:
-        '''
-        传递下载参数
-        name: str 视频名称
-        url: List[str] 视频下载链接
-        save_path: str 视频保存路径
-        thread_num: int 线程数
-        '''
-        self.url = url
+    def __init__(self, urls: List[str], save_path: str, name: str, thread_num: int):
+        super().__init__()
+        self.urls = urls
         self.save_path = save_path
         self.file_name = name
-        self.file_path = os.path.join(self.save_path, self.file_name)
         self.thread_num = thread_num
-
-    def start(self) -> None:
-        '''开始下载'''
-        pass
-
-    def _callback(self) -> None:
-        '''回调函数，接收下载线程返回的信号'''
-        pass
-
-class DownloadCore(QThread):
-    '''下载核心类,继承至QThread,仅负责从链接下载'''
-
-    # 创建信号
-    info = pyqtSignal(list) # 
-    # []
-
-    def __init__(self, url, path, num):
-        super(DownloadCore, self).__init__()
-        # 初始化一些参数
-        self.STATE = True
-        self.url = url
-        self.tmp_path = f"{path}/ctvd_tmp" # 下载临时文件路径
-        self.num = num # 下载文件的标识
+        self._is_running = True
 
     def run(self) -> None:
-        '''下载核心'''
-        while self.STATE:
-            # GET 
-            response = requests.get(self.url, stream=True)
-            chunk_size = 1024
-            self.download_state = 1 # 1:下载中 0:下载完成
-            download_size = 0 # 初始化已下载大小
-            try:
-                # 获取文件大小
-                content_size = int(response.headers['content-length'])
+        '''开始并行下载'''
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.thread_num) as executor:
+            futures = {executor.submit(self.download_core, url, self.urls.index(url)): url for url in self.urls}
+            for future in concurrent.futures.as_completed(futures):
+                if not self._is_running:
+                    break
+                url = futures[future]
+                try:
+                    data = future.result()
+                    self.download_info.emit(data)
+                except Exception as exc:
+                    print(f'{url} generated an exception: {exc}')
 
-                if response.status_code == 200:
-                    file_path = f"{self.tmp_path}/{self.num}.ts"
-                    with open(file_path, 'wb') as file:
-                        for data in response.iter_content(chunk_size=chunk_size):
-                            file.write(data) # 写入数据
-                            download_size += len(data) # 累加已下载数据量
-                            progress_percent = (download_size / content_size) * 100 # 计算百分比
+    def download_core(self, url, num):
+        '''核心下载函数，返回下载信息'''
+        if not self._is_running:
+            return [num, 0, url, 0]  # 立即返回，表示下载已终止
 
-                            print(f"Download Progress: {progress_percent:.2f}%", end="\r")  # 使用'\r'回到行首，实现动态更新
+        tmp_path = os.path.join(self.save_path, "ctvd_tmp")
+        os.makedirs(tmp_path, exist_ok=True)
+        response = requests.get(url, stream=True)
+        chunk_size = 1024
+        download_size = 0
+        try:
+            content_size = int(response.headers['content-length'])
+            if response.status_code == 200:
+                file_path = os.path.join(tmp_path, f"{num}.ts")
+                with open(file_path, 'wb') as file:
+                    for data in response.iter_content(chunk_size=chunk_size):
+                        if not self._is_running:
+                            return [num, 0, url, 0]  # 立即返回，表示下载已终止
 
-                            self.info.emit([self.num, self.download_state, self.url, progress_percent])
+                        file.write(data)
+                        download_size += len(data)
+                        progress_percent = (download_size / content_size) * 100
+                        self.download_info.emit([num, 1, url, progress_percent])
+        except Exception as e:
+            print(e)
+        return [num, 0, url, 100]
 
-            except Exception as e:
-                print(e)
+    def stop(self):
+        '''设置控制变量以终止线程'''
+        self._is_running = False
 
-            finally:
-                self.STATE = False
-                self.download_state = 0
-                self.info.emit([self.num, self.download_state, self.url, progress_percent])
+class DownloadEngine(QObject):
+    download_info = pyqtSignal(list)
 
+    def __init__(self) -> None:
+        super().__init__()
+        self.worker = None
 
+    def transfer(self, name: str, urls: List[str], save_path: str, thread_num: int) -> None:
+        self.worker = DownloadWorker(urls, save_path, name, thread_num)
+        self.worker.download_info.connect(self._callback)
 
+    def start(self) -> None:
+        if self.worker:
+            self.worker.start()
 
+    def _callback(self, info: list) -> None:
+        self.download_info.emit(info)
 
-                
-
-
-        
-        
-
-    
+    def quit(self) -> None:
+        if self.worker:
+            self.worker.stop()
+            self.worker.wait()  # 等待线程安全退出
+            self.worker = None
