@@ -92,8 +92,6 @@ def resource_path(relative_path):
     else:
         # 获取未打包时的脚本文件路径
         base_path = os.path.dirname(os.path.abspath(__file__))
-        print(base_path)
     
     # 返回资源文件的绝对路径
-    print(os.path.join(base_path, relative_path))
     return os.path.join(base_path, relative_path)
