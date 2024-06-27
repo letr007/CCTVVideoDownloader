@@ -263,7 +263,6 @@ class CCTVVideoDownloader():
                 # 解锁下载按钮
                 self.main_ui.pushButton.setEnabled(True)
                 self._dialog_concat_base.close()
-
         def display_info(info: list):
             '''将信息显示到表格中'''
             item1 = QtWidgets.QTableWidgetItem(str(info[0]))
