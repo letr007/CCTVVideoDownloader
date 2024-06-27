@@ -57,7 +57,7 @@ class VideoConcat(QThread):
             os.environ['FFMPEG_BINARY'] = resource_path(r"./ffmpeg")
             os.environ['FFPROBE_BINARY'] = resource_path(r"./ffmpeg")
             # 合并.ts文件为单个视频
-            ffmpeg.input(f"{path}/video_list.txt", format="concat", safe=0).output(f"{self.save_path}\\{self.name}.mp4",c = 'copy', threads = 'auto').run()
+            ffmpeg.input(f"{path}/video_list.txt", format="concat", safe=0).output(f"{self.save_path}\\{self.name}.mp4",c = 'copy', y = '-y').run()
             # os.system("cd C:/ffmpeg | ffmpeg -f concat -safe 0 -i {path}/video_list.txt -c copy {self.save_path}/{self.name}.mp4")
 
             # 移除临时目录

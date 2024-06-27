@@ -14,12 +14,19 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_Dialog(object):
     def setupUi(self, Dialog):
         Dialog.setObjectName("Dialog")
-        Dialog.resize(120, 40)
-        Dialog.setMinimumSize(QtCore.QSize(120, 40))
-        Dialog.setMaximumSize(QtCore.QSize(120, 40))
+        Dialog.resize(150, 40)
+        Dialog.setMinimumSize(QtCore.QSize(150, 40))
+        Dialog.setMaximumSize(QtCore.QSize(150, 40))
+        Dialog.setStyleSheet("background-color : rgb(255, 255, 255);")
         self.label = QtWidgets.QLabel(Dialog)
-        self.label.setGeometry(QtCore.QRect(10, 10, 100, 20))
+        self.label.setGeometry(QtCore.QRect(40, 10, 100, 20))
         self.label.setObjectName("label")
+        self.label_2 = QtWidgets.QLabel(Dialog)
+        self.label_2.setGeometry(QtCore.QRect(5, 5, 30, 30))
+        self.label_2.setText("")
+        self.label_2.setPixmap(QtGui.QPixmap(":/resources/info.png"))
+        self.label_2.setScaledContents(True)
+        self.label_2.setObjectName("label_2")
 
         self.retranslateUi(Dialog)
         QtCore.QMetaObject.connectSlotsByName(Dialog)
@@ -28,3 +35,4 @@ class Ui_Dialog(object):
         _translate = QtCore.QCoreApplication.translate
         Dialog.setWindowTitle(_translate("Dialog", "合并视频"))
         self.label.setText(_translate("Dialog", "正在合并视频...."))
+import resources.resources

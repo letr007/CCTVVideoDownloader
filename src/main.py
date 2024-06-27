@@ -216,11 +216,12 @@ class CCTVVideoDownloader():
         '''下载对话框'''
         self._logger.info("开始下载")
         self._logger.info(f"使用线程数:{self._SETTINGS['threading_num']}")
+        # 锁定下载按钮
+        self.main_ui.pushButton.setEnabled(False)
         # 获取下载视频参数
         urls = self.api.get_m3u8_urls_450(self._WILL_DOWNLOAD["guid"])
         file_save_path = self._SETTINGS["file_save_path"]
         name = self._WILL_DOWNLOAD["name"]
-        # self._DOWNLOAD_INFO = 
         self._dialog_download_base = QtWidgets.QDialog()
         self._dialog_concat_base = QtWidgets.QDialog()
         self.dialog_download = DownloadUI()
@@ -231,13 +232,13 @@ class CCTVVideoDownloader():
         self._dialog_download_base.setModal(True)
         self._dialog_concat_base.setModal(True)
         # 去除边框
-        # self._dialog_concat_base.setWindowFlags(QtCore.Qt.FramelessWindowHint)
+        self._dialog_concat_base.setWindowFlags(QtCore.Qt.FramelessWindowHint)
         # 初始化表格
         self.dialog_download.tableWidget.setRowCount(len(urls) - 1)
         self.dialog_download.progressBar_all.setValue(0)
         self.dialog_download.tableWidget.setColumnWidth(0, 55)
-        self.dialog_download.tableWidget.setColumnWidth(1, 85)
-        self.dialog_download.tableWidget.setColumnWidth(2, 65)
+        self.dialog_download.tableWidget.setColumnWidth(1, 65)
+        self.dialog_download.tableWidget.setColumnWidth(2, 85)
         self.dialog_download.tableWidget.setColumnWidth(3, 70)
 
         self._dialog_download_base.show()
@@ -258,6 +259,8 @@ class CCTVVideoDownloader():
         def finished(flag: bool):
             if flag:
                 self._logger.info("视频拼接完成")
+                # 解锁下载按钮
+                self.main_ui.pushButton.setEnabled(True)
                 self._dialog_concat_base.close()
 
         def display_info(info: list):
