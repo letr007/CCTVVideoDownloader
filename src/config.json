@@ -1,0 +1,13 @@
+{
+    "settings": {
+        "file_save_path": "C:\\Video",
+        "threading_num": "5",
+        "whether_transcode": "False"
+    },
+    "programme": {
+        "1": {
+            "name": "\u300a\u65b0\u95fb\u5468\u520a\u300b",
+            "id": "TOPC1451559180488841"
+        }
+    }
+}

@@ -5,12 +5,14 @@ from PyQt5.QtGui import QIcon,QPixmap,QMovie,QDesktopServices
 from MainUI import Ui_MainWindow as MainUI
 from logger import CustomLogger
 from api import CCTVVideoDownloaderAPI as API
-from download_engine import DownloadEngine as engine
+from download_engine import DownloadEngine as Engine
+from video_process import VideoProcess as Process
 from ImportUI import Ui_Dialog as ImportUI
 from AboutUI import Ui_Dialog as AboutUI
 from SettingUI import Ui_Dialog as SettingUI
 from DownloadUI import Ui_Dialog as DownloadUI
-from download_engine import DownloadEngine
+from ConcatUI import Ui_Dialog as ConcatUI
+
 
 class CCTVVideoDownloader():
     def __init__(self):
@@ -22,7 +24,8 @@ class CCTVVideoDownloader():
         self._SELECT_INDEX = None # 选中的节目索引
 
         self.api = API()
-        self.worker = DownloadEngine()
+        self.worker = Engine()
+        self.process = Process()
 
     def setup_ui(self) -> None:
         '''初始化'''
@@ -163,6 +166,7 @@ class CCTVVideoDownloader():
         # startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         subprocess.run(command, startupinfo=startupinfo)
 
+
     def _dialog_setting(self) -> None:
         '''设置对话框'''
         self._logger.info("打开设置")
@@ -218,11 +222,16 @@ class CCTVVideoDownloader():
         name = self._WILL_DOWNLOAD["name"]
         # self._DOWNLOAD_INFO = 
         self._dialog_download_base = QtWidgets.QDialog()
+        self._dialog_concat_base = QtWidgets.QDialog()
         self.dialog_download = DownloadUI()
+        self.dialog_concat = ConcatUI()
         self.dialog_download.setupUi(self._dialog_download_base)
         self._dialog_download_base.closeEvent = lambda event: self.worker.quit()
         # 设置模态
         self._dialog_download_base.setModal(True)
+        self._dialog_concat_base.setModal(True)
+        # 去除边框
+        # self._dialog_concat_base.setWindowFlags(QtCore.Qt.FramelessWindowHint)
         # 初始化表格
         self.dialog_download.tableWidget.setRowCount(len(urls) - 1)
         self.dialog_download.progressBar_all.setValue(0)
@@ -238,6 +247,19 @@ class CCTVVideoDownloader():
         # 开始下载
         self.worker.transfer(name, urls, file_save_path, int(self._SETTINGS["threading_num"]))
         self.worker.start()
+
+        def video_concat():
+            self._logger.info("开始视频拼接")
+            self.process.transfer(self._SETTINGS["file_save_path"], self._WILL_DOWNLOAD["name"])
+            self.dialog_concat.setupUi(self._dialog_concat_base)
+            self._dialog_concat_base.show()
+            self.process.concat()
+            self.process.concat_finished.connect(finished)
+        def finished(flag: bool):
+            if flag:
+                self._logger.info("视频拼接完成")
+                self._dialog_concat_base.close()
+
         def display_info(info: list):
             '''将信息显示到表格中'''
             item1 = QtWidgets.QTableWidgetItem(str(info[0]))
@@ -259,6 +281,14 @@ class CCTVVideoDownloader():
             self.dialog_download.progressBar_all.setValue(int(total_progress))
 
             self.dialog_download.tableWidget.viewport().update()
+
+            if total_progress == 100:
+                self._logger.info("下载完成")
+                self._dialog_download_base.close()
+                # 调用拼接
+                video_concat()
+
+
 
         # 生成信息列表
         num = 1
