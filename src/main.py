@@ -228,6 +228,7 @@ class CCTVVideoDownloader():
         self.dialog_concat = ConcatUI()
         self.dialog_download.setupUi(self._dialog_download_base)
         self._dialog_download_base.closeEvent = lambda event: self.worker.quit()
+        self._dialog_download_base.closeEvent = lambda event: self.main_ui.pushButton.setEnabled(True)
         # 设置模态
         self._dialog_download_base.setModal(True)
         self._dialog_concat_base.setModal(True)
