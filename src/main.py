@@ -244,6 +244,17 @@ class CCTVVideoDownloader():
         self.dialog_download.tableWidget.setColumnWidth(2, 85)
         self.dialog_download.tableWidget.setColumnWidth(3, 70)
 
+        def center_dialog_on_main_window(dialog, main_window):
+            # 获取主窗口的几何信息
+            main_window_rect = main_window.frameGeometry()
+            # 获取屏幕中心点
+            center_point = main_window_rect.center()
+            # 设置对话框的位置为中心点
+            dialog.move(center_point.x() - dialog.width() // 2, 
+                        center_point.y() - dialog.height() // 2)
+
+        # 在显示对话框之前调用函数设定位置
+        center_dialog_on_main_window(self._dialog_download_base, self._mainUI)
         self._dialog_download_base.show()
 
         self._progress_dict = {i: 0 for i in range(len(urls))}
@@ -256,6 +267,8 @@ class CCTVVideoDownloader():
             self._logger.info("开始视频拼接")
             self.process.transfer(self._SETTINGS["file_save_path"], self._WILL_DOWNLOAD["name"])
             self.dialog_concat.setupUi(self._dialog_concat_base)
+            # 在显示对话框之前调用函数设定位置
+            center_dialog_on_main_window(self._dialog_concat_base, self._mainUI)
             self._dialog_concat_base.show()
             self.process.concat()
             self.process.concat_finished.connect(finished)
