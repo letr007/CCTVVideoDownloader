@@ -17,7 +17,6 @@ class Ui_MainWindow(object):
         MainWindow.resize(500, 510)
         MainWindow.setMinimumSize(QtCore.QSize(500, 500))
         MainWindow.setMaximumSize(QtCore.QSize(500, 510))
-        MainWindow.setStyleSheet("")
         self.centralwidget = QtWidgets.QWidget(MainWindow)
         self.centralwidget.setObjectName("centralwidget")
         self.line_2 = QtWidgets.QFrame(self.centralwidget)
