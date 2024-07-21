@@ -2,6 +2,8 @@ import subprocess
 from PyQt5 import QtCore,QtWidgets
 from PyQt5.QtGui import QIcon,QPixmap,QMovie,QDesktopServices
 
+from qt_material import apply_stylesheet
+
 from MainUI import Ui_MainWindow as MainUI
 from logger import CustomLogger
 from api import CCTVVideoDownloaderAPI as API
@@ -442,6 +444,8 @@ def main():
     QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps)
     # 创建QApplication对象，它是整个应用程序的入口
     app = QtWidgets.QApplication(sys.argv)
+    # 美化主题
+    apply_stylesheet(app, theme='dark_blue.xml')
     # 实例化主类
     CTVD = CCTVVideoDownloader()
     # 初始化UI
