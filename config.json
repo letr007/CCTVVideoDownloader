@@ -1,10 +1,9 @@
 {
     "settings": {
         "file_save_path": "C:/Video",
-        "threading_num": "5",
+        "threading_num": "1",
         "whether_transcode": "False"
     },
     "programme": {
-        
     }
 }

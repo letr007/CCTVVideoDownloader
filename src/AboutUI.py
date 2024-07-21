@@ -56,5 +56,5 @@ class Ui_Dialog(object):
         self.label_img.setText(_translate("Dialog", "TextLabel"))
         self.label_4.setText(_translate("Dialog", "<html><head/><body><p><span style=\" font-size:12pt; font-weight:700;\">项目地址</span></p></body></html>"))
         self.label_2.setText(_translate("Dialog", "<html><head/><body><p><span style=\" font-weight:700;\">作者:</span>letr</p></body></html>"))
-        self.label_3.setText(_translate("Dialog", "<html><head/><body><p>逻辑混乱 代码稀烂  大佬轻喷</p></body></html>"))
-        self.label_link.setText(_translate("Dialog", "<html><head/><body><p><a href=\"https://github.com/letr007/CCTVVideoDownloader\"><span style=\" font-weight:700; text-decoration: underline; color:#555555;\">https://github.com/letr007/CCTVVideoDownloader</span></a></p></body></html>"))
+        self.label_3.setText(_translate("Dialog", "<html><head/><body><p>逻辑混乱</p><p>代码稀烂</p><p>大佬轻喷</p></body></html>"))
+        self.label_link.setText(_translate("Dialog", "<html><head/><body><p><a href=\"https://github.com/letr007/CCTVVideoDownload\"><span style=\" font-weight:700; text-decoration: underline; color:#555555;\">https://github.com/letr007/CCTVVideoDownload</span></a></p></body></html>"))
