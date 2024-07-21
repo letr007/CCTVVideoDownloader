@@ -17,7 +17,7 @@ class Ui_Dialog(object):
         Dialog.resize(150, 40)
         Dialog.setMinimumSize(QtCore.QSize(150, 40))
         Dialog.setMaximumSize(QtCore.QSize(150, 40))
-        # Dialog.setStyleSheet("background-color : rgb(255, 255, 255);")
+        Dialog.setStyleSheet("background-color : rgb(255, 255, 255);")
         self.label = QtWidgets.QLabel(Dialog)
         self.label.setGeometry(QtCore.QRect(40, 10, 100, 20))
         self.label.setObjectName("label")
@@ -36,15 +36,3 @@ class Ui_Dialog(object):
         Dialog.setWindowTitle(_translate("Dialog", "合并视频"))
         self.label.setText(_translate("Dialog", "正在合并视频...."))
 import resources.resources
-
-if __name__ == "__main__":
-    # DEBUG
-    import sys
-    from qt_material import apply_stylesheet
-    app = QtWidgets.QApplication(sys.argv)
-    apply_stylesheet(app, theme='dark_blue.xml')
-    Dialog = QtWidgets.QDialog()
-    ui = Ui_Dialog()
-    ui.setupUi(Dialog)
-    Dialog.show()
-    sys.exit(app.exec_())
