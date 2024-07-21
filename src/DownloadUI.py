@@ -15,6 +15,8 @@ class Ui_Dialog(object):
     def setupUi(self, Dialog):
         Dialog.setObjectName("Dialog")
         Dialog.resize(350, 250)
+        Dialog.setMinimumSize(QtCore.QSize(350, 250))
+        Dialog.setMaximumSize(QtCore.QSize(350, 250))
         self.label_7 = QtWidgets.QLabel(Dialog)
         self.label_7.setGeometry(QtCore.QRect(10, 10, 51, 21))
         self.label_7.setObjectName("label_7")
@@ -51,3 +53,15 @@ class Ui_Dialog(object):
         item.setText(_translate("Dialog", "链接"))
         item = self.tableWidget.horizontalHeaderItem(3)
         item.setText(_translate("Dialog", "进度"))
+
+if __name__ == "__main__":
+    # DEBUG
+    import sys
+    from qt_material import apply_stylesheet
+    app = QtWidgets.QApplication(sys.argv)
+    apply_stylesheet(app, theme='dark_blue.xml')
+    Dialog = QtWidgets.QDialog()
+    ui = Ui_Dialog()
+    ui.setupUi(Dialog)
+    Dialog.show()
+    sys.exit(app.exec_())
