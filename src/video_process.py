@@ -13,14 +13,17 @@ class VideoProcess(QObject):
         self.video_concat = VideoConcat()
 
     def transfer(self, save_path:str, name:str) -> None:
+        """传递参数方法"""
         self.file_save_path = save_path
         self.name = name
 
 
     def concat(self) -> None:
+        """拼接方法"""
         self.video_concat.transfer(self.file_save_path, self.name)
         self.video_concat.start()
         def callback(flag):
+            """回调"""
             self.concat_finished.emit(flag)
         self.video_concat.finished.connect(callback)
 
