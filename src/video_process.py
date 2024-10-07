@@ -63,7 +63,12 @@ class VideoConcat(QThread):
             # 合并.ts文件为单个视频
             # ffmpeg.input(f"{path}/video_list.txt", format="concat", safe=0).output(f"{self.save_path}\\{self.name}.mp4",c = 'copy', y = '-y').run()
             # os.system("cd C:/ffmpeg | ffmpeg -f concat -safe 0 -i {path}/video_list.txt -c copy {self.save_path}/{self.name}.mp4")
-            command = [f'{ffmpeg_path}', '-f', 'concat', '-safe', '0', '-i', fr'{path}\video_list.txt', '-c', 'copy', '-y', fr'{self.save_path}\{self.name}.mp4']
+
+											illegal_chars_pattern = r'[\\/:*?"<>|]'  # 匹配非法字符
+        filename = re.sub(illegal_chars_pattern, '', self.name)
+        output_path = fr'{self.save_path}\{filename}.mp4'
+
+            command = [f'{ffmpeg_path}', '-f', 'concat', '-safe', '0', '-i', fr'{path}\video_list.txt', '-c', 'copy', '-y', output_path]
             # 使用 subprocess 调用 ffmpeg，并设置 creationflags 参数
             process = subprocess.Popen(command, creationflags=subprocess.CREATE_NO_WINDOW)
             # process = subprocess.Popen(command)
