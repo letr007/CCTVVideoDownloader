@@ -79,6 +79,7 @@ class CCTVVideoDownloaderAPI:
         resp_format = response.json()
         return resp_format
     
+    # 已弃用
     def get_m3u8_urls_450(self, guid:str) -> List:
         api_url = f"https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid={guid}"
         response = requests.get(api_url, timeout=10)
@@ -110,6 +111,36 @@ class CCTVVideoDownloaderAPI:
         # print(urls)
         return urls
     
+    def get_encrypt_m3u8_urls(self, guid:str) -> List:
+        api_url = f"https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid={guid}"
+        response = requests.get(api_url, timeout=10)
+        resp_format = response.json()
+        hls_h5e_url = resp_format["manifest"]["hls_h5e_url"]
+        # 获取m3u8
+        main_m3u8 = requests.get(hls_h5e_url, timeout=5)
+        main_m3u8_txt = main_m3u8.text
+        # 切分
+        main_m3u8_list = main_m3u8_txt.split("\n")
+        HD_m3u8_url = main_m3u8_list[-2]
+        h5e_head = hls_h5e_url.split("/")[2]
+        HD_m3u8_url = "https://" + h5e_head + HD_m3u8_url
+        # 获取2000.m3u8
+        video_m3u8 = requests.get(HD_m3u8_url)
+        # 提取ts列表
+        video_m3u8_list = video_m3u8.text.split("\n")
+        video_list = []
+        import re
+        for i in video_m3u8_list:
+            if re.match(r"\d+.ts", i):
+                video_list.append(i)
+        # 转化为urls列表
+        dl_url_head = HD_m3u8_url[:-8]
+        urls = []
+        for i in video_list:
+            tmp = dl_url_head + i
+            urls.append(tmp)
+        return urls
+
     def get_play_column_info(self, url:str) -> List:
         '''从视频播放页链接获取栏目标题和ID'''
         try:
@@ -149,8 +180,9 @@ if __name__ == "__main__":
     print(list1)
     # list2 = api._get_http_video_info("8665a11a622e5601e64663a77355af15")
     # print(json.dumps(list2, indent=4))
-    list3 = api.get_m3u8_urls_450("a5324e8cdda44d72bd569d1dba2e4988")
-    # print(list3)
+    # list3 = api.get_m3u8_urls_450("a5324e8cdda44d72bd569d1dba2e4988")
+    list3 = api.get_encrypt_m3u8_urls("a5324e8cdda44d72bd569d1dba2e4988")
+    print(list3)
     # tmp = api.get_column_info(0)
     # print(tmp)
     # print(api.get_play_column_info("https://tv.cctv.com/2024/06/21/VIDEs2DfNN70XHJ1OySUipyV240621.shtml?spm=C31267.PXDaChrrDGdt.EbD5Beq0unIQ.3"))
