@@ -1,5 +1,6 @@
 import subprocess
 
+from logger import logger
 from PyQt5.QtCore import QThread, pyqtSignal, QObject
 
 class VideoProcess(QObject):
@@ -36,6 +37,7 @@ class VideoConcat(QThread):
     finished = pyqtSignal(bool)
     def __init__(self) -> None:
         super().__init__()
+        self._logger = logger
 
     def transfer(self, save_path:str, name:str) -> None:
         self.save_path = save_path
@@ -49,6 +51,7 @@ class VideoConcat(QThread):
             file_list = os.listdir(path)
             ts_files = [i for i in file_list if re.match(r"\d+\.ts", i)]
             ts_files = sorted(ts_files, key=lambda x: int(x.split('.')[0]))
+            self._logger.info(f"拼接临时文件:{ts_files}")
 
             # 生成合并列表文件
             with open(f"{path}/video_list.txt", "w+") as f:
@@ -67,6 +70,7 @@ class VideoConcat(QThread):
             illegal_chars_pattern = r'[\\/:*?"<>|]'  # 匹配非法字符
             filename = re.sub(illegal_chars_pattern, '', self.name)
             output_path = fr'{self.save_path}\{filename}.mp4'
+            self._logger.info(f"输出路径:{output_path}")
 
             command = [f'{ffmpeg_path}', '-f', 'concat', '-safe', '0', '-i', fr'{path}\video_list.txt', '-c', 'copy', '-y', output_path]
             # 使用 subprocess 调用 ffmpeg，并设置 creationflags 参数

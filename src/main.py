@@ -5,7 +5,7 @@ from PyQt5.QtGui import QIcon,QPixmap,QMovie,QDesktopServices
 from qt_material import apply_stylesheet
 
 from MainUI import Ui_MainWindow as MainUI
-from logger import CustomLogger
+from logger import logger
 from api import CCTVVideoDownloaderAPI as API
 from download_engine import DownloadEngine as Engine
 from video_process import VideoProcess as Process
@@ -32,7 +32,7 @@ class CCTVVideoDownloader():
     def setup_ui(self) -> None:
         '''初始化'''
         # 初始化日志
-        self._logger = CustomLogger("CCTVVideoDownloader", "CCTVVideoDownloader.log")
+        self._logger = logger
         self._logger.info("程序初始化...")
         # 加载主UI
         self._mainUI = QtWidgets.QMainWindow()

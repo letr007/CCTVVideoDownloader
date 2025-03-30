@@ -60,3 +60,7 @@ var/
 
 # Briefcase log files
 logs/
+
+CCTVVideoDownloader.log
+.venv
+config.json

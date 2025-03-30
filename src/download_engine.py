@@ -2,6 +2,7 @@ import requests
 import os
 from typing import List
 import concurrent.futures
+from logger import logger
 
 from PyQt5.QtCore import QThread, pyqtSignal, QObject
 
@@ -16,10 +17,12 @@ class DownloadWorker(QThread):
         self.file_name = name # 视频名称
         self.thread_num = thread_num # 线程数量
         self._is_running = True # 线程运行状态控制参数
+        self._logger = logger # 日志记录器
 
     def run(self) -> None:
         '''开始并行下载'''
         # 使用线程池执行下载任务
+        self._logger.info(f"开始下载 {self.file_name} 使用线程数 {self.thread_num}")
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.thread_num) as executor:
             futures = {executor.submit(self.download_core, url, self.urls.index(url)): url for url in self.urls} # 创建任务字典
             for future in concurrent.futures.as_completed(futures): # 遍历任务字典
@@ -32,7 +35,7 @@ class DownloadWorker(QThread):
                 except Exception as exc:
                     print(f'{url} 产生了一个错误: {exc}')
 
-    def download_core(self, url, num) -> List[str, int, str, int]:
+    def download_core(self, url, num) -> List[str]:
         '''核心下载方法'''
         # 设置下载参数
         chunk_size = 1024
