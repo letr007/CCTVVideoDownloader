@@ -5,7 +5,7 @@ from PyQt5.QtGui import QIcon,QPixmap,QMovie,QDesktopServices
 from qt_material import apply_stylesheet
 
 from MainUI import Ui_MainWindow as MainUI
-from logger import CustomLogger
+from logger import logger
 from api import CCTVVideoDownloaderAPI as API
 from download_engine import DownloadEngine as Engine
 from video_process import VideoProcess as Process
@@ -32,7 +32,7 @@ class CCTVVideoDownloader():
     def setup_ui(self) -> None:
         '''初始化'''
         # 初始化日志
-        self._logger = CustomLogger("CCTVVideoDownloader", "CCTVVideoDownloader.log")
+        self._logger = logger
         self._logger.info("程序初始化...")
         # 加载主UI
         self._mainUI = QtWidgets.QMainWindow()
@@ -221,21 +221,30 @@ class CCTVVideoDownloader():
         # 锁定下载按钮
         self.main_ui.pushButton.setEnabled(False)
         # 获取下载视频参数
-        urls = self.api.get_m3u8_urls_450(self._WILL_DOWNLOAD["guid"])
+        # urls = self.api.get_m3u8_urls_450(self._WILL_DOWNLOAD["guid"])
+        try:
+            urls = self.api.get_encrypt_m3u8_urls(self._WILL_DOWNLOAD["guid"])
+        except ValueError as e:
+            self._raise_warning(e)
         file_save_path = self._SETTINGS["file_save_path"]
         name = self._WILL_DOWNLOAD["name"]
         self._dialog_download_base = QtWidgets.QDialog()
         self._dialog_concat_base = QtWidgets.QDialog()
+        self._dialog_decrypt_base = QtWidgets.QDialog()
         self.dialog_download = DownloadUI()
         self.dialog_concat = ConcatUI()
+        # 暂时复用一下拼接的UI
+        self.dialog_decrypt = ConcatUI()
         self.dialog_download.setupUi(self._dialog_download_base)
         self._dialog_download_base.closeEvent = lambda event: self.worker.quit()
         self._dialog_download_base.closeEvent = lambda event: self.main_ui.pushButton.setEnabled(True)
         # 设置模态
         self._dialog_download_base.setModal(True)
         self._dialog_concat_base.setModal(True)
+        self._dialog_decrypt_base.setModal(True)
         # 去除边框
         self._dialog_concat_base.setWindowFlags(QtCore.Qt.FramelessWindowHint)
+        self._dialog_decrypt_base.setWindowFlags(QtCore.Qt.FramelessWindowHint)
         # 初始化表格
         self.dialog_download.tableWidget.setRowCount(len(urls) - 1)
         self.dialog_download.progressBar_all.setValue(0)
@@ -271,13 +280,30 @@ class CCTVVideoDownloader():
             center_dialog_on_main_window(self._dialog_concat_base, self._mainUI)
             self._dialog_concat_base.show()
             self.process.concat()
-            self.process.concat_finished.connect(finished)
-        def finished(flag: bool):
+            self.process.concat_finished.connect(concat_finished)
+
+        def video_decrypt():
+            self._logger.info("开始视频解密")
+            self.process.transfer(self._SETTINGS["file_save_path"], self._WILL_DOWNLOAD["name"])
+            self.dialog_decrypt.setupUi(self._dialog_decrypt_base)
+            self.dialog_decrypt.label.setText("视频解密中...")
+            center_dialog_on_main_window(self._dialog_decrypt_base, self._mainUI)
+            self._dialog_decrypt_base.show()
+            self.process.decrypt()
+            self.process.decrypt_finished.connect(decrypt_finished)
+        def concat_finished(flag: bool):
             if flag:
                 self._logger.info("视频拼接完成")
                 # 解锁下载按钮
                 self.main_ui.pushButton.setEnabled(True)
                 self._dialog_concat_base.close()
+
+        def decrypt_finished(flag: bool):
+            if flag:
+                self._logger.info("视频解密完成")
+                self._dialog_decrypt_base.close()
+                video_concat()
+
         def display_info(info: list):
             '''将信息显示到表格中'''
             item1 = QtWidgets.QTableWidgetItem(str(info[0]))
@@ -304,7 +330,8 @@ class CCTVVideoDownloader():
                 self._logger.info("下载完成")
                 self._dialog_download_base.close()
                 # 调用拼接
-                video_concat()
+                # video_concat()
+                video_decrypt()
 
 
 

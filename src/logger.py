@@ -31,3 +31,5 @@ class CustomLogger(logging.Logger):
 #WARNING 警告
 #ERROR 错误
 #CRITICAL 严重错误
+
+logger = CustomLogger("CCTVVideoDownloader", "CCTVVideoDownloader.log")
