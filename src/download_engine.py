@@ -46,24 +46,57 @@ class DownloadWorker(QThread):
 
         tmp_path = os.path.join(self.save_path, "ctvd_tmp") # 临时文件路径
         os.makedirs(tmp_path, exist_ok=True) # 创建临时文件夹
-        response = requests.get(url, stream=True) # 发送请求
+        
         try:
-            content_size = int(response.headers['content-length']) # 获取文件大小
-            if response.status_code == 200:
-                file_path = os.path.join(tmp_path, f"{num}.ts") # 拼接文件路径
-                with open(file_path, 'wb') as file:
-                    # 循环下载数据
-                    for data in response.iter_content(chunk_size=chunk_size):
-                        if not self._is_running:
-                            return [num, 0, url, 0]  # 立即返回，表示下载已终止
+            # 添加重试机制
+            max_retries = 3
+            retry_count = 0
+            
+            while retry_count < max_retries:
+                try:
+                    response = requests.get(url, stream=True, timeout=30) # 添加超时设置
+                    response.raise_for_status()  # 检查响应状态
+                    
+                    content_size = int(response.headers['content-length']) # 获取文件大小
+                    file_path = os.path.join(tmp_path, f"{num}.ts") # 拼接文件路径
+                    
+                    self._logger.info(f"开始下载: {url} -> {file_path}")
+                    
+                    with open(file_path, 'wb') as file:
+                        # 循环下载数据
+                        for data in response.iter_content(chunk_size=chunk_size):
+                            if not self._is_running:
+                                return [num, 0, url, 0]  # 立即返回，表示下载已终止
 
-                        file.write(data) # 写入文件
-                        download_size += len(data) # 更新下载大小
-                        progress_percent = (download_size / content_size) * 100 # 计算下载进度
-                        self.download_info.emit([num, 1, url, progress_percent]) # 发送下载进度信息
+                            file.write(data) # 写入文件
+                            download_size += len(data) # 更新下载大小
+                            progress_percent = (download_size / content_size) * 100 # 计算下载进度
+                            self.download_info.emit([num, 1, url, progress_percent]) # 发送下载进度信息
+
+                    # 验证文件大小
+                    if os.path.getsize(file_path) == content_size:
+                        self._logger.info(f"文件 {num}.ts 下载完成")
+                        return [num, 0, url, 100]
+                    else:
+                        self._logger.warning(f"文件 {num}.ts 大小不匹配，重试中...")
+                        retry_count += 1
+                        continue
+                        
+                except requests.RequestException as e:
+                    self._logger.error(f"下载出错 {url}: {str(e)}")
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        self._logger.info(f"正在重试 ({retry_count}/{max_retries})...")
+                        continue
+                    else:
+                        self._logger.error(f"文件 {num}.ts 下载失败，已达到最大重试次数")
+                        return [num, 0, url, -1]  # 使用-1表示下载失败
+                
         except Exception as e:
-            print(e)
-        return [num, 0, url, 100]
+            self._logger.error(f"下载过程发生错误: {str(e)}")
+            return [num, 0, url, -1]  # 使用-1表示下载失败
+
+        return [num, 0, url, -1]  # 如果所有重试都失败，返回失败状态
 
     def stop(self):
         '''终止线程方法'''

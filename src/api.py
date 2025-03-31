@@ -117,11 +117,14 @@ class CCTVVideoDownloaderAPI:
         resp_format = response.json()
         hls_h5e_url = resp_format["manifest"]["hls_h5e_url"]
         # 获取m3u8
-        main_m3u8 = requests.get(hls_h5e_url, timeout=5)
+        main_m3u8 = requests.get(hls_h5e_url)
+        if main_m3u8.status_code != 200:
+            raise ValueError(f"获取视频ts列表失败，状态码为{main_m3u8.status_code}")
+        # print(main_m3u8.text)
         main_m3u8_txt = main_m3u8.text
         # 切分
         main_m3u8_list = main_m3u8_txt.split("\n")
-        HD_m3u8_url = main_m3u8_list[-2]
+        HD_m3u8_url = main_m3u8_list[-2] # 这里可能出错，到时候加个错误处理
         h5e_head = hls_h5e_url.split("/")[2]
         HD_m3u8_url = "https://" + h5e_head + HD_m3u8_url
         # 获取2000.m3u8
@@ -134,7 +137,7 @@ class CCTVVideoDownloaderAPI:
             if re.match(r"\d+.ts", i):
                 video_list.append(i)
         # 转化为urls列表
-        dl_url_head = HD_m3u8_url[:-8]
+        dl_url_head = HD_m3u8_url[:-9]
         urls = []
         for i in video_list:
             tmp = dl_url_head + i

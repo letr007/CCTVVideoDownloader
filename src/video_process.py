@@ -3,15 +3,19 @@ import subprocess
 from logger import logger
 from PyQt5.QtCore import QThread, pyqtSignal, QObject
 
+from decrypt.ts_decrypt_api import decrypt_ts_files
+
 class VideoProcess(QObject):
 
     # 创建信号
     concat_finished = pyqtSignal(bool)
+    decrypt_finished = pyqtSignal(bool)
 
     def __init__(self):
         super().__init__()
 
         self.video_concat = VideoConcat()
+        self.video_decrypt = VideoDecrypt()
 
     def transfer(self, save_path:str, name:str) -> None:
         """传递参数方法"""
@@ -27,6 +31,15 @@ class VideoProcess(QObject):
             """回调"""
             self.concat_finished.emit(flag)
         self.video_concat.finished.connect(callback)
+
+    def decrypt(self) -> None:
+        """解密方法"""
+        self.video_decrypt.transfer(self.file_save_path)
+        self.video_decrypt.start()
+        def callback(flag):
+            """回调"""
+            self.decrypt_finished.emit(flag)
+        self.video_decrypt.finished.connect(callback)
 
 
 
@@ -46,15 +59,16 @@ class VideoConcat(QThread):
     def run(self) -> None:
         import re, os, shutil
         path = os.path.join(self.save_path, "ctvd_tmp")
+        decrypt_path = os.path.join(self.save_path, "ctvd_tmp/ts_decrypt")
         try:
             # 获取文件列表
-            file_list = os.listdir(path)
+            file_list = os.listdir(decrypt_path)
             ts_files = [i for i in file_list if re.match(r"\d+\.ts", i)]
             ts_files = sorted(ts_files, key=lambda x: int(x.split('.')[0]))
             self._logger.info(f"拼接临时文件:{ts_files}")
 
             # 生成合并列表文件
-            with open(f"{path}/video_list.txt", "w+") as f:
+            with open(f"{decrypt_path}/video_list.txt", "w+") as f:
                 for ts_file in ts_files:
                     tmp = "file '" + ts_file + "'\n"
                     f.write(tmp)
@@ -72,7 +86,7 @@ class VideoConcat(QThread):
             output_path = fr'{self.save_path}\{filename}.mp4'
             self._logger.info(f"输出路径:{output_path}")
 
-            command = [f'{ffmpeg_path}', '-f', 'concat', '-safe', '0', '-i', fr'{path}\video_list.txt', '-c', 'copy', '-y', output_path]
+            command = [f'{ffmpeg_path}', '-f', 'concat', '-safe', '0', '-i', fr'{decrypt_path}\video_list.txt', '-c', 'copy', '-y', output_path]
             # 使用 subprocess 调用 ffmpeg，并设置 creationflags 参数
             process = subprocess.Popen(command, creationflags=subprocess.CREATE_NO_WINDOW)
             # process = subprocess.Popen(command)
@@ -85,6 +99,42 @@ class VideoConcat(QThread):
             self.finished.emit(True)
         
         except Exception as e:
+            self.finished.emit(False)
+            print(e)
+
+class VideoDecrypt(QThread):
+    """视频解密线程"""
+
+    # 创建信号
+    finished = pyqtSignal(bool)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._logger = logger
+
+    def transfer(self, save_path:str) -> None:
+        self.save_path = save_path
+
+    def run(self) -> None:
+        import re, os, shutil
+        path = os.path.join(self.save_path, "ctvd_tmp")
+        decrypt_path = os.path.join(path, "ts_decrypt")
+        try:
+            # 获取文件列表
+            file_list = os.listdir(path)
+            ts_files = [i for i in file_list if re.match(r"\d+\.ts", i)]
+            ts_files = sorted(ts_files, key=lambda x: int(x.split('.')[0]))
+            
+            # 使用完整路径
+            input_files = [os.path.join(path, ts_file) for ts_file in ts_files]
+            
+            self._logger.info(f"解密临时文件:{input_files}")
+            result = decrypt_ts_files(input_files, decrypt_path)
+            self._logger.info(f"解密结果:{result}")
+            self.finished.emit(True)
+                
+        except Exception as e:
+            self._logger.error(f"解密过程发生错误: {str(e)}")
             self.finished.emit(False)
             print(e)
 
