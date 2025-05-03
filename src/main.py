@@ -225,7 +225,7 @@ class CCTVVideoDownloader():
         try:
             urls = self.api.get_encrypt_m3u8_urls(self._WILL_DOWNLOAD["guid"])
         except ValueError as e:
-            self._raise_warning(e)
+            self._raise_error(e)
         file_save_path = self._SETTINGS["file_save_path"]
         name = self._WILL_DOWNLOAD["name"]
         self._dialog_download_base = QtWidgets.QDialog()

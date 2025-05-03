@@ -3,7 +3,7 @@ import subprocess
 from logger import logger
 from PyQt5.QtCore import QThread, pyqtSignal, QObject
 
-from decrypt.ts_decrypt_api import decrypt_ts_files
+from decrypt.decrypt import decrypt_files
 
 class VideoProcess(QObject):
 
@@ -125,12 +125,24 @@ class VideoDecrypt(QThread):
             ts_files = [i for i in file_list if re.match(r"\d+\.ts", i)]
             ts_files = sorted(ts_files, key=lambda x: int(x.split('.')[0]))
             
-            # 使用完整路径
-            input_files = [os.path.join(path, ts_file) for ts_file in ts_files]
+            # 确保解密目录存在
+            os.makedirs(decrypt_path, exist_ok=True)
             
-            self._logger.info(f"解密临时文件:{input_files}")
-            result = decrypt_ts_files(input_files, decrypt_path)
-            self._logger.info(f"解密结果:{result}")
+            # 遍历所有ts文件进行解密
+            for ts_file in ts_files:
+                input_file = os.path.join(path, ts_file)
+                output_file = os.path.join(decrypt_path, ts_file)
+                
+                self._logger.info(f"开始解密: {input_file} -> {output_file}")
+                try:
+                    # 调用解密函数
+                    decrypt_files(input_file, decrypt_path)
+                    self._logger.info(f"解密成功: {ts_file}")
+                except Exception as e:
+                    self._logger.error(f"解密失败 {ts_file}: {str(e)}")
+                    raise
+            
+            self._logger.info("所有文件解密完成")
             self.finished.emit(True)
                 
         except Exception as e:
