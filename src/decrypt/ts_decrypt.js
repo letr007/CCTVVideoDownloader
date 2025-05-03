@@ -20,28 +20,36 @@ const path = require('path');
 
 // 检查参数
 if (argv.length < 4) {
-    console.error('Usage: node ts_decrypt.js <input_files...> -o <output_directory>');
+    console.error('Usage: node ts_decrypt.js <input_file> -o <output_directory>');
     process.exit(1);
 }
 
 // 解析参数
+let input_file = '';
+
 for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '-o') {
         if (i + 1 < argv.length) {
-            outdir = argv[i + 1];
+            outdir = path.resolve(argv[i + 1]);
             i++;  // 跳过下一个参数
         } else {
             console.error('Error: -o option requires an output directory');
             process.exit(1);
         }
     } else {
-        files.push(argv[i]);
+        // 使用 path.resolve 处理输入文件路径
+        input_file = path.resolve(argv[i]);
     }
 }
 
-// 确保至少有一个输入文件
-if (files.length === 0) {
-    console.error('Error: No input files specified');
+// 确保输入文件存在
+if (!input_file) {
+    console.error('Error: No input file specified');
+    process.exit(1);
+}
+
+if (!fs.existsSync(input_file)) {
+    console.error(`Error: Input file does not exist: ${input_file}`);
     process.exit(1);
 }
 
@@ -49,6 +57,10 @@ if (files.length === 0) {
 if (!fs.existsSync(outdir)) {
     fs.mkdirSync(outdir, { recursive: true });
 }
+
+// 打印调试信息
+console.log('Input file:', input_file);
+console.log('Output directory:', outdir);
 
 //
 //////////////////////////////////////////////////////////////////////////
@@ -253,29 +265,22 @@ function Parse_TS ( buf ) {
 CNTVH5PlayerModule.onRuntimeInitialized = () => {
 
 (async() => {
-
-    for (const file of files) {
-        try {
-            console.log(`Processing file: ${file}`);
-            let buf = get_binary_from_file(file);
-            Parse_TS(buf);
-            
-            // 使用 path.basename 获取文件名
-            let filename = path.basename(file);
-            // 使用 path.join 正确拼接路径
-            let outputFile = path.join(outdir, filename);
-            
-            save_binary(buf, outputFile);
-            console.log(`Successfully processed: ${file} -> ${outputFile}`);
-        } catch (error) {
-            console.error(`Error processing file ${file}:`, error);
-            // 继续处理下一个文件
-            continue;
-        }
+    try {
+        console.log(`Processing file: ${input_file}`);
+        let buf = get_binary_from_file(input_file);
+        Parse_TS(buf);
+        
+        // 使用 path.basename 获取文件名
+        let filename = path.basename(input_file);
+        // 使用 path.join 正确拼接路径
+        let outputFile = path.join(outdir, filename);
+        
+        save_binary(buf, outputFile);
+        console.log(`Successfully processed: ${input_file} -> ${outputFile}`);
+    } catch (error) {
+        console.error(`Error processing file ${input_file}:`, error);
+        process.exit(1);
     }
-    
-    console.log('All files processed.');
-
 })();
 
 };
