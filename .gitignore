@@ -64,3 +64,4 @@ logs/
 CCTVVideoDownloader.log
 .venv
 config.json
+pyinstaller导出.json

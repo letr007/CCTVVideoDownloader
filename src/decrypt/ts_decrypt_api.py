@@ -1,3 +1,7 @@
+"""
+ts_decrypt_api.py
+封装了ts_decrypt.js的调用，提供一个接口
+"""
 import os
 import sys
 import subprocess
@@ -30,6 +34,7 @@ class TSDecryptor:
         # 验证输入文件是否存在
         for file_path in abs_file_list:
             if not os.path.exists(file_path):
+                self._logger.error(f"输入文件不存在: {file_path}")
                 raise FileNotFoundError(f"输入文件不存在: {file_path}")
 
         # 处理输出目录
@@ -47,10 +52,13 @@ class TSDecryptor:
             cmd = ['node', js_script_abs_path] + abs_file_list + ['-o', output_dir]
             
             self._logger.info(f"执行解密命令: {' '.join(cmd)}")
+            self._logger.debug(f"输入文件列表: {abs_file_list}")
+            self._logger.debug(f"输出目录: {output_dir}")
             
             # 执行解密
             process = subprocess.Popen(
                 cmd,
+                creationflags=subprocess.CREATE_NO_WINDOW,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True
@@ -90,15 +98,10 @@ def decrypt_ts_files(file_list: List[str], output_dir: str = None) -> Dict[str, 
     decryptor = TSDecryptor()
     return decryptor.decrypt_files(file_list, output_dir)
 
-# 使用示例
+# 测试示例
 if __name__ == "__main__":
-    # 命令行使用示例
-    if len(sys.argv) < 2:
-        print("使用方法: python ts_decrypt_api.py <ts文件1> [ts文件2 ...] [-o 输出目录]")
-        sys.exit(1)
-
     # 解析命令行参数
-    files = []
+    input_files = []
     output = None
     i = 1
     while i < len(sys.argv):
@@ -110,16 +113,14 @@ if __name__ == "__main__":
                 print("错误: -o 选项需要指定输出目录")
                 sys.exit(1)
         else:
-            files.append(sys.argv[i])
+            input_files.append(sys.argv[i])
             i += 1
 
     try:
         # 执行解密
-        print(files, output)
-        result = decrypt_ts_files(files, output)
-        print("\n解密结果:")
+        result = decrypt_ts_files(input_files, output)
         for input_file, output_file in result.items():
-            print(f"{input_file} -> {output_file}")
+            print(f"\n解密结果: {input_file} -> {output_file}")
     except Exception as e:
         print(f"错误: {str(e)}", file=sys.stderr)
         sys.exit(1) 

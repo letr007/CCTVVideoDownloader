@@ -28,14 +28,15 @@ if (argv.length < 4) {
 for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '-o') {
         if (i + 1 < argv.length) {
-            outdir = argv[i + 1];
+            outdir = path.resolve(argv[i + 1]);
             i++;  // 跳过下一个参数
         } else {
             console.error('Error: -o option requires an output directory');
             process.exit(1);
         }
     } else {
-        files.push(argv[i]);
+        // 使用 path.resolve 处理输入文件路径
+        files.push(path.resolve(argv[i]));
     }
 }
 
@@ -49,6 +50,10 @@ if (files.length === 0) {
 if (!fs.existsSync(outdir)) {
     fs.mkdirSync(outdir, { recursive: true });
 }
+
+// 打印调试信息
+console.log('Input files:', files);
+console.log('Output directory:', outdir);
 
 //
 //////////////////////////////////////////////////////////////////////////
@@ -253,7 +258,6 @@ function Parse_TS ( buf ) {
 CNTVH5PlayerModule.onRuntimeInitialized = () => {
 
 (async() => {
-
     for (const file of files) {
         try {
             console.log(`Processing file: ${file}`);
@@ -275,7 +279,6 @@ CNTVH5PlayerModule.onRuntimeInitialized = () => {
     }
     
     console.log('All files processed.');
-
 })();
 
 };
