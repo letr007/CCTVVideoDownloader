@@ -65,9 +65,3 @@ WARNING  - 警告信息，不影响程序运行但需要注意
 ERROR    - 错误信息，程序运行出错
 CRITICAL - 严重错误，可能导致程序崩溃
 """
-
-#DEBUG 调试信息
-#INFO 信息
-#WARNING 警告
-#ERROR 错误
-#CRITICAL 严重错误

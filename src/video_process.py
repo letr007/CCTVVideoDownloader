@@ -88,9 +88,8 @@ class VideoConcat(QThread):
             # 生成合并列表文件
             list_file = os.path.join(path, "video_list.txt")
             with open(list_file, "w+", encoding='utf-8') as f:
-                for ts_file in ts_files:
-                    tmp = "file '" + ts_file + "'\n"
-                    f.write(tmp)
+                # 格式: file 'ts_file_name'
+                f.writelines(f"file '{ts_file}'\n" for ts_file in ts_files)
             self._logger.debug(f"生成合并列表文件: {list_file}")
 
             # 处理文件名中的非法字符
@@ -160,61 +159,52 @@ class VideoDecrypt(QThread):
 
     def run(self) -> None:
         import re, os, shutil
-        # path = os.path.join(self.save_path, "ctvd_tmp")
-        path = self.save_path
-        decrypt_path = os.path.join(path, "ts_decrypt")
         try:
             # 获取文件列表
-            file_list = os.listdir(path)
+            file_list = os.listdir(self.save_path)
             ts_files = [i for i in file_list if re.match(r"\d+\.ts", i)]
             ts_files = sorted(ts_files, key=lambda x: int(x.split('.')[0]))
             
             self._logger.info(f"找到 {len(ts_files)} 个TS文件需要解密")
             self._logger.debug(f"TS文件列表: {ts_files}")
             
-            # 确保解密目录存在
+            # 创建解密输出目录
+            decrypt_path = os.path.join(self.save_path, "ts_decrypt")
             os.makedirs(decrypt_path, exist_ok=True)
             self._logger.debug(f"解密输出目录: {decrypt_path}")
             
-            # 遍历所有ts文件进行解密
-            for ts_file in ts_files:
-                input_file = os.path.join(path, ts_file)
-                output_file = os.path.join(decrypt_path, ts_file)
-                
-                self._logger.info(f"开始解密: {ts_file}")
-                self._logger.debug(f"输入文件: {input_file}")
-                self._logger.debug(f"输出文件: {output_file}")
-                
-                # 检查文件是否已存在且完整
-                if os.path.exists(output_file):
-                    input_size = os.path.getsize(input_file)
-                    output_size = os.path.getsize(output_file)
-                    if output_size > 0 and output_size >= input_size * 0.9:  # 允许10%的误差
-                        self._logger.info(f"文件 {ts_file} 已存在且完整，跳过解密")
-                        continue
-                
-                retry_count = 0
-                while retry_count < self.max_retries:
-                    try:
-                        # 调用解密函数，传入文件列表
-                        decrypt_ts_files(input_file, decrypt_path)
-                        
-                        # 验证解密后的文件
-                        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-                            self._logger.info(f"解密成功: {ts_file}")
+            # 构建完整的文件路径列表
+            input_files = [os.path.join(self.save_path, ts_file) for ts_file in ts_files]
+            
+            retry_count = 0
+            while retry_count < self.max_retries:
+                try:
+                    # 调用解密函数，传入文件列表
+                    result = decrypt_ts_files(input_files, decrypt_path)
+                    
+                    # 验证所有文件是否都解密成功
+                    success = True
+                    for input_file, output_file in result.items():
+                        if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
+                            self._logger.error(f"解密后的文件无效或为空: {output_file}")
+                            success = False
                             break
-                        else:
-                            raise Exception("解密后的文件无效或为空")
-                            
-                    except Exception as e:
-                        retry_count += 1
-                        if retry_count < self.max_retries:
-                            self._logger.warning(f"解密失败 {ts_file}: {str(e)}，将在 {self.retry_delay} 秒后重试")
-                            time.sleep(self.retry_delay)
-                            continue
-                        else:
-                            self._logger.error(f"解密失败 {ts_file}: {str(e)}，已达到最大重试次数")
-                            raise
+                    
+                    if success:
+                        self._logger.info("所有文件解密成功")
+                        break
+                    else:
+                        raise Exception("部分文件解密失败")
+                        
+                except Exception as e:
+                    retry_count += 1
+                    if retry_count < self.max_retries:
+                        self._logger.warning(f"解密失败: {str(e)}，将在 {self.retry_delay} 秒后重试")
+                        time.sleep(self.retry_delay)
+                        continue
+                    else:
+                        self._logger.error(f"解密失败: {str(e)}，已达到最大重试次数")
+                        raise
             
             self._logger.info("所有文件解密完成")
             self.finished.emit(True)

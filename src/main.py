@@ -310,42 +310,51 @@ class CCTVVideoDownloader():
                 video_concat()
 
         def display_info(info: list):
-            '''将信息显示到表格中'''
-            item1 = QtWidgets.QTableWidgetItem(str(info[0]))
-            if info[1] == 1:
-                item2 = QtWidgets.QTableWidgetItem("下载中")
-            elif info[1] == 0:
-                item2 = QtWidgets.QTableWidgetItem("完成")
-            elif info[1] == -1:
-                item2 = QtWidgets.QTableWidgetItem("等待")
-            item3 = QtWidgets.QTableWidgetItem(info[2])
-            item4 = QtWidgets.QTableWidgetItem(str(int(info[3])) + "%")
-            self.dialog_download.tableWidget.setItem(int(info[0])-1, 0, item1)
-            self.dialog_download.tableWidget.setItem(int(info[0])-1, 1, item2)
-            self.dialog_download.tableWidget.setItem(int(info[0])-1, 2, item3)
-            self.dialog_download.tableWidget.setItem(int(info[0])-1, 3, item4)
-
+            """更新表格中的下载信息并计算总进度"""
+            row = int(info[0]) - 1  # 行索引
+            
+            # 状态文本映射
+            status_text = {
+                1: "下载中",
+                0: "完成", 
+                -1: "等待"
+            }
+            
+            # 创建表格项
+            items = [
+                QtWidgets.QTableWidgetItem(str(info[0])),  # 序号
+                QtWidgets.QTableWidgetItem(status_text.get(info[1], "未知")),  # 状态
+                QtWidgets.QTableWidgetItem(info[2]),  # URL
+                QtWidgets.QTableWidgetItem(f"{int(info[3])}%")  # 进度
+            ]
+            
+            # 批量设置表格项
+            for col, item in enumerate(items):
+                self.dialog_download.tableWidget.setItem(row, col, item)
+            
+            # 更新进度字典
             self._progress_dict[info[0]] = int(info[3])
+            
+            # 计算并更新总进度
             total_progress = sum(self._progress_dict.values()) / len(self._progress_dict) * 2
             self.dialog_download.progressBar_all.setValue(int(total_progress))
-
+            
+            # 刷新表格视图
             self.dialog_download.tableWidget.viewport().update()
-
-            if total_progress == 100:
+            
+            # 检查是否全部完成
+            if total_progress >= 100:
                 self._logger.info("下载完成")
                 self._dialog_download_base.close()
-                # 调用拼接
-                # video_concat()
                 video_decrypt()
 
 
 
         # 生成信息列表
-        num = 1
         info_list = []
-        for i in urls:
-            info = [str(num), -1, i, "0"]
-            num += 1
+        for num, url in enumerate(urls, start=1):  # 从 1 开始计数
+            info = [str(num), -1, url, "0"]
+            info_list.append(info)
             display_info(info)
 
         

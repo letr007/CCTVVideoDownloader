@@ -1,3 +1,7 @@
+"""
+ts_decrypt_api.py
+封装了ts_decrypt.js的调用，提供一个接口
+"""
 import os
 import sys
 import subprocess
@@ -17,20 +21,21 @@ class TSDecryptor:
         if not os.path.exists(self.js_script_path):
             raise FileNotFoundError(f"找不到解密脚本: {self.js_script_path}")
 
-    def decrypt_files(self, input_file: str, output_dir: str = None) -> str:
+    def decrypt_files(self, file_list: List[str], output_dir: str = None) -> Dict[str, str]:
         """
-        解密单个TS文件
-        :param input_file: TS文件路径 (可以是相对路径或绝对路径)
+        解密多个TS文件
+        :param file_list: TS文件路径列表 (可以是相对路径或绝对路径)
         :param output_dir: 输出目录，如果为None则使用临时目录
-        :return: 解密后的文件路径
+        :return: 字典，键为输入文件路径，值为解密后文件路径
         """
-        # 将输入路径转换为绝对路径
-        abs_input_file = os.path.abspath(input_file)
+        # 将所有输入路径转换为绝对路径
+        abs_file_list = [os.path.abspath(f) for f in file_list]
         
         # 验证输入文件是否存在
-        if not os.path.exists(abs_input_file):
-            self._logger.error(f"输入文件不存在: {abs_input_file}")
-            raise FileNotFoundError(f"输入文件不存在: {abs_input_file}")
+        for file_path in abs_file_list:
+            if not os.path.exists(file_path):
+                self._logger.error(f"输入文件不存在: {file_path}")
+                raise FileNotFoundError(f"输入文件不存在: {file_path}")
 
         # 处理输出目录
         if output_dir is None:
@@ -44,15 +49,16 @@ class TSDecryptor:
             js_script_abs_path = os.path.abspath(self.js_script_path)
             
             # 构建命令 - 使用绝对路径
-            cmd = ['node', js_script_abs_path, abs_input_file, '-o', output_dir]
+            cmd = ['node', js_script_abs_path] + abs_file_list + ['-o', output_dir]
             
             self._logger.info(f"执行解密命令: {' '.join(cmd)}")
-            self._logger.debug(f"输入文件: {abs_input_file}")
+            self._logger.debug(f"输入文件列表: {abs_file_list}")
             self._logger.debug(f"输出目录: {output_dir}")
             
             # 执行解密
             process = subprocess.Popen(
                 cmd,
+                creationflags=subprocess.CREATE_NO_WINDOW,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True
@@ -64,12 +70,16 @@ class TSDecryptor:
                 self._logger.error(f"解密失败，错误输出: {stderr}")
                 raise RuntimeError(f"解密失败: {stderr}")
 
-            # 构建输出文件路径
-            output_path = os.path.join(output_dir, os.path.basename(input_file))
-            if not os.path.exists(output_path):
-                raise FileNotFoundError(f"解密后的文件未找到: {output_path}")
+            # 构建结果字典
+            result = {}
+            for input_file, abs_input_file in zip(file_list, abs_file_list):
+                output_path = os.path.join(output_dir, os.path.basename(input_file))
+                if os.path.exists(output_path):
+                    result[input_file] = output_path
+                else:
+                    raise FileNotFoundError(f"解密后的文件未找到: {output_path}")
 
-            return output_path
+            return result
 
         except Exception as e:
             self._logger.error(f"解密过程发生错误: {str(e)}")
@@ -78,25 +88,20 @@ class TSDecryptor:
                 shutil.rmtree(output_dir, ignore_errors=True)
             raise e
 
-def decrypt_ts_files(input_file: str, output_dir: str = None) -> str:
+def decrypt_ts_files(file_list: List[str], output_dir: str = None) -> Dict[str, str]:
     """
     便捷函数，用于直接解密TS文件
-    :param input_file: TS文件路径
+    :param file_list: TS文件路径列表
     :param output_dir: 输出目录，如果为None则使用临时目录
-    :return: 解密后的文件路径
+    :return: 字典，键为输入文件路径，值为解密后文件路径
     """
     decryptor = TSDecryptor()
-    return decryptor.decrypt_files(input_file, output_dir)
+    return decryptor.decrypt_files(file_list, output_dir)
 
-# 使用示例
+# 测试示例
 if __name__ == "__main__":
-    # 命令行使用示例
-    if len(sys.argv) < 2:
-        print("使用方法: python ts_decrypt_api.py <ts文件> [-o 输出目录]")
-        sys.exit(1)
-
     # 解析命令行参数
-    input_file = None
+    input_files = []
     output = None
     i = 1
     while i < len(sys.argv):
@@ -108,13 +113,14 @@ if __name__ == "__main__":
                 print("错误: -o 选项需要指定输出目录")
                 sys.exit(1)
         else:
-            input_file = sys.argv[i]
+            input_files.append(sys.argv[i])
             i += 1
 
     try:
         # 执行解密
-        result = decrypt_ts_files(input_file, output)
-        print(f"\n解密结果: {input_file} -> {result}")
+        result = decrypt_ts_files(input_files, output)
+        for input_file, output_file in result.items():
+            print(f"\n解密结果: {input_file} -> {output_file}")
     except Exception as e:
         print(f"错误: {str(e)}", file=sys.stderr)
         sys.exit(1) 

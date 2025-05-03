@@ -85,7 +85,11 @@ class CCTVVideoDownloaderAPI:
             return column_info
         
     def brief_formating(self, s:str) -> str:
-        '''格式化介绍信息'''
+        """
+        格式化介绍信息
+        :param s: 介绍信息
+        :return: 格式化后的介绍信息
+        """
         # 首先替换所有空格和\r为换行符
         replaced = s.replace(' ', '\n')
         replaced = replaced.replace('\r', '\n')
