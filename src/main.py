@@ -186,6 +186,7 @@ class CCTVVideoDownloader():
         self.dialog_setting.lineEdit_file_save_path.setText(self._SETTINGS["file_save_path"])
         self.dialog_setting.spinBox_thread.setValue(int(self._SETTINGS["threading_num"]))
         self.dialog_setting.spinBox_program.setValue(int(self._SETTINGS["video_display_num"]))
+        self.dialog_setting.comboBox_quality.setCurrentIndex(self._SETTINGS["quality"])
         # 绑定按钮
         def open_file_save_path():
             file_save_path = self.dialog_setting.lineEdit_file_save_path.text()
@@ -200,6 +201,7 @@ class CCTVVideoDownloader():
             self._SETTINGS["file_save_path"] = file_save_path
             self._SETTINGS["threading_num"] = str(thread_num)
             self._SETTINGS["video_display_num"] = str(video_display_num)
+            self._SETTINGS["quality"] = self.dialog_setting.comboBox_quality.currentIndex()
             self._logger.info(f"保存设置:{self._SETTINGS}")
             # 更新配置
             import json
@@ -226,7 +228,7 @@ class CCTVVideoDownloader():
         # 获取下载视频参数
         # urls = self.api.get_m3u8_urls_450(self._WILL_DOWNLOAD["guid"])
         try:
-            urls = self.api.get_encrypt_m3u8_urls(self._WILL_DOWNLOAD["guid"])
+            urls = self.api.get_encrypt_m3u8_urls(self._WILL_DOWNLOAD["guid"], str(self._SETTINGS["quality"]))
         except ValueError as e:
             self._raise_warning(e)
         file_save_path = self._SETTINGS["file_save_path"]

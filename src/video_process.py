@@ -133,7 +133,7 @@ class VideoConcat(QThread):
                 self._logger.error(f"视频拼接失败 - 返回码: {process.returncode}")
                 self._logger.error(f"FFmpeg错误输出: {stderr.decode('utf-8')}")
                 self.finished.emit(False)
-            shutil.rmtree(path)
+            shutil.rmtree(self.ts_path)
         
         except Exception as e:
             self._logger.error(f"视频拼接过程出错: {str(e)}", exc_info=True)
