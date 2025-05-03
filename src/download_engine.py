@@ -4,6 +4,7 @@ from typing import List
 import concurrent.futures
 from logger import logger
 import time
+import hashlib
 
 from PyQt5.QtCore import QThread, pyqtSignal, QObject
 
@@ -32,9 +33,12 @@ class DownloadWorker(QThread):
         '''开始并行下载'''
         self._logger.info(f"开始下载任务 - {self.file_name}")
         self._logger.debug(f"使用线程池执行下载任务，最大线程数: {self.thread_num}")
-        
+
+        hash_name = hashlib.md5(self.file_name.encode()).hexdigest()
+        tmp_path = os.path.join(self.save_path, hash_name)
+        os.makedirs(tmp_path, exist_ok=True)
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.thread_num) as executor:
-            futures = {executor.submit(self.download_core, url, self.urls.index(url)): url for url in self.urls}
+            futures = {executor.submit(self.download_core, url, self.urls.index(url), tmp_path): url for url in self.urls}
             for future in concurrent.futures.as_completed(futures):
                 if not self._is_running:
                     self._logger.warning("下载任务被用户终止")
@@ -46,7 +50,7 @@ class DownloadWorker(QThread):
                 except Exception as exc:
                     self._logger.error(f"下载出错 {url}: {str(exc)}", exc_info=True)
 
-    def download_core(self, url, num) -> List[str]:
+    def download_core(self, url, num, tmp_path) -> List[str]:
         '''核心下载方法'''
         chunk_size = 1024
         download_size = 0
@@ -56,8 +60,8 @@ class DownloadWorker(QThread):
             self._logger.debug(f"下载任务 {num} 被终止")
             return [num, 0, url, 0]
 
-        tmp_path = os.path.join(self.save_path, "ctvd_tmp")
-        os.makedirs(tmp_path, exist_ok=True)
+        # tmp_path = os.path.join(self.save_path, "ctvd_tmp")
+        # os.makedirs(tmp_path, exist_ok=True)
         file_path = os.path.join(tmp_path, f"{num}.ts")
         
         while retry_count < self.max_retries:

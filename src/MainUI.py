@@ -147,7 +147,7 @@ class Ui_MainWindow(object):
         self.label_introduce.setText(_translate("MainWindow", "<html><head/><body><p>暂无介绍</p></body></html>"))
         self.pushButton.setText(_translate("MainWindow", "下载"))
         self.label_time.setText(_translate("MainWindow", "<html><head/><body><p>暂无时间</p></body></html>"))
-        self.menu.setTitle(_translate("MainWindow", "程序"))
+        self.menu.setTitle(_translate("MainWindow", "文件"))
         self.menu_2.setTitle(_translate("MainWindow", "节目"))
         self.actionfile.setText(_translate("MainWindow", "打开文件保存位置"))
         self.actionexit.setText(_translate("MainWindow", "退出"))

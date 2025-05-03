@@ -94,7 +94,7 @@ class CCTVVideoDownloader():
         if self._SELECT_ID != None:
             if self._PROGRAMME != {}:
                 # 获取节目信息
-                video_information = self.api.get_video_list(self._SELECT_ID)
+                video_information = self.api.get_video_list(self._SELECT_ID, int(self._SETTINGS["video_display_num"]))
                 self.VIDEO_INFO = video_information
                 self.main_ui.tableWidget_List.setRowCount(len(video_information))
                 self.main_ui.tableWidget_List.setColumnWidth(0, 300)
@@ -180,11 +180,12 @@ class CCTVVideoDownloader():
         self.dialog_setting.radioButton_mp4.setEnabled(False)
         self.dialog_setting.radioButton_ts.setEnabled(False)
         # 锁定线程数上限与下限
-        self.dialog_setting.spinBox.setMaximum(5)
-        self.dialog_setting.spinBox.setMinimum(1)
+        self.dialog_setting.spinBox_thread.setMaximum(5)
+        self.dialog_setting.spinBox_thread.setMinimum(1)
         # 填充默认值
         self.dialog_setting.lineEdit_file_save_path.setText(self._SETTINGS["file_save_path"])
-        self.dialog_setting.spinBox.setValue(int(self._SETTINGS["threading_num"]))
+        self.dialog_setting.spinBox_thread.setValue(int(self._SETTINGS["threading_num"]))
+        self.dialog_setting.spinBox_program.setValue(int(self._SETTINGS["video_display_num"]))
         # 绑定按钮
         def open_file_save_path():
             file_save_path = self.dialog_setting.lineEdit_file_save_path.text()
@@ -194,9 +195,11 @@ class CCTVVideoDownloader():
 
         def save_settings():
             file_save_path = self.dialog_setting.lineEdit_file_save_path.text()
-            thread_num = self.dialog_setting.spinBox.value()
+            thread_num = self.dialog_setting.spinBox_thread.value()
+            video_display_num = self.dialog_setting.spinBox_program.value()
             self._SETTINGS["file_save_path"] = file_save_path
             self._SETTINGS["threading_num"] = str(thread_num)
+            self._SETTINGS["video_display_num"] = str(video_display_num)
             self._logger.info(f"保存设置:{self._SETTINGS}")
             # 更新配置
             import json

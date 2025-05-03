@@ -6,24 +6,53 @@ class CCTVVideoDownloaderAPI:
     def __init__(self):
         self._COLUMN_INFO = None
 
-    def get_video_list(self, id:str) -> Dict[str, List[str]]:
-        api_url = f"https://api.cntv.cn/NewVideo/getVideoListByColumn?id={id}&n=20&sort=desc&p=1&mode=0&serviceId=tvcctv"
-        response = requests.get(api_url, timeout=10)
-        # json格式解析
-        resp_format = response.json()
-        list_detials = resp_format["data"]["list"]
+    def get_video_list(self, id:str, num:int=100) -> Dict[str, List[str]]:
+        """
+        获取视频列表
+        :param id: 栏目ID
+        :param num: 需要获取的视频数量，当大于100时会自动分页获取
+        :return: 字典，键为索引，值为视频信息列表 [guid, time, title, image, brief]
+        """
+        # 计算需要获取的页数
+        page_size = 100  # API限制每页最多100条
+        total_pages = (num + page_size - 1) // page_size  # 向上取整
+        
         # 定义列表
         list_information = []
         list_index = []
-        # 索引
-        index = 0
-        # 遍历
-        for i in list_detials:
-            guid, time, title, image, brief = i["guid"], i["time"], i["title"], i["image"], i["brief"]    
-            list_tmp = [guid, time, title, image, brief]
-            list_information.append(list_tmp)
-            list_index.append(index)
-            index += 1
+        current_index = 0
+        
+        # 遍历所有页
+        for page in range(1, total_pages + 1):
+            # 计算当前页需要获取的数量
+            current_page_size = min(page_size, num - (page - 1) * page_size)
+            
+            # 构建API URL
+            api_url = f"https://api.cntv.cn/NewVideo/getVideoListByColumn?id={id}&n={current_page_size}&sort=desc&p={page}&mode=0&serviceId=tvcctv"
+            
+            try:
+                response = requests.get(api_url, timeout=10)
+                response.raise_for_status()  # 检查响应状态
+                
+                # json格式解析
+                resp_format = response.json()
+                list_detials = resp_format["data"]["list"]
+                
+                # 处理当前页的数据
+                for item in list_detials:
+                    guid, time, title, image, brief = item["guid"], item["time"], item["title"], item["image"], item["brief"]    
+                    list_tmp = [guid, time, title, image, brief]
+                    list_information.append(list_tmp)
+                    list_index.append(current_index)
+                    current_index += 1
+                    
+            except requests.exceptions.RequestException as e:
+                self._logger.error(f"获取第 {page} 页数据失败: {str(e)}")
+                continue
+            except (KeyError, ValueError) as e:
+                self._logger.error(f"解析第 {page} 页数据失败: {str(e)}")
+                continue
+        
         # 列表转字典
         dict_information = dict(zip(list_index, list_information))
         self._COLUMN_INFO = dict_information
@@ -179,13 +208,13 @@ class CCTVVideoDownloaderAPI:
 if __name__ == "__main__":
     api = CCTVVideoDownloaderAPI()
     import json
-    list1 = api.get_video_list("TOPC1451464665008914")
+    list1 = api.get_video_list("TOPC1451464665008914",200)
     print(list1)
     # list2 = api._get_http_video_info("8665a11a622e5601e64663a77355af15")
     # print(json.dumps(list2, indent=4))
     # list3 = api.get_m3u8_urls_450("a5324e8cdda44d72bd569d1dba2e4988")
-    list3 = api.get_encrypt_m3u8_urls("a5324e8cdda44d72bd569d1dba2e4988")
-    print(list3)
+    # list3 = api.get_encrypt_m3u8_urls("a5324e8cdda44d72bd569d1dba2e4988")
+    # print(list3)
     # tmp = api.get_column_info(0)
     # print(tmp)
     # print(api.get_play_column_info("https://tv.cctv.com/2024/06/21/VIDEs2DfNN70XHJ1OySUipyV240621.shtml?spm=C31267.PXDaChrrDGdt.EbD5Beq0unIQ.3"))

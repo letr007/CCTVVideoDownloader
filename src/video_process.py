@@ -1,5 +1,6 @@
 import subprocess
 import time
+import hashlib
 
 from logger import logger
 from PyQt5.QtCore import QThread, pyqtSignal, QObject
@@ -23,13 +24,14 @@ class VideoProcess(QObject):
     def transfer(self, save_path:str, name:str) -> None:
         """传递参数方法"""
         self.file_save_path = save_path
+        self.ts_path = os.path.join(save_path, hashlib.md5(name.encode()).hexdigest())
         self.name = name
         self._logger.debug(f"设置视频处理参数 - 保存路径: {save_path}, 名称: {name}")
 
     def concat(self) -> None:
         """拼接方法"""
         self._logger.info(f"开始视频拼接 - {self.name}")
-        self.video_concat.transfer(self.file_save_path, self.name)
+        self.video_concat.transfer(self.file_save_path, self.ts_path, self.name)
         self.video_concat.start()
         def callback(flag):
             """回调"""
@@ -43,7 +45,7 @@ class VideoProcess(QObject):
     def decrypt(self) -> None:
         """解密方法"""
         self._logger.info(f"开始视频解密 - {self.name}")
-        self.video_decrypt.transfer(self.file_save_path)
+        self.video_decrypt.transfer(self.ts_path)
         self.video_decrypt.start()
         def callback(flag):
             """回调"""
@@ -66,14 +68,15 @@ class VideoConcat(QThread):
         self._logger = logger
         self._logger.debug("初始化视频拼接线程")
 
-    def transfer(self, save_path:str, name:str) -> None:
+    def transfer(self, save_path:str, ts_path:str, name:str) -> None:
         self.save_path = save_path
+        self.ts_path = ts_path
         self.name = name
         self._logger.debug(f"设置拼接参数 - 保存路径: {save_path}, 名称: {name}")
 
     def run(self) -> None:
         import re, os, shutil
-        path = os.path.join(self.save_path, "ctvd_tmp/ts_decrypt")
+        path = os.path.join(self.ts_path, "ts_decrypt")
         try:
             # 获取文件列表
             file_list = os.listdir(path)
@@ -130,6 +133,7 @@ class VideoConcat(QThread):
                 self._logger.error(f"视频拼接失败 - 返回码: {process.returncode}")
                 self._logger.error(f"FFmpeg错误输出: {stderr.decode('utf-8')}")
                 self.finished.emit(False)
+            shutil.rmtree(path)
         
         except Exception as e:
             self._logger.error(f"视频拼接过程出错: {str(e)}", exc_info=True)
@@ -156,7 +160,8 @@ class VideoDecrypt(QThread):
 
     def run(self) -> None:
         import re, os, shutil
-        path = os.path.join(self.save_path, "ctvd_tmp")
+        # path = os.path.join(self.save_path, "ctvd_tmp")
+        path = self.save_path
         decrypt_path = os.path.join(path, "ts_decrypt")
         try:
             # 获取文件列表
