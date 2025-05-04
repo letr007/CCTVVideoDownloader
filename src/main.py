@@ -285,6 +285,11 @@ class CCTVVideoDownloader():
             center_dialog_on_main_window(self._dialog_concat_base, self._mainUI)
             self._dialog_concat_base.show()
             self.process.concat()
+            # 断开之前的连接，避免重复连接
+            try:
+                self.process.concat_finished.disconnect()
+            except:
+                pass
             self.process.concat_finished.connect(concat_finished)
 
         def video_decrypt():
@@ -295,7 +300,13 @@ class CCTVVideoDownloader():
             center_dialog_on_main_window(self._dialog_decrypt_base, self._mainUI)
             self._dialog_decrypt_base.show()
             self.process.decrypt()
+            # 断开之前的连接，避免重复连接
+            try:
+                self.process.decrypt_finished.disconnect()
+            except:
+                pass
             self.process.decrypt_finished.connect(decrypt_finished)
+
         def concat_finished(flag: bool):
             if flag:
                 self._logger.info("视频拼接完成")
@@ -307,7 +318,10 @@ class CCTVVideoDownloader():
             if flag:
                 self._logger.info("视频解密完成")
                 self._dialog_decrypt_base.close()
-                video_concat()
+                # 确保只调用一次video_concat
+                if not hasattr(self, '_decrypt_finished_called'):
+                    self._decrypt_finished_called = True
+                    video_concat()
 
         def display_info(info: list):
             """更新表格中的下载信息并计算总进度"""
@@ -346,7 +360,10 @@ class CCTVVideoDownloader():
             if total_progress >= 100:
                 self._logger.info("下载完成")
                 self._dialog_download_base.close()
-                video_decrypt()
+                # 确保只调用一次video_decrypt
+                if not hasattr(self, '_download_finished_called'):
+                    self._download_finished_called = True
+                    video_decrypt()
 
 
 
