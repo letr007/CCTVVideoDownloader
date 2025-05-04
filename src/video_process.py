@@ -220,12 +220,17 @@ import os
 
 def resource_path(relative_path):
     """获取资源文件的绝对路径"""
-    # 如果程序是打包后的（比如使用 PyInstaller 打包）
+    # 如果程序是打包后的
     if getattr(sys, 'frozen', False):
         # 获取打包后的可执行文件路径
         base_path = os.path.dirname(sys.executable)
-        # 由于auto-py-to-exe的改动，添加以下目录
-        base_path = os.path.join(base_path, "_internal")
+        # 检查是否是Nuitka打包
+        if hasattr(sys, '_MEIPASS'):
+            # PyInstaller打包
+            base_path = os.path.join(base_path, "_internal")
+        else:
+            # Nuitka打包
+            base_path = os.path.dirname(sys.executable)
     else:
         # 获取未打包时的脚本文件路径
         base_path = os.path.dirname(os.path.abspath(__file__))
