@@ -48,7 +48,7 @@ class CCTVVideoDownloader():
         self.main_ui.tableWidget_Config.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.main_ui.tableWidget_List.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         # 设置标题
-        self._mainUI.setWindowTitle("央视频下载器")
+        self._mainUI.setWindowTitle("央视视频下载器")
         # 设置图标
         self._mainUI.setWindowIcon(QIcon(":/resources/cctvvideodownload.ico"))
 
@@ -68,25 +68,37 @@ class CCTVVideoDownloader():
     def _flash_programme_list(self) -> None:
         '''刷新节目列表'''
         self._logger.info("刷新节目列表...")
-        # 检查更新节目单
-        self._checkout_config()
-        config = self._PROGRAMME
-        self.main_ui.tableWidget_Config.setRowCount(len(config))
-        # 遍历
-        num = 0
-        for i in config:
-            dict_tmp = config[i]
-            name = dict_tmp['name']
-            id = dict_tmp['id']
-            # 加入表格
-            item1 = QtWidgets.QTableWidgetItem(name)
-            item2 = QtWidgets.QTableWidgetItem(id)
-            self.main_ui.tableWidget_Config.setItem(num, 0, item1)
-            self.main_ui.tableWidget_Config.setItem(num, 1, item2)
-            num += 1
-        # 更新
-        self.main_ui.tableWidget_Config.viewport().update()
-        self._logger.info("栏目列表刷新完成")
+        
+        try:
+            # 检查更新节目单
+            self._checkout_config()
+            config:dict = self._PROGRAMME
+            
+            # 设置表格行数（一次性设置）
+            row_count = len(config)
+            self.main_ui.tableWidget_Config.setRowCount(row_count)
+            
+            for row, (key, programme_data) in enumerate(config.items()):
+                # 创建表格项
+                name_item = QtWidgets.QTableWidgetItem(programme_data.get('name', ''))
+                id_item = QtWidgets.QTableWidgetItem(programme_data.get('id', ''))
+                
+                # 设置表格项（禁用编辑）
+                name_item.setFlags(name_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+                id_item.setFlags(id_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+                
+                # 加入表格
+                self.main_ui.tableWidget_Config.setItem(row, 0, name_item)
+                self.main_ui.tableWidget_Config.setItem(row, 1, id_item)
+                
+            # 自动调整列宽
+            self.main_ui.tableWidget_Config.resizeColumnsToContents()
+            
+            self._logger.info(f"栏目列表刷新完成，共加载{row_count}个节目")
+        except Exception as e:
+            self._logger.error(f"刷新节目列表时出错: {str(e)}")
+            self._raise_warning("刷新节目列表时出错")
+
 
     def _flash_video_list(self) -> None:
         '''刷新视频列表'''
@@ -180,7 +192,7 @@ class CCTVVideoDownloader():
         self.dialog_setting.radioButton_mp4.setEnabled(False)
         self.dialog_setting.radioButton_ts.setEnabled(False)
         # 锁定线程数上限与下限
-        self.dialog_setting.spinBox_thread.setMaximum(5)
+        self.dialog_setting.spinBox_thread.setMaximum(10)
         self.dialog_setting.spinBox_thread.setMinimum(1)
         # 填充默认值
         self.dialog_setting.lineEdit_file_save_path.setText(self._SETTINGS["file_save_path"])
@@ -223,6 +235,9 @@ class CCTVVideoDownloader():
         '''下载对话框'''
         self._logger.info("开始下载")
         self._logger.info(f"使用线程数:{self._SETTINGS['threading_num']}")
+        # 重置标志位
+        self._download_finished_called = False
+        self._decrypt_finished_called = False
         # 锁定下载按钮
         self.main_ui.pushButton.setEnabled(False)
         # 获取下载视频参数
@@ -319,7 +334,7 @@ class CCTVVideoDownloader():
                 self._logger.info("视频解密完成")
                 self._dialog_decrypt_base.close()
                 # 确保只调用一次video_concat
-                if not hasattr(self, '_decrypt_finished_called'):
+                if not self._decrypt_finished_called:
                     self._decrypt_finished_called = True
                     video_concat()
 
@@ -361,7 +376,7 @@ class CCTVVideoDownloader():
                 self._logger.info("下载完成")
                 self._dialog_download_base.close()
                 # 确保只调用一次video_decrypt
-                if not hasattr(self, '_download_finished_called'):
+                if not self._download_finished_called:
                     self._download_finished_called = True
                     video_decrypt()
 
