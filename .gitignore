@@ -60,6 +60,11 @@ var/
 
 # Briefcase log files
 logs/
+
 *.log
 *.json
 .venv
+build.py
+build/
+nuitka-crash-report.xml
+
