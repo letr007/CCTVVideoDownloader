@@ -132,7 +132,7 @@ class VideoConcat(QThread):
                 self._logger.error(f"视频拼接失败 - 返回码: {process.returncode}")
                 self._logger.error(f"FFmpeg错误输出: {stderr.decode('utf-8')}")
                 self.finished.emit(False)
-            shutil.rmtree(self.ts_path)
+            # shutil.rmtree(self.ts_path)
         
         except Exception as e:
             self._logger.error(f"视频拼接过程出错: {str(e)}", exc_info=True)
@@ -164,6 +164,8 @@ class VideoDecrypt(QThread):
             file_list = os.listdir(self.save_path)
             ts_files = [i for i in file_list if re.match(r"\d+\.ts", i)]
             ts_files = sorted(ts_files, key=lambda x: int(x.split('.')[0]))
+            path = self.save_path
+            decrypt_path = os.path.join(self.save_path, "ts_decrypt")
             
             # 确保解密目录存在
             os.makedirs(decrypt_path, exist_ok=True)

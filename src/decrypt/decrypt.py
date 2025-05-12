@@ -154,9 +154,9 @@ class EmscriptenMemoryManager:
     
     def malloc(self, size):
         """分配内存，确保 4 字节对齐"""
-        size = (size + 3) & ~3
-        size = size + 0x1000
-        addr = self.alloc_ptr
+        size = (size + 7) & ~7 # 确保 8 字节对齐
+        addr = (self.alloc_ptr + 7) & ~7  # 对齐分配地址
+        # size = size + 0x1000
         
         if addr + size > self.memory_size - 0x1000:
             if size <= self.memory_size - self.base - 0x1000:
@@ -233,91 +233,134 @@ def find_nalu_start(buf, pos, total):
     return total
 
 def parse_nal_array(buf):
-    """解析和解密 NAL 单元"""
+    """解析NAL单元数组（与JS版本保持一致）"""
     begin = 0
     total = len(buf)
     
-    while begin < total:
-        begin += 3
+    while begin < total - 4:
+        # 检测起始码（与JS版本完全一致）
+        if buf[begin] == 0 and buf[begin+1] == 0 and buf[begin+2] == 1:
+            nal_start = begin + 3
+        else:
+            begin += 1
+            continue
+        
+        # 查找下一个起始码
         end = find_nalu_start(buf, begin+1, total)
-        size = end - begin
+        size = end - nal_start
         
         if size <= 0:
             begin = end
             continue
             
-        nal_unit_type = buf[begin] & 0x1f
+        nal_type = buf[nal_start] & 0x1f
         
-        if nal_unit_type in [1, 5, 25]:
+        # 只处理视频帧和关键帧（与JS版本一致）
+        if nal_type in [1, 5, 25]:
             try:
-                nalu_data = buf[begin:begin+size]
-                buffer_size = len(nalu_data) + 0x1000
+                nalu_data = buf[nal_start:nal_start+size]
+                
+                # 内存分配（16字节对齐，与JS版本一致）
+                buffer_size = (len(nalu_data) + 15) & ~15
                 buffer_ptr = memory_manager.malloc(buffer_size)
-                memory_manager.write8(buffer_ptr, nalu_data)
-                result_len = tea_func(store, len(nalu_data), buffer_ptr, buffer_ptr, 0)
                 
+                # 填充数据并清零剩余空间
+                padded_data = nalu_data + bytes(buffer_size - len(nalu_data))
+                memory_manager.write8(buffer_ptr, padded_data)
+                
+                # 调用WASM解密（参数顺序与JS版本完全一致）
+                result_len = tea_func(
+                    store,
+                    len(nalu_data),  # 数据长度（必须是原始数据长度）
+                    buffer_ptr,      # 输入指针
+                    buffer_ptr,      # 输出指针（原地解密）
+                    0                # 额外参数（保持为0）
+                )
+                
+                # 写回解密数据（仅写入实际数据长度）
                 if result_len > 0:
-                    decrypted_data = memory_manager.read8(buffer_ptr, result_len)
-                    for i in range(min(len(decrypted_data), size)):
-                        buf[begin+i] = decrypted_data[i]
+                    decrypted_data = memory_manager.read8(buffer_ptr, min(result_len, size))
+                    for i in range(len(decrypted_data)):
+                        buf[nal_start+i] = decrypted_data[i]
                 
+                # 释放内存（与JS版本一致）
                 memory_manager.free(buffer_ptr)
                 
             except Exception as e:
-                raise RuntimeError(f"解密 NAL 单元时出错: {e}")
-                
+                raise RuntimeError(f"解密NAL单元时出错 @ {hex(begin)}: {str(e)}")
+        
         begin = end
 
 def scatter_pes(buf, ctx):
-    """将处理后的 PES 数据分散回原始 TS 包"""
+    """将处理后的 PES 数据分散回原始 TS 包（与JS版本完全一致）"""
     k = 0
     for i in range(len(ctx['offarray'])):
-        for j in range(ctx['offarray'][i], ctx['indexarray'][i] + 188):
-            if k < len(ctx['PES']):
+        start = ctx['offarray'][i]
+        end = ctx['indexarray'][i] + 188
+        
+        # 边界检查（与JS版本一致）
+        if start >= len(buf) or end > len(buf):
+            continue
+            
+        # 确保不超过PES数据长度
+        pes_len = len(ctx['PES'])
+        for j in range(start, end):
+            if k < pes_len:
                 buf[j] = ctx['PES'][k]
                 k += 1
+            else:
+                break
 
 def parse_ts_packet(buf, index, ctx):
-    """解析单个 TS 包"""
+    """解析单个 TS 包（与JS版本完全一致）"""
+    # 严格的同步字节检查（与JS版本一致）
+    if buf[index] != 0x47:
+        raise ValueError(f"在偏移量 {index} 处发现无效的 TS 包同步字节")
+    
+    # PID提取（与JS版本完全一致）
     PID = ((buf[index+1] & 0x1f) << 8) + buf[index+2]
     PUSI = (buf[index+1] & 0x40) >> 6
     
+    # 只处理视频PID（与JS版本一致）
     if PID != 0x100:
         return
         
+    # 处理adaptation字段（与JS版本一致）
     adaptation_field_control = (buf[index+3] & 0x30) >> 4
     
-    if PUSI == 1:
-        if ctx['tscount'] > 0:
-            parse_nal_array(ctx['PES'])
-            scatter_pes(buf, ctx)
-            ctx['tscount'] = 0
+    # 处理PUSI标志（与JS版本完全一致）
+    if PUSI == 1 and ctx['tscount'] > 0:
+        parse_nal_array(ctx['PES'])
+        scatter_pes(buf, ctx)
+        ctx['tscount'] = 0
+        ctx['PES'] = bytearray()
+        ctx['indexarray'] = []
+        ctx['offarray'] = []
             
+    # 计算payload起始位置（与JS版本一致）
     payload_index = index + 4
-    payload = None
-    
-    if adaptation_field_control == 1:
-        payload = buf[payload_index:index+188]
-    elif adaptation_field_control == 2:
-        return
-    elif adaptation_field_control == 3:
+    if adaptation_field_control == 3:  # 有adaptation字段
         adaptation_field_length = buf[index+4]
         payload_index = index + 4 + 1 + adaptation_field_length
-        payload = buf[payload_index:index+188]
-    else:
+        if payload_index >= index + 188:
+            return
+    
+    # 获取payload数据（与JS版本一致）
+    payload = buf[payload_index:index+188]
+    if not payload:
         return
         
-    if payload:
-        if PUSI == 1:
-            ctx['indexarray'] = [index]
-            ctx['PES'] = bytearray(payload)
-            ctx['offarray'] = [payload_index]
-            ctx['tscount'] = 1
-        else:
-            ctx['indexarray'].append(index)
-            ctx['PES'].extend(payload)
-            ctx['offarray'].append(payload_index)
-            ctx['tscount'] += 1
+    # 更新PES上下文（与JS版本完全一致）
+    if PUSI == 1:
+        ctx['indexarray'] = [index]
+        ctx['PES'] = bytearray(payload)
+        ctx['offarray'] = [payload_index]
+        ctx['tscount'] = 1
+    else:
+        ctx['indexarray'].append(index)
+        ctx['PES'].extend(payload)
+        ctx['offarray'].append(payload_index)
+        ctx['tscount'] += 1
 
 def parse_ts(buf):
     """解析整个 TS 流"""
@@ -377,4 +420,4 @@ if __name__ == '__main__':
     if success:
         print(f"成功处理: {args.input_file} -> {os.path.join(args.output_dir, os.path.basename(args.input_file))}")
     else:
-        print(f"处理失败: {args.input_file}") 
+        print(f"处理失败: {args.input_file}")

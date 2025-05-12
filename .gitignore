@@ -63,3 +63,8 @@ logs/
 *.log
 *.json
 .venv
+.python-version
+pyproject.toml
+uv.lock
+src/decrypt/*.ts
+src/decrypt/*.js
