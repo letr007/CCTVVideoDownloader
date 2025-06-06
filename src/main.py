@@ -106,7 +106,11 @@ class CCTVVideoDownloader():
         if self._SELECT_ID != None:
             if self._PROGRAMME != {}:
                 # 获取节目信息
-                video_information = self.api.get_video_list(self._SELECT_ID, int(self._SETTINGS["video_display_num"]))
+                video_information = self.api.get_video_list(
+                    id=self._SELECT_ID,
+                    start_index=int(self._SETTINGS["video_display_min"]),
+                    end_index=int(self._SETTINGS["video_display_max"])
+                    )
                 self.VIDEO_INFO = video_information
                 self.main_ui.tableWidget_List.setRowCount(len(video_information))
                 self.main_ui.tableWidget_List.setColumnWidth(0, 300)
@@ -197,7 +201,8 @@ class CCTVVideoDownloader():
         # 填充默认值
         self.dialog_setting.lineEdit_file_save_path.setText(self._SETTINGS["file_save_path"])
         self.dialog_setting.spinBox_thread.setValue(int(self._SETTINGS["threading_num"]))
-        self.dialog_setting.spinBox_program.setValue(int(self._SETTINGS["video_display_num"]))
+        self.dialog_setting.spinBox_program_1.setValue(int(self._SETTINGS["video_display_min"]))
+        self.dialog_setting.spinBox_program_2.setValue(int(self._SETTINGS["video_display_max"]))
         self.dialog_setting.comboBox_quality.setCurrentIndex(self._SETTINGS["quality"])
         # 绑定按钮
         def open_file_save_path():
@@ -209,10 +214,12 @@ class CCTVVideoDownloader():
         def save_settings():
             file_save_path = self.dialog_setting.lineEdit_file_save_path.text()
             thread_num = self.dialog_setting.spinBox_thread.value()
-            video_display_num = self.dialog_setting.spinBox_program.value()
+            video_display_min = self.dialog_setting.spinBox_program_1.value()
+            video_display_max = self.dialog_setting.spinBox_program_2.value()
             self._SETTINGS["file_save_path"] = file_save_path
             self._SETTINGS["threading_num"] = str(thread_num)
-            self._SETTINGS["video_display_num"] = str(video_display_num)
+            self._SETTINGS["video_display_min"] = str(video_display_min)
+            self._SETTINGS["video_display_max"] = str(video_display_max)
             self._SETTINGS["quality"] = self.dialog_setting.comboBox_quality.currentIndex()
             self._logger.info(f"保存设置:{self._SETTINGS}")
             # 更新配置

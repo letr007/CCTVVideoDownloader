@@ -8,26 +8,33 @@ class CCTVVideoDownloaderAPI:
         self._COLUMN_INFO = None
         self._logger = logger
 
-    def get_video_list(self, id:str, num:int=100) -> Dict[str, List[str]]:
+    def get_video_list(self, id: str, start_index: int = 0, end_index: int = 99) -> Dict[int, List[str]]:
         """
-        获取视频列表
+        获取视频列表的指定区间数据
         :param id: 栏目ID
-        :param num: 需要获取的视频数量，当大于100时会自动分页获取
-        :return: 字典，键为索引，值为视频信息列表 [guid, time, title, image, brief]
+        :param start_index: 起始索引(包含)
+        :param end_index: 结束索引(包含)
+        :return: 字典，键为从0开始的索引，值为视频信息列表 [guid, time, title, image, brief]
         """
-        # 计算需要获取的页数
+        # 参数校验
+        if start_index > end_index:
+            start_index, end_index = end_index, start_index  # 自动交换
+        
+        # 计算需要获取的页数范围
         page_size = 100  # API限制每页最多100条
-        total_pages = (num + page_size - 1) // page_size  # 向上取整
+        start_page = start_index // page_size + 1
+        end_page = end_index // page_size + 1
         
         # 定义列表
         list_information = []
-        list_index = []
-        current_index = 0
         
-        # 遍历所有页
-        for page in range(1, total_pages + 1):
-            # 计算当前页需要获取的数量
-            current_page_size = min(page_size, num - (page - 1) * page_size)
+        # 遍历指定页数范围
+        for page in range(start_page, end_page + 1):
+            # 计算当前页的起始和结束索引
+            page_start_index = (page - 1) * page_size
+            
+            # 计算当前页需要获取的数量(始终取整页)
+            current_page_size = page_size
             
             # 构建API URL
             api_url = f"https://api.cntv.cn/NewVideo/getVideoListByColumn?id={id}&n={current_page_size}&sort=desc&p={page}&mode=0&serviceId=tvcctv"
@@ -38,16 +45,16 @@ class CCTVVideoDownloaderAPI:
                 
                 # json格式解析
                 resp_format = response.json()
-                list_detials = resp_format["data"]["list"]
+                list_details = resp_format["data"]["list"]
                 
-                # 处理当前页的数据
-                for item in list_detials:
-                    guid, time, title, image, brief = item["guid"], item["time"], item["title"], item["image"], item["brief"]    
-                    list_tmp = [guid, time, title, image, brief]
-                    list_information.append(list_tmp)
-                    list_index.append(current_index)
-                    current_index += 1
-                    
+                # 处理当前页的数据，只保留在目标区间内的
+                for i, item in enumerate(list_details):
+                    current_index = page_start_index + i
+                    if start_index <= current_index <= end_index:
+                        guid, time, title, image, brief = item["guid"], item["time"], item["title"], item["image"], item["brief"]    
+                        list_tmp = [guid, time, title, image, brief]
+                        list_information.append(list_tmp)
+                        
             except requests.exceptions.RequestException as e:
                 self._logger.error(f"获取第 {page} 页数据失败: {str(e)}")
                 continue
@@ -55,8 +62,8 @@ class CCTVVideoDownloaderAPI:
                 self._logger.error(f"解析第 {page} 页数据失败: {str(e)}")
                 continue
         
-        # 列表转字典
-        dict_information = dict(zip(list_index, list_information))
+        # 列表转字典，键从0开始
+        dict_information = {i: item for i, item in enumerate(list_information)}
         self._COLUMN_INFO = dict_information
         return self._COLUMN_INFO
     

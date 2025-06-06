@@ -148,20 +148,20 @@
     <rect>
      <x>10</x>
      <y>80</y>
-     <width>100</width>
+     <width>55</width>
      <height>20</height>
     </rect>
    </property>
    <property name="text">
-    <string>列表显示节目数:</string>
+    <string>节目区间:</string>
    </property>
   </widget>
-  <widget class="QSpinBox" name="spinBox_program">
+  <widget class="QSpinBox" name="spinBox_program_2">
    <property name="geometry">
     <rect>
-     <x>130</x>
+     <x>133</x>
      <y>80</y>
-     <width>60</width>
+     <width>57</width>
      <height>20</height>
     </rect>
    </property>
@@ -169,7 +169,7 @@
     <number>20</number>
    </property>
    <property name="maximum">
-    <number>9999</number>
+    <number>999999</number>
    </property>
    <property name="singleStep">
     <number>10</number>
@@ -209,6 +209,38 @@
      <string>流畅</string>
     </property>
    </item>
+  </widget>
+  <widget class="QSpinBox" name="spinBox_program_1">
+   <property name="geometry">
+    <rect>
+     <x>65</x>
+     <y>80</y>
+     <width>57</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="minimum">
+    <number>0</number>
+   </property>
+   <property name="maximum">
+    <number>9999</number>
+   </property>
+   <property name="singleStep">
+    <number>10</number>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_6">
+   <property name="geometry">
+    <rect>
+     <x>124</x>
+     <y>80</y>
+     <width>10</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>-</string>
+   </property>
   </widget>
  </widget>
  <resources/>
