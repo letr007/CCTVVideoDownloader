@@ -67,4 +67,6 @@ logs/
 build.py
 build/
 nuitka-crash-report.xml
-
+.python-version
+pyproject.toml
+uv.lock

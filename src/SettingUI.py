@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'src\ui\ctvd_setting.ui'
+# Form implementation generated from reading ui file './src/ui/ctvd_setting.ui'
 #
 # Created by: PyQt5 UI code generator 5.15.9
 #
@@ -49,14 +49,14 @@ class Ui_Dialog(object):
         self.label_4.setGeometry(QtCore.QRect(10, 105, 70, 20))
         self.label_4.setObjectName("label_4")
         self.label_5 = QtWidgets.QLabel(Dialog)
-        self.label_5.setGeometry(QtCore.QRect(10, 80, 100, 20))
+        self.label_5.setGeometry(QtCore.QRect(10, 80, 55, 20))
         self.label_5.setObjectName("label_5")
-        self.spinBox_program = QtWidgets.QSpinBox(Dialog)
-        self.spinBox_program.setGeometry(QtCore.QRect(130, 80, 60, 20))
-        self.spinBox_program.setMinimum(20)
-        self.spinBox_program.setMaximum(9999)
-        self.spinBox_program.setSingleStep(10)
-        self.spinBox_program.setObjectName("spinBox_program")
+        self.spinBox_program_2 = QtWidgets.QSpinBox(Dialog)
+        self.spinBox_program_2.setGeometry(QtCore.QRect(133, 80, 57, 20))
+        self.spinBox_program_2.setMinimum(20)
+        self.spinBox_program_2.setMaximum(999999)
+        self.spinBox_program_2.setSingleStep(10)
+        self.spinBox_program_2.setObjectName("spinBox_program_2")
         self.comboBox_quality = QtWidgets.QComboBox(Dialog)
         self.comboBox_quality.setGeometry(QtCore.QRect(80, 105, 110, 20))
         self.comboBox_quality.setObjectName("comboBox_quality")
@@ -65,6 +65,15 @@ class Ui_Dialog(object):
         self.comboBox_quality.addItem("")
         self.comboBox_quality.addItem("")
         self.comboBox_quality.addItem("")
+        self.spinBox_program_1 = QtWidgets.QSpinBox(Dialog)
+        self.spinBox_program_1.setGeometry(QtCore.QRect(65, 80, 57, 20))
+        self.spinBox_program_1.setMinimum(0)
+        self.spinBox_program_1.setMaximum(9999)
+        self.spinBox_program_1.setSingleStep(10)
+        self.spinBox_program_1.setObjectName("spinBox_program_1")
+        self.label_6 = QtWidgets.QLabel(Dialog)
+        self.label_6.setGeometry(QtCore.QRect(124, 80, 10, 20))
+        self.label_6.setObjectName("label_6")
 
         self.retranslateUi(Dialog)
         self.buttonBox.accepted.connect(Dialog.accept) # type: ignore
@@ -81,9 +90,10 @@ class Ui_Dialog(object):
         self.radioButton_mp4.setText(_translate("Dialog", "转码MP4"))
         self.label_3.setText(_translate("Dialog", "视频下载完成后是否转码?"))
         self.label_4.setText(_translate("Dialog", "视频清晰度:"))
-        self.label_5.setText(_translate("Dialog", "列表显示节目数:"))
+        self.label_5.setText(_translate("Dialog", "节目区间:"))
         self.comboBox_quality.setItemText(0, _translate("Dialog", "最高画质(默认)"))
         self.comboBox_quality.setItemText(1, _translate("Dialog", "超清"))
         self.comboBox_quality.setItemText(2, _translate("Dialog", "高清"))
         self.comboBox_quality.setItemText(3, _translate("Dialog", "标清"))
         self.comboBox_quality.setItemText(4, _translate("Dialog", "流畅"))
+        self.label_6.setText(_translate("Dialog", "-"))
