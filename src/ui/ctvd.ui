@@ -97,7 +97,12 @@
     </column>
     <column>
      <property name="text">
-      <string>ID</string>
+      <string>栏目ID</string>
+     </property>
+    </column>
+    <column>
+     <property name="text">
+      <string>节目ID</string>
      </property>
     </column>
    </widget>
@@ -129,7 +134,7 @@
      <string/>
     </property>
     <property name="icon">
-     <iconset resource="../Python project/CCTVVideoDownload/src/resources.qrc">
+     <iconset resource="../resources.qrc">
       <normaloff>:/resources/flash.png</normaloff>:/resources/flash.png</iconset>
     </property>
     <property name="iconSize">
@@ -152,7 +157,7 @@
      <string/>
     </property>
     <property name="icon">
-     <iconset resource="../Python project/CCTVVideoDownload/src/resources.qrc">
+     <iconset resource="../resources.qrc">
       <normaloff>:/resources/flash.png</normaloff>:/resources/flash.png</iconset>
     </property>
     <property name="iconSize">
@@ -346,7 +351,7 @@
   </action>
  </widget>
  <resources>
-  <include location="../Python project/CCTVVideoDownload/src/resources.qrc"/>
+  <include location="../resources.qrc"/>
  </resources>
  <connections/>
 </ui>

@@ -1,3 +1,4 @@
+import re
 import requests
 from typing import Dict,List
 from bs4 import BeautifulSoup
@@ -8,7 +9,7 @@ class CCTVVideoDownloaderAPI:
         self._COLUMN_INFO = None
         self._logger = logger
 
-    def get_video_list(self, id: str, start_index: int = 0, end_index: int = 99) -> Dict[int, List[str]]:
+    def get_video_list(self, ids:tuple, start_index: int = 0, end_index: int = 99) -> Dict[int, List[str]]:
         """
         获取视频列表的指定区间数据
         :param id: 栏目ID
@@ -37,7 +38,7 @@ class CCTVVideoDownloaderAPI:
             current_page_size = page_size
             
             # 构建API URL
-            api_url = f"https://api.cntv.cn/NewVideo/getVideoListByColumn?id={id}&n={current_page_size}&sort=desc&p={page}&mode=0&serviceId=tvcctv"
+            api_url = f"https://api.cntv.cn/NewVideo/getVideoListByColumn?id={ids[0]}&n={current_page_size}&sort=desc&p={page}&mode=0&serviceId=tvcctv"
             
             try:
                 response = requests.get(api_url, timeout=10)
@@ -45,7 +46,15 @@ class CCTVVideoDownloaderAPI:
                 
                 # json格式解析
                 resp_format = response.json()
-                list_details = resp_format["data"]["list"]
+                try:
+                    list_details = resp_format["data"]["list"]
+                except KeyError:
+                    api_url = f"https://api.cntv.cn/NewVideoset/getVideoAlbumInfoByVideoId?id={ids[1]}&serviceId=tvcctv"
+                    real_id = requests.get(api_url, timeout=10).json()["data"]["id"]
+                    api_url = f"https://api.cntv.cn/NewVideo/getVideoListByAlbumIdNew?id={real_id}&serviceId=tvcctv&sort=asc&pub=1&mode=0&p={page}&n={current_page_size}"
+                    response = requests.get(api_url, timeout=10)
+                    resp_format = response.json()
+                    list_details = resp_format["data"]["list"]
                 
                 # 处理当前页的数据，只保留在目标区间内的
                 for i, item in enumerate(list_details):
@@ -252,13 +261,15 @@ class CCTVVideoDownloaderAPI:
         script = str(script_tags[0])
         # 匹配标题和ID
         match_title = re.search(r'var commentTitle\s*=\s*["\'](.*?)["\'];', script)
-        match_id = re.search(r'var column_id\s*=\s*["\'](.*?)["\'];', script)
+        match_item_id = re.search(r'var itemid1\s*=\s*["\'](.*?)["\'];', script)
+        match_column_id = re.search(r'var column_id\s*=\s*["\'](.*?)["\'];', script)
 
-        if match_title and match_id:
+        if match_title and match_column_id and match_item_id:
             # 对标题处理
             match_title = match_title.group(1).split(" ")[0]
 
-            column_value = [match_title, match_id.group(1)]
+            column_value = [match_title, match_column_id.group(1), match_item_id.group(1)]
+            self._logger.info(f"获取栏目标题: {match_title}, 栏目ID: {match_column_id.group(1)}, 视频ID: {match_item_id.group(1)}")
             return column_value
         else:
             return None

@@ -81,15 +81,18 @@ class CCTVVideoDownloader():
             for row, (key, programme_data) in enumerate(config.items()):
                 # 创建表格项
                 name_item = QtWidgets.QTableWidgetItem(programme_data.get('name', ''))
-                id_item = QtWidgets.QTableWidgetItem(programme_data.get('id', ''))
+                column_id_item = QtWidgets.QTableWidgetItem(programme_data.get('column_id', ''))
+                item_id_item = QtWidgets.QTableWidgetItem(programme_data.get('item_id', ''))
                 
                 # 设置表格项（禁用编辑）
                 name_item.setFlags(name_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
-                id_item.setFlags(id_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+                column_id_item.setFlags(column_id_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+                item_id_item.setFlags(item_id_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
                 
                 # 加入表格
                 self.main_ui.tableWidget_Config.setItem(row, 0, name_item)
-                self.main_ui.tableWidget_Config.setItem(row, 1, id_item)
+                self.main_ui.tableWidget_Config.setItem(row, 1, column_id_item)
+                self.main_ui.tableWidget_Config.setItem(row, 2, item_id_item)
                 
             # 自动调整列宽
             self.main_ui.tableWidget_Config.resizeColumnsToContents()
@@ -106,8 +109,9 @@ class CCTVVideoDownloader():
         if self._SELECT_ID != None:
             if self._PROGRAMME != {}:
                 # 获取节目信息
+                item_id = self._PROGRAMME
                 video_information = self.api.get_video_list(
-                    id=self._SELECT_ID,
+                    ids=self._SELECT_ID,
                     start_index=int(self._SETTINGS["video_display_min"]),
                     end_index=int(self._SETTINGS["video_display_max"])
                     )
@@ -152,13 +156,14 @@ class CCTVVideoDownloader():
              
     def _is_program_selected(self, r:int, c:int) -> None:
         # 获取ID
-        selected_item_id = self.main_ui.tableWidget_Config.item(r, 1).text()
+        selected_item_column_id = self.main_ui.tableWidget_Config.item(r, 1).text()
+        selected_item_item_id = self.main_ui.tableWidget_Config.item(r, 2).text()
         # 获取名称
         selected_item_name = self.main_ui.tableWidget_Config.item(r, 0).text()
         # 输出日志
         self._logger.info(f"选中栏目:{selected_item_name}")
         # 设置ID
-        self._SELECT_ID = selected_item_id
+        self._SELECT_ID:tuple = (selected_item_column_id, selected_item_item_id)
 
         self._flash_video_list()
 
@@ -445,11 +450,11 @@ class CCTVVideoDownloader():
                 max_key = max(map(int, config["programme"].keys())) + 1 if config["programme"] else 1
                 # 检查 id 是否已经存在
                 for prog in config["programme"].values():
-                    if prog["id"] == column_info[1]:
+                    if prog["column_id"] == column_info[1] and prog["item_id"] == column_info[2]:
                         self._logger.warning(f"节目ID [{column_info[1]}] 已存在")
                         return
                     
-                config["programme"][str(max_key)] = {"name": column_info[0], "id": column_info[1]}
+                config["programme"][str(max_key)] = {"name": column_info[0], "column_id": column_info[1], "item_id": column_info[2]}
                 with open("config.json", "w+", encoding="utf-8") as f:
                     # 写入配置文件
                     f.write(json.dumps(config, indent=4))
