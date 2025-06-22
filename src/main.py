@@ -6,7 +6,7 @@ from qt_material import apply_stylesheet
 
 from MainUI import Ui_MainWindow as MainUI
 from logger import logger
-from api import CCTVVideoDownloaderAPI as API
+from api import API
 from download_engine import DownloadEngine as Engine
 from video_process import VideoProcess as Process
 from ImportUI import Ui_Dialog as ImportUI
@@ -553,4 +553,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()

@@ -6,17 +6,17 @@ from datetime import datetime
 
 class CustomLogger(logging.Logger):
     """
-    自定义日志类，继承自logging.Logger。
-    该类初始化时会自动配置日志输出到指定的文件，并设置日志级别。
+    自定义日志类，继承自logging.Logger
+    该类初始化时会自动配置日志输出到指定的文件，并设置日志级别
     """
 
     def __init__(self, name, log_file, level=logging.DEBUG):
         """
-        初始化自定义日志器。
+        初始化自定义日志器
 
-        :param name: 日志器的名称。
-        :param log_file: 日志文件的路径。
-        :param level: 日志级别，默认为DEBUG。
+        :param name: 日志器的名称
+        :param log_file: 日志文件的路径
+        :param level: 日志级别，默认为DEBUG
         """
         super().__init__(name, level)
         

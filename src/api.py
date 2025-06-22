@@ -1,298 +1,221 @@
-import re
-import requests
-from typing import Dict,List
-from bs4 import BeautifulSoup
+"""
+API模块，提供API插件管理和兼容性支持
+"""
+import os
+import importlib
+import pkgutil
+from typing import Dict, List, Optional, Any
+
 from logger import logger
+from plugins import APIManager, APIPlugin
+from plugins.cctv_column_api import CCTVColumnAPIPlugin
+from plugins.cctv_album_api import CCTVAlbumAPIPlugin
 
 class CCTVVideoDownloaderAPI:
+    """
+    为了向后兼容而保留的类
+    """
     def __init__(self):
-        self._COLUMN_INFO = None
-        self._logger = logger
+        self._api = API()
+    
+    def __getattr__(self, name):
+        return getattr(self._api, name)
 
+class API:
+    """
+    API管理类，用于加载和管理API插件
+    """
+    
+    def __init__(self):
+        self._logger = logger
+        self._api_manager = APIManager()
+        
+        # 注册内置插件
+        self._register_builtin_plugins()
+        
+        # 加载外部插件
+        self._load_plugins()
+        
+        # 获取当前活动的插件
+        self._active_plugin = self._api_manager.get_active_plugin()
+        if self._active_plugin:
+            self._logger.info(f"使用API插件: {self._active_plugin.name} v{self._active_plugin.version}")
+        else:
+            self._logger.error("没有可用的API插件")
+    
+    def _register_builtin_plugins(self):
+        """注册内置插件"""
+        # 注册CCTV栏目API插件
+        column_api = CCTVColumnAPIPlugin()
+        self._api_manager.register_plugin(column_api)
+        self._logger.info(f"已注册内置插件: {column_api.name}")
+        
+        # 注册CCTV专辑API插件
+        album_api = CCTVAlbumAPIPlugin()
+        self._api_manager.register_plugin(album_api)
+        self._logger.info(f"已注册内置插件: {album_api.name}")
+    
+    def _load_plugins(self):
+        """加载外部插件"""
+        # 插件目录
+        plugin_dir = os.path.join(os.path.dirname(__file__), "plugins")
+        
+        # 确保插件目录存在
+        if not os.path.exists(plugin_dir):
+            self._logger.warning(f"插件目录不存在: {plugin_dir}")
+            return
+        
+        # 遍历插件目录
+        for _, name, is_pkg in pkgutil.iter_modules([plugin_dir]):
+            # 跳过内置插件和非包
+            if name == "cctv_api" or not is_pkg:
+                continue
+            
+            try:
+                # 导入插件模块
+                module = importlib.import_module(f"plugins.{name}")
+                
+                # 查找插件类
+                for attr_name in dir(module):
+                    attr = getattr(module, attr_name)
+                    # 检查是否是APIPlugin的子类且不是APIPlugin本身
+                    if isinstance(attr, type) and issubclass(attr, APIPlugin) and attr != APIPlugin:
+                        # 实例化插件并注册
+                        plugin = attr()
+                        self._api_manager.register_plugin(plugin)
+                        self._logger.info(f"已加载插件: {plugin.name} v{plugin.version}")
+            except Exception as e:
+                self._logger.error(f"加载插件 {name} 失败: {str(e)}")
+    
     def get_video_list(self, ids:tuple, start_index: int = 0, end_index: int = 99) -> Dict[int, List[str]]:
         """
         获取视频列表的指定区间数据
-        :param id: 栏目ID
+        :param ids: 栏目ID元组 (column_id, item_id)
         :param start_index: 起始索引(包含)
         :param end_index: 结束索引(包含)
         :return: 字典，键为从0开始的索引，值为视频信息列表 [guid, time, title, image, brief]
         """
-        # 参数校验
-        if start_index > end_index:
-            start_index, end_index = end_index, start_index  # 自动交换
-        
-        # 计算需要获取的页数范围
-        page_size = 100  # API限制每页最多100条
-        start_page = start_index // page_size + 1
-        end_page = end_index // page_size + 1
-        
-        # 定义列表
-        list_information = []
-        
-        # 遍历指定页数范围
-        for page in range(start_page, end_page + 1):
-            # 计算当前页的起始和结束索引
-            page_start_index = (page - 1) * page_size
+        # 首先尝试使用当前活动的插件
+        if self._active_plugin:
+            result = self._active_plugin.get_video_list(ids, start_index, end_index)
+            if result:  # 如果获取成功，直接返回结果
+                return result
             
-            # 计算当前页需要获取的数量(始终取整页)
-            current_page_size = page_size
+            # 如果当前插件获取失败，尝试其他插件
+            self._logger.warning(f"使用插件 {self._active_plugin.name} 获取视频列表失败，尝试其他插件")
             
-            # 构建API URL
-            api_url = f"https://api.cntv.cn/NewVideo/getVideoListByColumn?id={ids[0]}&n={current_page_size}&sort=desc&p={page}&mode=0&serviceId=tvcctv"
+            # 获取所有可用的插件
+            plugins = self._api_manager.get_all_plugins()
+            for name, plugin in plugins.items():
+                if plugin != self._active_plugin:  # 跳过当前已经尝试过的插件
+                    self._logger.info(f"尝试使用插件 {name} 获取视频列表")
+                    result = plugin.get_video_list(ids, start_index, end_index)
+                    if result:  # 如果获取成功，切换到该插件并返回结果
+                        self._active_plugin = plugin
+                        self._logger.info(f"成功切换到插件 {name}")
+                        return result
             
-            try:
-                response = requests.get(api_url, timeout=10)
-                response.raise_for_status()  # 检查响应状态
-                
-                # json格式解析
-                resp_format = response.json()
-                try:
-                    list_details = resp_format["data"]["list"]
-                except KeyError:
-                    api_url = f"https://api.cntv.cn/NewVideoset/getVideoAlbumInfoByVideoId?id={ids[1]}&serviceId=tvcctv"
-                    real_id = requests.get(api_url, timeout=10).json()["data"]["id"]
-                    api_url = f"https://api.cntv.cn/NewVideo/getVideoListByAlbumIdNew?id={real_id}&serviceId=tvcctv&sort=asc&pub=1&mode=0&p={page}&n={current_page_size}"
-                    response = requests.get(api_url, timeout=10)
-                    resp_format = response.json()
-                    list_details = resp_format["data"]["list"]
-                
-                # 处理当前页的数据，只保留在目标区间内的
-                for i, item in enumerate(list_details):
-                    current_index = page_start_index + i
-                    if start_index <= current_index <= end_index:
-                        guid, time, title, image, brief = item["guid"], item["time"], item["title"], item["image"], item["brief"]    
-                        list_tmp = [guid, time, title, image, brief]
-                        list_information.append(list_tmp)
-                        
-            except requests.exceptions.RequestException as e:
-                self._logger.error(f"获取第 {page} 页数据失败: {str(e)}")
-                continue
-            except (KeyError, ValueError) as e:
-                self._logger.error(f"解析第 {page} 页数据失败: {str(e)}")
-                continue
-        
-        # 列表转字典，键从0开始
-        dict_information = {i: item for i, item in enumerate(list_information)}
-        self._COLUMN_INFO = dict_information
-        return self._COLUMN_INFO
+            # 所有插件都尝试失败
+            self._logger.error("所有API插件都无法获取视频列表")
+            return {}
+        else:
+            self._logger.error("没有可用的API插件")
+            return {}
     
     def get_column_info(self, index: int) -> Dict[str, str]:
-        if self._COLUMN_INFO != None:
-            video_info = self._COLUMN_INFO[index]
-            time = video_info[1]
-            title = video_info[2]
-            brief = self.brief_formating(video_info[4])
-            # 获取图片
-            try:
-                response = requests.get(video_info[3])
-                if response.status_code == 200:
-                    image = response.content
-                else:
-                    image = None
-            except Exception:
-                image = None
-            column_info = {
-                "time": time,
-                "title": title,
-                "brief": brief,
-                "image": image
-                
-            }
-            return column_info
-        
-    def brief_formating(self, s:str) -> str:
         """
-        格式化介绍信息
-        :param s: 介绍信息
-        :return: 格式化后的介绍信息
+        获取栏目信息
+        :param index: 视频索引
+        :return: 栏目信息字典，包含time, title, brief, image等键
         """
-        # 首先替换所有空格和\r为换行符
-        replaced = s.replace(' ', '\n')
-        replaced = replaced.replace('\r', '\n')
-        
-        # 消除连续的换行符
-        import re
-        result = re.sub(r'\n+', '\n', replaced)
-
-        # string = ""
-        # for i in range(0, len(result), 13):
-        #     string += result[i:i+13] + '\n'
-
-        return result
+        if self._active_plugin:
+            return self._active_plugin.get_column_info(index)
+        else:
+            self._logger.error("没有可用的API插件")
+            return {}
     
-
-    
-    #  已弃用
-    def _get_http_video_info(self, guid:str) -> Dict:
-        api_url = f"https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid={guid}"
-        response = requests.get(api_url, timeout=10)
-        # json格式解析
-        resp_format = response.json()
-        return resp_format
-    
-    # 已弃用
-    def get_m3u8_urls_450(self, guid:str) -> List:
-        api_url = f"https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid={guid}"
-        response = requests.get(api_url, timeout=10)
-        resp_format = response.json()
-        hls_enc2_url = resp_format["hls_url"]
-        # 获取main.m3u8
-        main_m3u8 = requests.get(hls_enc2_url, timeout=5)
-        main_m3u8_txt = main_m3u8.text
-        # 切分
-        main_m3u8_list = main_m3u8_txt.split("\n")
-        HD_m3u8_url = main_m3u8_list[-2]
-        hls_head = hls_enc2_url.split("/")[2] # eg:dhls2.cntv.qcloudcdn.com
-        HD_m3u8_url = "https://" + hls_head + HD_m3u8_url
-        # 获取2000.m3u8，即高清m3u8文件，内含ts
-        video_m3u8 = requests.get(HD_m3u8_url)
-        # 提取ts列表
-        video_m3u8_list = video_m3u8.text.split("\n")
-        video_list = []
-        import re
-        for i in video_m3u8_list:
-            if re.match(r"\d+.ts", i):
-                video_list.append(i)
-        # 转化为urls列表
-        dl_url_head = HD_m3u8_url[:-8]
-        urls = []
-        for i in video_list:
-            tmp = dl_url_head + i
-            urls.append(tmp)
-        # print(urls)
-        return urls
-    
-    def get_encrypt_m3u8_urls(self, guid:str, quality:str="0") -> List:
+    def get_encrypt_m3u8_urls(self, guid: str, quality: str = "0") -> List[str]:
         """
         获取加密m3u8的urls
         :param guid: 视频ID
         :param quality: 视频质量，"0"（最高清晰度）、"1"（超清）、"2"（高清）、"3"（标清）、"4"（流畅）
         :return: 加密m3u8的urls列表
         """
-        api_url = f"https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid={guid}"
-        response = requests.get(api_url, timeout=10)
-        resp_format = response.json()
-        hls_h5e_url = resp_format["manifest"]["hls_h5e_url"]
-        
-        # 获取m3u8
-        main_m3u8 = requests.get(hls_h5e_url)
-        if main_m3u8.status_code != 200:
-            raise ValueError(f"获取视频ts列表失败，状态码为{main_m3u8.status_code}")
-            
-        main_m3u8_txt = main_m3u8.text
-        # 切分
-        main_m3u8_list = main_m3u8_txt.split("\n")
-        
-        # 解析m3u8文件，获取不同清晰度的URL
-        quality_map = {
-            "4": {"bandwidth": 460800, "resolution": "480x270"},
-            "3": {"bandwidth": 870400, "resolution": "640x360"},
-            "2": {"bandwidth": 1228800, "resolution": "1280x720"},
-            "1": {"bandwidth": 2048000, "resolution": "1280x720"}
-        }
-        
-        # 存储所有清晰度的URL
-        quality_urls = {}
-        current_quality = None
-        
-        for line in main_m3u8_list:
-            line = line.strip()
-            if not line:
-                continue
-                
-            # 检查是否是清晰度信息行
-            if line.startswith("#EXT-X-STREAM-INF"):
-                # 提取带宽信息
-                bandwidth = int(line.split("BANDWIDTH=")[1].split(",")[0])
-                # 查找对应的清晰度
-                for q, info in quality_map.items():
-                    if info["bandwidth"] == bandwidth:
-                        current_quality = q
-                        break
-            # 如果是URL行且已找到对应的清晰度
-            elif current_quality and not line.startswith("#"):
-                quality_urls[current_quality] = line
-                current_quality = None
-        
-        # 选择对应的清晰度URL
-        if quality == "0":
-            # 选择最高清晰度
-            selected_quality = max(quality_urls.keys(), key=lambda x: int(x))
+        if self._active_plugin:
+            return self._active_plugin.get_encrypt_m3u8_urls(guid, quality)
         else:
-            if quality not in quality_urls:
-                raise ValueError(f"不支持的清晰度: {quality}，支持的清晰度有: {', '.join(quality_urls.keys())}")
-            selected_quality = quality
-            
-        # 构建完整的m3u8 URL
-        h5e_head = hls_h5e_url.split("/")[2]
-        m3u8_url:str = "https://" + h5e_head + quality_urls[selected_quality]
-        
-        self._logger.info(f"选择清晰度: {selected_quality}, URL: {m3u8_url}")
-        
-        # 获取对应清晰度的m3u8文件
-        video_m3u8 = requests.get(m3u8_url)
-        if video_m3u8.status_code != 200:
-            raise ValueError(f"获取视频ts列表失败，状态码为{video_m3u8.status_code}")
-            
-        # 提取ts列表
-        video_m3u8_list = video_m3u8.text.splitlines()
-        video_list = [i for i in video_m3u8_list if i.endswith('.ts')]
-                
-        # 转化为urls列表
-        dl_url_head = "/".join(m3u8_url.split("/")[:-1])+"/"  # 移除最后的.m3u8
-        urls = [dl_url_head + i for i in video_list]
-            
-        return urls
-
-    def get_play_column_info(self, url:str) -> List:
-        '''从视频播放页链接获取栏目标题和ID'''
-        try:
-            response = requests.get(url, timeout=5)
-        except Exception:
-            return None
-        # 检测网页的编码，并重新编码为 utf-8
-        response.encoding = response.apparent_encoding
-        # 使用BeautifulSoup解析
-        soup = BeautifulSoup(response.text, "html.parser")
-        # 查找script
-        script_tags = soup.find_all("script")
-        import re
-        # 取第一个script标签
-        script = str(script_tags[0])
-        # 匹配标题和ID
-        match_title = re.search(r'var commentTitle\s*=\s*["\'](.*?)["\'];', script)
-        match_item_id = re.search(r'var itemid1\s*=\s*["\'](.*?)["\'];', script)
-        match_column_id = re.search(r'var column_id\s*=\s*["\'](.*?)["\'];', script)
-
-        if match_title and match_column_id and match_item_id:
-            # 对标题处理
-            match_title = match_title.group(1).split(" ")[0]
-
-            column_value = [match_title, match_column_id.group(1), match_item_id.group(1)]
-            self._logger.info(f"获取栏目标题: {match_title}, 栏目ID: {match_column_id.group(1)}, 视频ID: {match_item_id.group(1)}")
-            return column_value
-        else:
-            return None
-
-        
-        
+            self._logger.error("没有可用的API插件")
+            return []
     
-            
+    def get_play_column_info(self, url: str) -> Optional[List[str]]:
+        """
+        从视频播放页链接获取栏目标题和ID
+        :param url: 视频播放页链接
+        :return: 栏目信息列表 [标题, 栏目ID, 视频ID]，如果获取失败则返回None
+        """
+        if self._active_plugin:
+            return self._active_plugin.get_play_column_info(url)
+        else:
+            self._logger.error("没有可用的API插件")
+            return None
+    
+    def brief_formating(self, s: str) -> str:
+        """
+        格式化介绍信息
+        :param s: 介绍信息
+        :return: 格式化后的介绍信息
+        """
+        if self._active_plugin:
+            return self._active_plugin.brief_formating(s)
+        else:
+            self._logger.error("没有可用的API插件")
+            return s
+    
+    def set_api_plugin(self, name: str) -> bool:
+        """
+        设置当前使用的API插件
+        :param name: 插件名称
+        :return: 是否设置成功
+        """
+        result = self._api_manager.set_active_plugin(name)
+        if result:
+            self._active_plugin = self._api_manager.get_active_plugin()
+            self._logger.info(f"切换到API插件: {self._active_plugin.name} v{self._active_plugin.version}")
+        else:
+            self._logger.error(f"API插件 {name} 不存在")
+        return result
+    
+    def get_available_plugins(self) -> Dict[str, Dict[str, str]]:
+        """
+        获取所有可用的API插件信息
+        :return: 插件信息字典，键为插件名称，值为包含name, description, version, author的字典
+        """
+        plugins = self._api_manager.get_all_plugins()
+        result = {}
+        for name, plugin in plugins.items():
+            result[name] = {
+                "name": plugin.name,
+                "description": plugin.description,
+                "version": plugin.version,
+                "author": plugin.author
+            }
+        return result
+    
+    def get_current_plugin_name(self) -> Optional[str]:
+        """
+        获取当前使用的API插件名称
+        :return: 插件名称，如果没有则返回None
+        """
+        if self._active_plugin:
+            return self._active_plugin.name
+        return None
+
+
 if __name__ == "__main__":
-    api = CCTVVideoDownloaderAPI()
-    import json
-    # list1 = api.get_video_list("TOPC1451464665008914",20)
-    # print(list1)
-    # list2 = api._get_http_video_info("8665a11a622e5601e64663a77355af15")
-    # print(json.dumps(list2, indent=4))
-    # list3 = api.get_m3u8_urls_450("a5324e8cdda44d72bd569d1dba2e4988")
+    api = API()
+    print(f"当前使用的API插件: {api.get_current_plugin_name()}")
+    print(f"可用的API插件: {api.get_available_plugins()}")
+    
+    # 测试API功能
     list3 = api.get_encrypt_m3u8_urls("a5324e8cdda44d72bd569d1dba2e4988", "2")
     print(list3)
-    # tmp = api.get_column_info(0)
-    # print(tmp)
-    # print(api.get_play_column_info("https://tv.cctv.com/2024/06/21/VIDEs2DfNN70XHJ1OySUipyV240621.shtml?spm=C31267.PXDaChrrDGdt.EbD5Beq0unIQ.3"))
-# string = "/asp/h5e/hls/2000/0303000a/3/default/a5324e8cdda44d72bd569d1dba2e4988/2000.m3u8"
-# a = "/".join(string.split("/")[:-1])
-# print(a)
-
-
