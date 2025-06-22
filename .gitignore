@@ -70,3 +70,4 @@ nuitka-crash-report.xml
 .python-version
 pyproject.toml
 uv.lock
+Nuitka.txt
