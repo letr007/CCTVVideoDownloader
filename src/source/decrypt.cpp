@@ -1,4 +1,4 @@
-﻿#include "decrypt.h"
+﻿#include "../head/decrypt.h"
 #include <QThread>
 #include <QCryptographicHash>
 #include <QDir>

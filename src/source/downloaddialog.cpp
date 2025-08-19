@@ -1,4 +1,4 @@
-﻿#include "downloaddialog.h"
+﻿#include "../head/downloaddialog.h"
 #include <QMessageBox>
 #include <QCloseEvent>
 

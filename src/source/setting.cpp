@@ -1,5 +1,5 @@
-﻿#include "setting.h"
-#include "config.h"
+﻿#include "../head/setting.h"
+#include "../head/config.h"
 
 #include <QFileDialog>
 #include <QDir>

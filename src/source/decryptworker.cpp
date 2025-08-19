@@ -1,4 +1,4 @@
-﻿#include "decryptworker.h"
+﻿#include "../head/decryptworker.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QProcess>

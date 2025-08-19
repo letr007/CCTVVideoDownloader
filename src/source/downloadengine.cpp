@@ -1,5 +1,5 @@
-﻿#include "downloadengine.h"
-#include "downloadtask.h"
+﻿#include "../head/downloadengine.h"
+#include "../head/downloadtask.h"
 #include <QDebug>
 
 inline size_t qHash(const QVariant& var, size_t seed = 0)

@@ -134,8 +134,8 @@
      <string/>
     </property>
     <property name="icon">
-     <iconset resource="resources.qrc">
-      <normaloff>:/resources/flash.png</normaloff>:/resources/flash.png</iconset>
+     <iconset resource="../resources/resources.qrc">
+      <normaloff>:/flash.png</normaloff>:/flash.png</iconset>
     </property>
     <property name="iconSize">
      <size>
@@ -157,8 +157,8 @@
      <string/>
     </property>
     <property name="icon">
-     <iconset resource="resources.qrc">
-      <normaloff>:/resources/flash.png</normaloff>:/resources/flash.png</iconset>
+     <iconset resource="../resources/resources.qrc">
+      <normaloff>:/flash.png</normaloff>:/flash.png</iconset>
     </property>
     <property name="iconSize">
      <size>
@@ -350,7 +350,7 @@
   </action>
  </widget>
  <resources>
-  <include location="resources.qrc"/>
+  <include location="../resources/resources.qrc"/>
  </resources>
  <connections/>
 </ui>

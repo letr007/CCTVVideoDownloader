@@ -1,4 +1,4 @@
-﻿#include "downloadtask.h"
+﻿#include "../head/downloadtask.h"
 #include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QNetworkReply>
 #include <QtNetwork/QNetworkRequest>

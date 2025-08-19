@@ -1,5 +1,5 @@
 ﻿// concatworker.cpp
-#include "concatworker.h"
+#include "../head/concatworker.h"
 #include <QDir>
 #include <QFile>
 #include <QTextStream>

@@ -1,4 +1,4 @@
-﻿#include "downloadmodel.h"
+﻿#include "../head/downloadmodel.h"
 
 DownloadModel::DownloadModel(QObject* parent)
     : QStandardItemModel(parent) {

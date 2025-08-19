@@ -1,4 +1,4 @@
-﻿#include "config.h"
+﻿#include "../head/config.h"
 
 std::unique_ptr<QSettings> g_settings;
 

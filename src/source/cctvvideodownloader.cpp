@@ -1,11 +1,11 @@
-﻿#include "cctvvideodownloader.h"
-#include "about.h"
-#include "setting.h"
-#include "import.h"
-#include "downloaddialog.h"
-#include "concat.h"
-#include "decrypt.h"
-#include "apiservice.h"
+﻿#include "../head/cctvvideodownloader.h"
+#include "../head/about.h"
+#include "../head/setting.h"
+#include "../head/import.h"
+#include "../head/downloaddialog.h"
+#include "../head/concat.h"
+#include "../head/decrypt.h"
+#include "../head/apiservice.h"
 
 //std::tuple<int, int> CCTVVideoDownloader::SELECTED_ID;
 

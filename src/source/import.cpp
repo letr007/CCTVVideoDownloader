@@ -1,5 +1,5 @@
-﻿#include "import.h"
-#include "apiservice.h"
+﻿#include "../head/import.h"
+#include "../head/apiservice.h"
 
 Import::Import(QWidget* parent)
 {

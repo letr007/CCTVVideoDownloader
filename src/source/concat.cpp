@@ -1,4 +1,4 @@
-﻿#include "concat.h"
+﻿#include "../head/concat.h"
 #include <QThread>
 #include <QCryptographicHash>
 #include <QDir>

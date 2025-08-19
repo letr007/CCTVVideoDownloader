@@ -1,4 +1,4 @@
-﻿#include "about.h"
+﻿#include "../head/about.h"
 
 #include <QMovie>
 #include <QSize>
