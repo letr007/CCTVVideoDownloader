@@ -1,0 +1,281 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SettingDialog</class>
+ <widget class="QDialog" name="SettingDialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>230</width>
+    <height>255</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>设置</string>
+  </property>
+  <widget class="QDialogButtonBox" name="buttonBox">
+   <property name="geometry">
+    <rect>
+     <x>33</x>
+     <y>220</y>
+     <width>150</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="orientation">
+    <enum>Qt::Orientation::Horizontal</enum>
+   </property>
+   <property name="standardButtons">
+    <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>10</y>
+     <width>150</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>文件保存位置:</string>
+   </property>
+  </widget>
+  <widget class="QLineEdit" name="lineEdit_file_save_path">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>30</y>
+     <width>185</width>
+     <height>20</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="pushButton_open">
+   <property name="geometry">
+    <rect>
+     <x>200</x>
+     <y>30</y>
+     <width>20</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>...</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_2">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>55</y>
+     <width>100</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>下载使用线程数:</string>
+   </property>
+  </widget>
+  <widget class="QSpinBox" name="spinBox_thread">
+   <property name="geometry">
+    <rect>
+     <x>130</x>
+     <y>55</y>
+     <width>90</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="value">
+    <number>1</number>
+   </property>
+  </widget>
+  <widget class="QRadioButton" name="radioButton_ts">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>185</y>
+     <width>70</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>不转码</string>
+   </property>
+  </widget>
+  <widget class="QRadioButton" name="radioButton_mp4">
+   <property name="geometry">
+    <rect>
+     <x>140</x>
+     <y>185</y>
+     <width>75</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>转码MP4</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_3">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>160</y>
+     <width>150</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>视频下载完成后是否转码?</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_4">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>133</y>
+     <width>70</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>视频清晰度:</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_5">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>80</y>
+     <width>100</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>列表显示节目区间:</string>
+   </property>
+  </widget>
+  <widget class="QSpinBox" name="spinBox_program_2">
+   <property name="geometry">
+    <rect>
+     <x>130</x>
+     <y>105</y>
+     <width>90</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="minimum">
+    <number>20</number>
+   </property>
+   <property name="maximum">
+    <number>999999</number>
+   </property>
+   <property name="singleStep">
+    <number>10</number>
+   </property>
+  </widget>
+  <widget class="QComboBox" name="comboBox_quality">
+   <property name="geometry">
+    <rect>
+     <x>80</x>
+     <y>133</y>
+     <width>140</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <item>
+    <property name="text">
+     <string>最高画质(默认)</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>超清</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>高清</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>标清</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>流畅</string>
+    </property>
+   </item>
+  </widget>
+  <widget class="QSpinBox" name="spinBox_program_1">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>105</y>
+     <width>90</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="minimum">
+    <number>0</number>
+   </property>
+   <property name="maximum">
+    <number>9999</number>
+   </property>
+   <property name="singleStep">
+    <number>10</number>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_6">
+   <property name="geometry">
+    <rect>
+     <x>112</x>
+     <y>105</y>
+     <width>10</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>-</string>
+   </property>
+  </widget>
+ </widget>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>accepted()</signal>
+   <receiver>SettingDialog</receiver>
+   <slot>accept()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>248</x>
+     <y>254</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>157</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>rejected()</signal>
+   <receiver>SettingDialog</receiver>
+   <slot>reject()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>316</x>
+     <y>260</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>286</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>

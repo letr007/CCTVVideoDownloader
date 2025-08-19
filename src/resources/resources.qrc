@@ -1,0 +1,9 @@
+<RCC>
+    <qresource prefix="/">
+        <file>info.png</file>
+        <file>afraid.gif</file>
+        <file>cctvvideodownload.ico</file>
+        <file>cctvvideodownload.png</file>
+        <file>flash.png</file>
+    </qresource>
+</RCC>

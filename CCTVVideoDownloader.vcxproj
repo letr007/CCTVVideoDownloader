@@ -108,73 +108,67 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="concat.cpp" />
-    <ClCompile Include="concatworker.cpp" />
-    <ClCompile Include="config.cpp" />
-    <ClCompile Include="decrypt.cpp" />
-    <ClCompile Include="decryptworker.cpp" />
-    <ClCompile Include="downloaddialog.cpp">
-      <DynamicSource Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">input</DynamicSource>
-      <QtMocFileName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(Filename).moc</QtMocFileName>
-      <DynamicSource Condition="'$(Configuration)|$(Platform)'=='Release|x64'">input</DynamicSource>
-      <QtMocFileName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(Filename).moc</QtMocFileName>
-    </ClCompile>
-    <ClCompile Include="downloadengine.cpp" />
-    <ClCompile Include="downloadmodel.cpp" />
-    <ClCompile Include="downloadtask.cpp" />
-    <ClCompile Include="import.cpp" />
-    <ClCompile Include="setting.cpp" />
-    <QtRcc Include="cctvvideodownloader.qrc" />
-    <QtMoc Include="cctvvideodownloader.h" />
-    <ClCompile Include="about.cpp" />
-    <ClCompile Include="apiservice.cpp" />
-    <ClCompile Include="cctvvideodownloader.cpp" />
-    <ClCompile Include="main.cpp" />
-    <QtRcc Include="resources.qrc" />
-    <QtUic Include="about.ui" />
-    <QtUic Include="ctvd.ui" />
-    <QtUic Include="ctvd_setting.ui" />
-    <QtUic Include="dialog.ui" />
-    <QtUic Include="import.ui" />
-    <QtUic Include="process.ui" />
+    <QtUic Include="src\ui\about.ui" />
+    <QtUic Include="src\ui\cctvvideodownloader.ui" />
+    <QtUic Include="src\ui\ctvd.ui" />
+    <QtUic Include="src\ui\ctvd_setting.ui" />
+    <QtUic Include="src\ui\dialog.ui" />
+    <QtUic Include="src\ui\import.ui" />
+    <QtUic Include="src\ui\process.ui" />
   </ItemGroup>
   <ItemGroup>
-    <QtMoc Include="about.h" />
+    <QtMoc Include="src\head\about.h" />
   </ItemGroup>
   <ItemGroup>
-    <Image Include="resources\cctvvideodownload.ico" />
+    <QtMoc Include="src\head\apiservice.h" />
   </ItemGroup>
   <ItemGroup>
-    <QtMoc Include="concatworker.h" />
-    <QtMoc Include="apiservice.h" />
-    <QtMoc Include="concat.h" />
-    <ClInclude Include="config.h" />
-    <QtMoc Include="import.h" />
-    <QtMoc Include="downloaddialog.h" />
-    <QtMoc Include="downloadtask.h" />
-    <QtMoc Include="downloadengine.h" />
-    <QtMoc Include="downloadmodel.h" />
-    <QtMoc Include="decryptworker.h" />
-    <QtMoc Include="decrypt.h" />
-    <ClInclude Include="resource.h" />
-    <QtMoc Include="setting.h" />
+    <QtMoc Include="src\head\cctvvideodownloader.h" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="CCTVVideoDownloader.rc" />
+    <QtMoc Include="src\head\concat.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="decrypt\cbox.exe" />
-    <None Include="decrypt\udrmdecrypt.dll" />
-    <None Include="decrypt\UDRM_LICENSE.v1.0" />
-    <None Include="ffmpeg\avcodec-61.dll" />
-    <None Include="ffmpeg\avdevice-61.dll" />
-    <None Include="ffmpeg\avfilter-10.dll" />
-    <None Include="ffmpeg\avformat-61.dll" />
-    <None Include="ffmpeg\avutil-59.dll" />
-    <None Include="ffmpeg\ffmpeg.exe" />
-    <None Include="ffmpeg\ffprobe.exe" />
-    <None Include="ffmpeg\swresample-5.dll" />
-    <None Include="ffmpeg\swscale-8.dll" />
+    <QtMoc Include="src\head\concatworker.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\head\config.h" />
+    <ClInclude Include="src\head\resource.h" />
+    <QtMoc Include="src\head\setting.h" />
+    <QtMoc Include="src\head\import.h" />
+    <QtMoc Include="src\head\downloadtask.h" />
+    <QtMoc Include="src\head\downloadmodel.h" />
+    <QtMoc Include="src\head\downloadengine.h" />
+    <QtMoc Include="src\head\downloaddialog.h" />
+    <QtMoc Include="src\head\decryptworker.h" />
+    <QtMoc Include="src\head\decrypt.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="src\resources\CCTVVideoDownloader.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <QtRcc Include="src\resources\cctvvideodownloader.qrc" />
+    <QtRcc Include="src\resources\resources.qrc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="src\resources\CCTVVideoDownloader.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\source\about.cpp" />
+    <ClCompile Include="src\source\apiservice.cpp" />
+    <ClCompile Include="src\source\cctvvideodownloader.cpp" />
+    <ClCompile Include="src\source\concat.cpp" />
+    <ClCompile Include="src\source\concatworker.cpp" />
+    <ClCompile Include="src\source\config.cpp" />
+    <ClCompile Include="src\source\decrypt.cpp" />
+    <ClCompile Include="src\source\decryptworker.cpp" />
+    <ClCompile Include="src\source\downloaddialog.cpp" />
+    <ClCompile Include="src\source\downloadengine.cpp" />
+    <ClCompile Include="src\source\downloadmodel.cpp" />
+    <ClCompile Include="src\source\downloadtask.cpp" />
+    <ClCompile Include="src\source\import.cpp" />
+    <ClCompile Include="src\source\main.cpp" />
+    <ClCompile Include="src\source\setting.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Condition="Exists('$(QtMsBuild)\qt.targets')">

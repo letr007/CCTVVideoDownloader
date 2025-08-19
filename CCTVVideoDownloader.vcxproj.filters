@@ -21,183 +21,142 @@
       <UniqueIdentifier>{639EADAA-A684-42e4-A9AD-28FC9BCB8F7C}</UniqueIdentifier>
       <Extensions>ts</Extensions>
     </Filter>
-    <Filter Include="ffmpeg">
-      <UniqueIdentifier>{611d771b-8382-4e9c-b936-43bf9a37b4f4}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="decrypt">
-      <UniqueIdentifier>{b3015b1b-40be-4a71-b94a-72eaaa0e310a}</UniqueIdentifier>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
-    <QtRcc Include="cctvvideodownloader.qrc">
-      <Filter>Resource Files</Filter>
-    </QtRcc>
-    <QtMoc Include="cctvvideodownloader.h">
-      <Filter>Header Files</Filter>
-    </QtMoc>
-    <ClCompile Include="cctvvideodownloader.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <QtRcc Include="resources.qrc">
-      <Filter>Resource Files</Filter>
-    </QtRcc>
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="main.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="about.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="setting.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="config.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="import.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="apiservice.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="downloadtask.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="downloadengine.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="downloadmodel.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="downloaddialog.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="concat.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="concatworker.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="decryptworker.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="decrypt.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <QtUic Include="ctvd.ui">
+    <QtUic Include="src\ui\about.ui">
       <Filter>Form Files</Filter>
     </QtUic>
-    <QtUic Include="about.ui">
+    <QtUic Include="src\ui\cctvvideodownloader.ui">
       <Filter>Form Files</Filter>
     </QtUic>
-    <QtUic Include="ctvd_setting.ui">
+    <QtUic Include="src\ui\ctvd.ui">
       <Filter>Form Files</Filter>
     </QtUic>
-    <QtUic Include="import.ui">
+    <QtUic Include="src\ui\ctvd_setting.ui">
       <Filter>Form Files</Filter>
     </QtUic>
-    <QtUic Include="dialog.ui">
+    <QtUic Include="src\ui\dialog.ui">
       <Filter>Form Files</Filter>
     </QtUic>
-    <QtUic Include="process.ui">
+    <QtUic Include="src\ui\import.ui">
+      <Filter>Form Files</Filter>
+    </QtUic>
+    <QtUic Include="src\ui\process.ui">
       <Filter>Form Files</Filter>
     </QtUic>
   </ItemGroup>
   <ItemGroup>
-    <QtMoc Include="about.h">
+    <QtMoc Include="src\head\about.h">
       <Filter>Header Files</Filter>
     </QtMoc>
-    <QtMoc Include="setting.h">
+    <QtMoc Include="src\head\apiservice.h">
       <Filter>Header Files</Filter>
     </QtMoc>
-    <QtMoc Include="import.h">
+    <QtMoc Include="src\head\cctvvideodownloader.h">
       <Filter>Header Files</Filter>
     </QtMoc>
-    <QtMoc Include="apiservice.h">
+    <QtMoc Include="src\head\concat.h">
       <Filter>Header Files</Filter>
     </QtMoc>
-    <QtMoc Include="downloaddialog.h">
+    <QtMoc Include="src\head\concatworker.h">
       <Filter>Header Files</Filter>
     </QtMoc>
-    <QtMoc Include="downloadtask.h">
+    <QtMoc Include="src\head\decrypt.h">
       <Filter>Header Files</Filter>
     </QtMoc>
-    <QtMoc Include="downloadengine.h">
+    <QtMoc Include="src\head\decryptworker.h">
       <Filter>Header Files</Filter>
     </QtMoc>
-    <QtMoc Include="downloadmodel.h">
+    <QtMoc Include="src\head\downloaddialog.h">
       <Filter>Header Files</Filter>
     </QtMoc>
-    <QtMoc Include="concat.h">
+    <QtMoc Include="src\head\downloadengine.h">
       <Filter>Header Files</Filter>
     </QtMoc>
-    <QtMoc Include="concatworker.h">
+    <QtMoc Include="src\head\downloadmodel.h">
       <Filter>Header Files</Filter>
     </QtMoc>
-    <QtMoc Include="decryptworker.h">
+    <QtMoc Include="src\head\downloadtask.h">
       <Filter>Header Files</Filter>
     </QtMoc>
-    <QtMoc Include="decrypt.h">
+    <QtMoc Include="src\head\import.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="src\head\setting.h">
       <Filter>Header Files</Filter>
     </QtMoc>
   </ItemGroup>
   <ItemGroup>
-    <Image Include="resources\cctvvideodownload.ico">
+    <ClInclude Include="src\head\config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\head\resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="src\resources\CCTVVideoDownloader.ico">
       <Filter>Resource Files</Filter>
     </Image>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="resource.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="config.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
+    <QtRcc Include="src\resources\cctvvideodownloader.qrc">
+      <Filter>Resource Files</Filter>
+    </QtRcc>
+    <QtRcc Include="src\resources\resources.qrc">
+      <Filter>Resource Files</Filter>
+    </QtRcc>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="CCTVVideoDownloader.rc">
+    <ResourceCompile Include="src\resources\CCTVVideoDownloader.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="ffmpeg\avcodec-61.dll">
-      <Filter>ffmpeg</Filter>
-    </None>
-    <None Include="ffmpeg\avdevice-61.dll">
-      <Filter>ffmpeg</Filter>
-    </None>
-    <None Include="ffmpeg\avfilter-10.dll">
-      <Filter>ffmpeg</Filter>
-    </None>
-    <None Include="ffmpeg\avformat-61.dll">
-      <Filter>ffmpeg</Filter>
-    </None>
-    <None Include="ffmpeg\avutil-59.dll">
-      <Filter>ffmpeg</Filter>
-    </None>
-    <None Include="ffmpeg\ffmpeg.exe">
-      <Filter>ffmpeg</Filter>
-    </None>
-    <None Include="ffmpeg\ffprobe.exe">
-      <Filter>ffmpeg</Filter>
-    </None>
-    <None Include="ffmpeg\swresample-5.dll">
-      <Filter>ffmpeg</Filter>
-    </None>
-    <None Include="ffmpeg\swscale-8.dll">
-      <Filter>ffmpeg</Filter>
-    </None>
-    <None Include="decrypt\cbox.exe">
-      <Filter>decrypt</Filter>
-    </None>
-    <None Include="decrypt\UDRM_LICENSE.v1.0">
-      <Filter>decrypt</Filter>
-    </None>
-    <None Include="decrypt\udrmdecrypt.dll">
-      <Filter>decrypt</Filter>
-    </None>
+    <ClCompile Include="src\source\about.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\apiservice.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\cctvvideodownloader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\concat.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\concatworker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\config.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\decrypt.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\decryptworker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\downloaddialog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\downloadengine.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\downloadmodel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\downloadtask.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\import.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\setting.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

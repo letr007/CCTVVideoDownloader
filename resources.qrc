@@ -1,9 +1,0 @@
-<RCC>
-  <qresource>
-    <file>resources/info.png</file>
-    <file>resources/afraid.gif</file>
-    <file>resources/cctvvideodownload.png</file>
-    <file>resources/cctvvideodownload.ico</file>
-    <file>resources/flash.png</file>
-  </qresource>
-</RCC>
