@@ -24,10 +24,6 @@
 运行程序，从节目列表中选择一个栏目，点击后会自动刷新视频列表，选择一个视频后， 
 将在右侧得到此节目的详细信息，然后您可以进行相关操作。
 
-程序会调用JavaScript脚本进行视频信息处理，需要您拥有[node.js](https://nodejs.org/en/download/)环境。
-
-> :warning: **注意**：JavaScript 脚本仅用于技术研究目的，请勿用于任何违反版权法的行为。
-
 ## :pencil:配置设置
 
 您可以通过`设置`菜单来配置程序的一些参数，包括保存路径、线程数等设置。
@@ -35,10 +31,6 @@
 ## :beers:帮助与反馈
 
 如有任何疑问或建议，请提交[issues](https://github.com/letr007/CCTVVideoDownload/issues)。
-
-## :tada:特此鸣谢
-
-**在此感谢scz的技术分享!**
 
 ## :rotating_light: 免责声明  
 
