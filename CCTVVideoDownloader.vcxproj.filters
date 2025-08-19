@@ -1,0 +1,203 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>qml;cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>qrc;rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="Form Files">
+      <UniqueIdentifier>{99349809-55BA-4b9d-BF79-8FDBB0286EB3}</UniqueIdentifier>
+      <Extensions>ui</Extensions>
+    </Filter>
+    <Filter Include="Translation Files">
+      <UniqueIdentifier>{639EADAA-A684-42e4-A9AD-28FC9BCB8F7C}</UniqueIdentifier>
+      <Extensions>ts</Extensions>
+    </Filter>
+    <Filter Include="ffmpeg">
+      <UniqueIdentifier>{611d771b-8382-4e9c-b936-43bf9a37b4f4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="decrypt">
+      <UniqueIdentifier>{b3015b1b-40be-4a71-b94a-72eaaa0e310a}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <QtRcc Include="cctvvideodownloader.qrc">
+      <Filter>Resource Files</Filter>
+    </QtRcc>
+    <QtMoc Include="cctvvideodownloader.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <ClCompile Include="cctvvideodownloader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <QtRcc Include="resources.qrc">
+      <Filter>Resource Files</Filter>
+    </QtRcc>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="about.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="setting.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="config.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="import.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="apiservice.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="downloadtask.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="downloadengine.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="downloadmodel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="downloaddialog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="concat.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="concatworker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="decryptworker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="decrypt.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <QtUic Include="ctvd.ui">
+      <Filter>Form Files</Filter>
+    </QtUic>
+    <QtUic Include="about.ui">
+      <Filter>Form Files</Filter>
+    </QtUic>
+    <QtUic Include="ctvd_setting.ui">
+      <Filter>Form Files</Filter>
+    </QtUic>
+    <QtUic Include="import.ui">
+      <Filter>Form Files</Filter>
+    </QtUic>
+    <QtUic Include="dialog.ui">
+      <Filter>Form Files</Filter>
+    </QtUic>
+    <QtUic Include="process.ui">
+      <Filter>Form Files</Filter>
+    </QtUic>
+  </ItemGroup>
+  <ItemGroup>
+    <QtMoc Include="about.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="setting.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="import.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="apiservice.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="downloaddialog.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="downloadtask.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="downloadengine.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="downloadmodel.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="concat.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="concatworker.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="decryptworker.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="decrypt.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="resources\cctvvideodownload.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="CCTVVideoDownloader.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="ffmpeg\avcodec-61.dll">
+      <Filter>ffmpeg</Filter>
+    </None>
+    <None Include="ffmpeg\avdevice-61.dll">
+      <Filter>ffmpeg</Filter>
+    </None>
+    <None Include="ffmpeg\avfilter-10.dll">
+      <Filter>ffmpeg</Filter>
+    </None>
+    <None Include="ffmpeg\avformat-61.dll">
+      <Filter>ffmpeg</Filter>
+    </None>
+    <None Include="ffmpeg\avutil-59.dll">
+      <Filter>ffmpeg</Filter>
+    </None>
+    <None Include="ffmpeg\ffmpeg.exe">
+      <Filter>ffmpeg</Filter>
+    </None>
+    <None Include="ffmpeg\ffprobe.exe">
+      <Filter>ffmpeg</Filter>
+    </None>
+    <None Include="ffmpeg\swresample-5.dll">
+      <Filter>ffmpeg</Filter>
+    </None>
+    <None Include="ffmpeg\swscale-8.dll">
+      <Filter>ffmpeg</Filter>
+    </None>
+    <None Include="decrypt\cbox.exe">
+      <Filter>decrypt</Filter>
+    </None>
+    <None Include="decrypt\UDRM_LICENSE.v1.0">
+      <Filter>decrypt</Filter>
+    </None>
+    <None Include="decrypt\udrmdecrypt.dll">
+      <Filter>decrypt</Filter>
+    </None>
+  </ItemGroup>
+</Project>
