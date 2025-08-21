@@ -14,7 +14,6 @@ struct VideoItem {
 	QString image;
 	QString brief;
 
-	// 构造函数
 	VideoItem(QString g, QString t, QString ti, QString i, QString b)
 		: guid(std::move(g)), time(std::move(t)), title(std::move(ti)),
 		image(std::move(i)), brief(std::move(b)) {

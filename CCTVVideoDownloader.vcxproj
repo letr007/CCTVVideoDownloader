@@ -73,6 +73,11 @@
       <AdditionalIncludeDirectories>C:\Users\17388\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/fsanitize=address %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <PostBuildEvent>
+      <Command>xcopy /Y /R "$(ProjectDir)src\ffmpeg\*" "$(TargetDir)ffmpeg\"
+xcopy /Y /R "$(ProjectDir)src\decrypt\*" "$(TargetDir)decrypt\"</Command>
+      <Message>复制ffmpeg&amp;cbox</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Link>
@@ -82,6 +87,11 @@
     <ClCompile>
       <AdditionalIncludeDirectories>C:\Users\17388\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
+    <PostBuildEvent>
+      <Command>xcopy /Y /R "$(ProjectDir)src\ffmpeg\*" "$(TargetDir)ffmpeg\"
+xcopy /Y /R "$(ProjectDir)src\decrypt\*" "$(TargetDir)decrypt\"</Command>
+      <Message>复制ffmpeg&amp;cbox</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="Configuration">
     <ClCompile>

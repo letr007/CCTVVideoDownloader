@@ -364,3 +364,4 @@ FodyWeavers.xsd
 
 #自定义
 config/
+*.evb

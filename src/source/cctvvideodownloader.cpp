@@ -15,7 +15,7 @@ CCTVVideoDownloader::CCTVVideoDownloader(QWidget *parent)
     ui.setupUi(this);
     // 设置标题和图标
     setWindowTitle(QString("央视视频下载器"));
-    setWindowIcon(QIcon(QPixmap(":/resources/cctvvideodownload.png")));
+    setWindowIcon(QIcon(QPixmap(":/cctvvideodownload.png")));
     signalConnect();
     initGlobalSettings();
     flashProgrammeList();

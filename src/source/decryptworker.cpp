@@ -3,6 +3,8 @@
 #include <QDir>
 #include <QProcess>
 #include <QStringConverter>
+#include <QCoreApplication>
+#include <QRegularExpression>
 
 bool removeDirectory(const QString& path) {
 	QDir dir(path);
@@ -55,12 +57,12 @@ void DecryptWorker::doDecrypt()
 	}
 	
 	QString outputFilePath = QDir(m_savePath).filePath("result.mp4");
-	QString cboxExe = QDir(QDir::currentPath()).filePath("decrypt/cbox.exe");
+	QString cboxExe = QDir(QCoreApplication::applicationDirPath()).filePath("decrypt/cbox.exe");
 
 	QProcess cbox;
 	QStringList args;
 	args << cboxPath << outputFilePath;
-	cbox.setWorkingDirectory(QDir::currentPath());
+	cbox.setWorkingDirectory(m_savePath);
 	cbox.start(cboxExe, args);
 
 	if (!cbox.waitForStarted())
@@ -77,7 +79,8 @@ void DecryptWorker::doDecrypt()
 		emit decryptFinished(false, "解密执行失败: " + err);
 		return;
 	}
-
+	// 清理视频名称中可能的路径非法字符
+	m_name.replace(QRegularExpression(R"([\\/:*?"<>|])"), "_");
 	if (!QFile::rename(outputFilePath, QDir(m_savePath).filePath("%1.mp4").arg(m_name)))
 	{
 		emit decryptFinished(false, "重命名视频文件失败");
@@ -87,6 +90,9 @@ void DecryptWorker::doDecrypt()
 	{
 		emit decryptFinished(false, "移除临时文件夹失败\n请手动清理");
 	}
+
+	QFile::remove(QDir(m_savePath).filePath("output.txt"));
+	QFile::remove(QDir(m_savePath).filePath("UDRM_LICENSE.v1.0"));
 
 	emit decryptFinished(true, "解密完成，输出 " + m_name);
 }

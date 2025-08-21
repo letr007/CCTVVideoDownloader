@@ -85,7 +85,6 @@ QMap<int, VideoItem> APIService::getVideoList(
     const QString& item_id,
     int start_index,
     int end_index)
-
 {
     // 参数校验和交换
     if (start_index < 0 || end_index < 0) {
@@ -96,11 +95,12 @@ QMap<int, VideoItem> APIService::getVideoList(
     }
 
     // 计算页数范围
-    constexpr int page_size = 100;  // 编译期常量
+    constexpr int page_size = 100;
     const int start_page = start_index / page_size + 1;
     const int end_page = end_index / page_size + 1;
 
     QMap<int, VideoItem> result;
+    int result_index = 0; // 从0开始的连续索引
 
     const cpr::Url base_url{ "https://api.cntv.cn/NewVideo/getVideoListByColumn" };
 
@@ -109,7 +109,7 @@ QMap<int, VideoItem> APIService::getVideoList(
         const int page_start_index = (page - 1) * page_size;
 
         const cpr::Parameters params{
-            {"id", column_id.toUtf8().constData()},  // 确保参数传递
+            {"id", column_id.toUtf8().constData()},
             {"n", std::to_string(page_size)},
             {"sort", "desc"},
             {"p", std::to_string(page)},
@@ -122,7 +122,7 @@ QMap<int, VideoItem> APIService::getVideoList(
 
         if (r.status_code != 200) {
             qWarning() << "请求失败:" << base_url.data();
-            continue;  // 跳过失败请求
+            continue;
         }
 
         // 解析JSON
@@ -132,23 +132,28 @@ QMap<int, VideoItem> APIService::getVideoList(
         const QJsonArray items = doc.object()["data"].toObject()["list"].toArray();
 
         // 处理当前页数据
-        //qDebug() << "Items count:" << items.size();
-        for (int i = 0; i < items.size(); ++i) {
-            const int current_index = page_start_index + i;
-            if (current_index < start_index || current_index > end_index) {
+        for (int i = 0; i < items.size(); i++) {
+            const int current_global_index = page_start_index + i;
+
+            // 检查是否在请求的索引范围内
+            if (current_global_index < start_index || current_global_index > end_index) {
                 continue;
             }
 
             const QJsonObject item = items[i].toObject();
-            //qDebug() << "Item fields:" << item.keys();
-            result.insert(current_index, VideoItem{
+
+            // 使用从0开始的连续索引
+            result.insert(result_index, VideoItem{
                 item["guid"].toString(),
                 item["time"].toString(),
                 item["title"].toString(),
                 item["image"].toString(),
                 item["brief"].toString()
                 });
-            //qDebug() << item["guid"].toString() << item["time"].toString() << item["image"].toString();
+
+            //qDebug() << result_index << item["guid"].toString() << item["time"].toString() << item["image"].toString();
+
+            result_index++; // 递增结果索引
         }
     }
 
@@ -157,23 +162,23 @@ QMap<int, VideoItem> APIService::getVideoList(
 
 QImage APIService::getImage(const QString& url)
 {
-    // 1. 发送HTTP请求
+    // 发送HTTP请求
     cpr::Response r = cpr::Get(cpr::Url{ url.toUtf8().constData()});
 
-    // 2. 检查HTTP响应状态
+    // 检查HTTP响应状态
     if (r.status_code != 200) {
         qWarning() << "获取图片失败，HTTP状态码:" << r.status_code
             << "URL:" << url;
         return QImage(); // 返回空QImage
     }
 
-    // 3. 检查返回数据是否为空
+    // 检查返回数据是否为空
     if (r.text.empty()) {
         qWarning() << "图片数据为空，URL:" << url;
         return QImage();
     }
 
-    // 4. 将二进制数据转换为QImage
+    // 将二进制数据转换为QImage
     QImage image;
     if (!image.loadFromData(
         reinterpret_cast<const uchar*>(r.text.data()),
@@ -183,7 +188,7 @@ QImage APIService::getImage(const QString& url)
         return QImage();
     }
 
-    // 5. 可选：转换为更高效的格式
+    // 转换为更高效的格式
     if (image.format() != QImage::Format_ARGB32 &&
         image.format() != QImage::Format_RGB32)
     {

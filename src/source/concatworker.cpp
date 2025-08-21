@@ -46,7 +46,7 @@ void ConcatWorker::doConcat()
 
     concatFile.close();
     
-    QString ffmpegExe = QDir(QDir::currentPath()).filePath("ffmpeg/ffmpeg.exe");
+    QString ffmpegExe = QDir(QCoreApplication::applicationDirPath()).filePath("ffmpeg/ffmpeg.exe");
     QString txtPath = QDir(m_filePath).filePath("filelist.txt");
     QString outPath = QDir(m_filePath).filePath("result.mp4");
 
