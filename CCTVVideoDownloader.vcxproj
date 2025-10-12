@@ -19,18 +19,18 @@
   <PropertyGroup Label="Globals">
     <ProjectGuid>{323D5ECB-4C02-4F8D-90BD-D412A48CB421}</ProjectGuid>
     <Keyword>QtVS_v304</Keyword>
-    <WindowsTargetPlatformVersion Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">10.0.26100.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">10.0</WindowsTargetPlatformVersion>
     <WindowsTargetPlatformVersion Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">10.0.26100.0</WindowsTargetPlatformVersion>
     <QtMsBuild Condition="'$(QtMsBuild)'=='' OR !Exists('$(QtMsBuild)\qt.targets')">$(MSBuildProjectDirectory)\QtMsBuild</QtMsBuild>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Condition="Exists('$(QtMsBuild)\qt_defaults.props')">
@@ -40,11 +40,13 @@
     <QtInstall>6.8.0</QtInstall>
     <QtModules>core;gui;widgets</QtModules>
     <QtBuildConfig>debug</QtBuildConfig>
+    <QtDeploy>false</QtDeploy>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'" Label="QtSettings">
     <QtInstall>6.8.0</QtInstall>
     <QtModules>core;gui;widgets</QtModules>
     <QtBuildConfig>release</QtBuildConfig>
+    <QtDeploy>true</QtDeploy>
   </PropertyGroup>
   <Target Name="QtMsBuildNotFound" BeforeTargets="CustomBuild;ClCompile" Condition="!Exists('$(QtMsBuild)\qt.targets') or !Exists('$(QtMsBuild)\qt.props')">
     <Message Importance="High" Text="QtMsBuild: could not locate qt.targets, qt.props; project may not build correctly." />
@@ -60,23 +62,21 @@
     <Import Project="$(QtMsBuild)\Qt.props" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
-  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Link>
-      <AdditionalDependencies>Qt6Networkd.lib;Qt6Network.lib;cpr.lib;libcurl.lib;ws2_32.lib;wldap32.lib;crypt32.lib;libssl.lib;libcrypto.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Qt6Networkd.lib;cpr.lib;libcurl.lib;ws2_32.lib;wldap32.lib;crypt32.lib;libssl.lib;libcrypto.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>D:\ProgramFiles\Qt\6.8.0\msvc2022_64\lib;C:\Users\17388\vcpkg\installed\x64-windows\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <ClCompile>
       <AdditionalIncludeDirectories>C:\Users\17388\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <AdditionalOptions>/fsanitize=address %(AdditionalOptions)</AdditionalOptions>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
     </ClCompile>
     <PostBuildEvent>
-      <Command>xcopy /Y /R "$(ProjectDir)src\ffmpeg\*" "$(TargetDir)ffmpeg\"
-xcopy /Y /R "$(ProjectDir)src\decrypt\*" "$(TargetDir)decrypt\"</Command>
-      <Message>复制ffmpeg&amp;cbox</Message>
+      <Command>xcopy /Y /R "$(ProjectDir)src\decrypt\*" "$(TargetDir)decrypt\"</Command>
+      <Message>复制cbox</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -88,9 +88,8 @@ xcopy /Y /R "$(ProjectDir)src\decrypt\*" "$(TargetDir)decrypt\"</Command>
       <AdditionalIncludeDirectories>C:\Users\17388\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <PostBuildEvent>
-      <Command>xcopy /Y /R "$(ProjectDir)src\ffmpeg\*" "$(TargetDir)ffmpeg\"
-xcopy /Y /R "$(ProjectDir)src\decrypt\*" "$(TargetDir)decrypt\"</Command>
-      <Message>复制ffmpeg&amp;cbox</Message>
+      <Command>xcopy /Y /R "$(ProjectDir)src\decrypt\*" "$(TargetDir)decrypt\"</Command>
+      <Message>复制cbox</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="Configuration">
@@ -144,6 +143,7 @@ xcopy /Y /R "$(ProjectDir)src\decrypt\*" "$(TargetDir)decrypt\"</Command>
   <ItemGroup>
     <ClInclude Include="src\head\config.h" />
     <ClInclude Include="src\head\resource.h" />
+    <ClInclude Include="tsmerger.h" />
     <QtMoc Include="src\head\setting.h" />
     <QtMoc Include="src\head\import.h" />
     <QtMoc Include="src\head\downloadtask.h" />
@@ -179,6 +179,7 @@ xcopy /Y /R "$(ProjectDir)src\decrypt\*" "$(TargetDir)decrypt\"</Command>
     <ClCompile Include="src\source\import.cpp" />
     <ClCompile Include="src\source\main.cpp" />
     <ClCompile Include="src\source\setting.cpp" />
+    <ClCompile Include="src\source\tsmerger.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" />

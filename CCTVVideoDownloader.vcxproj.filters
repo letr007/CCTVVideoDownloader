@@ -93,6 +93,9 @@
     <ClInclude Include="src\head\resource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="tsmerger.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Image Include="src\resources\CCTVVideoDownloader.ico">
@@ -156,6 +159,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\source\setting.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\tsmerger.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
