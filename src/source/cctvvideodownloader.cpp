@@ -193,6 +193,10 @@ void CCTVVideoDownloader::openImportDialog()
 
 void CCTVVideoDownloader::openDownloadDialog()
 {
+    if (!DOWNLOAD_META_INFO.has_value()) {
+        QMessageBox::warning(this, "Warning", "请先选择要下载的视频！");
+        return;
+    }
     auto [title, GUID] = *DOWNLOAD_META_INFO;
     QString savePath = readSavePath();
     int threadNum = readThreadNum();
