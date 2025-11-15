@@ -102,13 +102,6 @@ QMap<int, VideoItem> APIService::getVideoList(
         std::swap(start_index, end_index);
     }
 
-    // 限制请求范围，防止内存爆炸
-    const int MAX_REQUEST_COUNT = 1000;
-    if (end_index - start_index > MAX_REQUEST_COUNT) {
-        end_index = start_index + MAX_REQUEST_COUNT;
-        qWarning() << "请求范围过大，已自动限制为" << MAX_REQUEST_COUNT << "条记录";
-    }
-
     // 计算页数范围
     constexpr int page_size = 100;
     const int start_page = start_index / page_size + 1;
