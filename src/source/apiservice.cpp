@@ -210,7 +210,167 @@ QMap<int, VideoItem> APIService::getVideoList(
         QCoreApplication::processEvents();
     }
 
-    return result;
+	// 如果有数据，则证明为第一种获取方式(栏目)，直接返回
+    if (!result.isEmpty()) {
+        return result;
+    }
+
+	// 无数据，则尝试第二种获取方式(专辑)
+    
+    // 获取真正的专辑ID
+    QUrl url("https://api.cntv.cn/NewVideoset/getVideoAlbumInfoByVideoId");
+    QUrlQuery query;
+    query.addQueryItem("id", item_id);
+    query.addQueryItem("serviceId", "tvcctv");
+    url.setQuery(query);
+
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+
+    QNetworkReply* reply = manager.get(request);
+    QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+
+    if (reply->error() != QNetworkReply::NoError) {
+        qWarning() << "请求失败:" << reply->errorString() << "URL:" << url.toString();
+        reply->deleteLater();
+        return result;
+	}
+
+	QByteArray responseData = reply->readAll();
+	reply->deleteLater();
+
+    if (responseData.isEmpty()) {
+        qWarning() << "响应数据为空";
+        return result;
+    }
+	// 解析JSON
+	QJsonParseError parseError;
+	QJsonDocument doc = QJsonDocument::fromJson(responseData, &parseError);
+
+	if (parseError.error != QJsonParseError::NoError) {
+		qWarning() << "JSON解析错误:" << parseError.errorString();
+		return result;
+	}
+
+	if (!doc.isObject()) {
+		qWarning() << "JSON根节点不是对象";
+		return result;
+	}
+
+    if (!doc.object().contains("data")) {
+        qWarning() << "JSON缺少data字段";
+        return result;
+	}
+
+	QJsonObject dataObj = doc.object()["data"].toObject();
+	if (!dataObj.contains("id")) {
+		qWarning() << "JSON data缺少id字段";
+		return result;
+	}
+
+	QString real_album_id = dataObj["id"].toString();
+
+    for (int page = start_page; page <= end_page; ++page) {
+        const int page_start_index = (page - 1) * page_size;
+
+        // 构建URL和参数
+        QUrl url("https://api.cntv.cn/NewVideo/getVideoListByAlbumIdNew");
+        QUrlQuery query;
+        query.addQueryItem("id", real_album_id);
+        query.addQueryItem("n", QString::number(page_size));
+        query.addQueryItem("sort", "asc");
+        query.addQueryItem("p", QString::number(page));
+        query.addQueryItem("mode", "0");
+        query.addQueryItem("pub", "1");
+        query.addQueryItem("serviceId", "tvcctv");
+        url.setQuery(query);
+
+        QNetworkRequest request(url);
+        request.setHeader(QNetworkRequest::UserAgentHeader, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+
+        QNetworkReply* reply = manager.get(request);
+        QEventLoop loop;
+        QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "请求失败:" << reply->errorString() << "URL:" << url.toString();
+            reply->deleteLater();
+            continue;
+        }
+
+        QByteArray responseData = reply->readAll();
+        reply->deleteLater();
+
+        if (responseData.isEmpty()) {
+            qWarning() << "响应数据为空";
+            continue;
+        }
+
+        // 解析JSON
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(responseData, &parseError);
+
+        if (parseError.error != QJsonParseError::NoError) {
+            qWarning() << "JSON解析错误:" << parseError.errorString();
+            continue;
+        }
+
+        if (!doc.isObject()) {
+            qWarning() << "JSON根节点不是对象";
+            continue;
+        }
+
+        QJsonObject rootObj = doc.object();
+        if (!rootObj.contains("data")) {
+            qWarning() << "JSON缺少data字段";
+            continue;
+        }
+
+        QJsonObject dataObj = rootObj["data"].toObject();
+        if (!dataObj.contains("list")) {
+            qWarning() << "JSON data缺少list字段";
+            continue;
+        }
+
+        QJsonArray items = dataObj["list"].toArray();
+
+        // 处理当前页数据
+        for (int i = 0; i < items.size(); i++) {
+            const int current_global_index = page_start_index + i;
+
+            // 检查是否在请求的索引范围内
+            if (current_global_index < start_index || current_global_index > end_index) {
+                continue;
+            }
+
+            QJsonObject item = items[i].toObject();
+
+            // 检查必要字段
+            if (!item.contains("guid") || !item.contains("title")) {
+                qWarning() << "跳过缺少必要字段的数据项";
+                continue;
+            }
+
+            // 使用从0开始的连续索引
+            result.insert(result_index, VideoItem{
+                item["guid"].toString(),
+                item["time"].toString(),
+                item["title"].toString(),
+                item["image"].toString(),
+                item["brief"].toString()
+                });
+
+            result_index++;
+        }
+
+        // 每处理完一页，强制垃圾回收
+        QCoreApplication::processEvents();
+    }
+
+	return result;
 }
 
 QImage APIService::getImage(const QString& url)
