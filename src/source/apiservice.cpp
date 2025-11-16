@@ -30,6 +30,7 @@ APIService& APIService::instance() {
 
 APIService::APIService(QObject* parent) : QObject(parent)
 {
+    // connect(&m_network, &NetworkCore::responseReceived, this, &APIService::handlePlayColumnInfo, Qt::QueuedConnection);
 }
 
 APIService::~APIService()
