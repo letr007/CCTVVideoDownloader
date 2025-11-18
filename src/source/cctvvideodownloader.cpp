@@ -90,17 +90,32 @@ void CCTVVideoDownloader::flashVideoList()
     // 显示结果
     ui.tableWidget_List->clearContents();
     ui.tableWidget_List->setRowCount(VIDEOS.size());
-    ui.tableWidget_List->setColumnWidth(0, 300);
+    ui.tableWidget_List->setColumnCount(2); // 设置为2列：复选框和标题
+
+    // 设置列宽
+    ui.tableWidget_List->setColumnWidth(0, 30);
+    ui.tableWidget_List->setColumnWidth(1, 170);
+
+    // 隐藏行头
+    ui.tableWidget_List->verticalHeader()->setVisible(false);
+
+    // 设置列标题
+    ui.tableWidget_List->setHorizontalHeaderLabels({ "", "视频标题" });
 
     int row = 0;
     for (auto&& [index, item] : std::as_const(VIDEOS).asKeyValueRange()) {
-        //qDebug() << index << item.title << item.brief;
-        // 创建QTableWidgetItem
-        QTableWidgetItem* widgetItem = new QTableWidgetItem(item.title);
-        // 设置item属性
-        widgetItem->setFlags(widgetItem->flags() ^ Qt::ItemIsEditable); // 设为不可编辑
-        // 添加到表格
-        ui.tableWidget_List->setItem(row, 0, widgetItem);
+        // 在第一列创建复选框
+        QTableWidgetItem* checkItem = new QTableWidgetItem();
+        checkItem->setCheckState(Qt::Unchecked);
+        checkItem->setFlags(checkItem->flags() | Qt::ItemIsUserCheckable);
+        checkItem->setTextAlignment(Qt::AlignCenter); // 居中对齐
+        ui.tableWidget_List->setItem(row, 0, checkItem);
+
+        // 在第二列创建标题项
+        QTableWidgetItem* titleItem = new QTableWidgetItem(item.title);
+        titleItem->setFlags(titleItem->flags() ^ Qt::ItemIsEditable); // 设为不可编辑
+        ui.tableWidget_List->setItem(row, 1, titleItem);
+
         row++;
     }
     ui.tableWidget_List->viewport()->update();
@@ -122,6 +137,7 @@ void CCTVVideoDownloader::isProgrammeSelected(int r, int c)
 void CCTVVideoDownloader::isVideoSelected(int r, int c)
 {
     auto selectedIndex = ui.tableWidget_List->currentRow();
+	qDebug() << "选中视频索引:" << selectedIndex;
     // 获取当前视频信息
     auto it = VIDEOS.find(selectedIndex);
     if (it == VIDEOS.end())

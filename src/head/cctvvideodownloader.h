@@ -11,6 +11,7 @@
 #include <QRegularExpression>
 #include <QDesktopServices>
 #include <QMessageBox>
+#include <QCheckBox>
 
 class CCTVVideoDownloader : public QMainWindow
 {
