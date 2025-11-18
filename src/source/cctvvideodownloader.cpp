@@ -137,7 +137,7 @@ void CCTVVideoDownloader::isProgrammeSelected(int r, int c)
 void CCTVVideoDownloader::isVideoSelected(int r, int c)
 {
     auto selectedIndex = ui.tableWidget_List->currentRow();
-	qDebug() << "选中视频索引:" << selectedIndex;
+	//qDebug() << "选中视频索引:" << selectedIndex;
     // 获取当前视频信息
     auto it = VIDEOS.find(selectedIndex);
     if (it == VIDEOS.end())
@@ -209,28 +209,70 @@ void CCTVVideoDownloader::openImportDialog()
 
 void CCTVVideoDownloader::openDownloadDialog()
 {
-    if (!DOWNLOAD_META_INFO.has_value()) {
-        QMessageBox::warning(this, "Warning", "请先选择要下载的视频！");
-        return;
-    }
-    auto [title, GUID] = *DOWNLOAD_META_INFO;
+    // 支持批量下载：检查列表中被选中的项
     QString savePath = readSavePath();
     int threadNum = readThreadNum();
-    QStringList URLS = APIService::instance().getEncryptM3U8Urls(
-        GUID,
-        readQuality()
-    );
-    //qDebug() << URLS;
+    QList<int> selectedIndexes;
 
-    Download dialog(this);
-    // 先关闭下载窗口再进行完成后操作
-    connect(&dialog, &Download::DownloadFinished, this, [this, &dialog]() {
-        dialog.accept();
-        concatVideo();
-        });
-    dialog.transferDwonloadParams(title, URLS, savePath, threadNum);
-    dialog.setModal(true);
-    dialog.exec();
+    int rows = ui.tableWidget_List->rowCount();
+    for (int r = 0; r < rows; ++r) {
+        auto item = ui.tableWidget_List->item(r, 0);
+        if (item && item->checkState() == Qt::Checked) {
+            selectedIndexes.push_back(r);
+        }
+    }
+
+    // 如果没有选中任何项，保留原来的行为：使用单个选中视频
+    if (selectedIndexes.empty()) {
+        if (!DOWNLOAD_META_INFO.has_value()) {
+            QMessageBox::warning(this, "Warning", "请先选择要下载的视频！");
+            return;
+        }
+        auto [title, GUID] = *DOWNLOAD_META_INFO;
+        QStringList URLS = APIService::instance().getEncryptM3U8Urls(
+            GUID,
+            readQuality()
+        );
+
+        Download dialog(this);
+        // 先关闭下载窗口再进行完成后操作
+        connect(&dialog, &Download::DownloadFinished, this, [this, &dialog]() {
+            dialog.accept();
+            concatVideo();
+            });
+        dialog.transferDwonloadParams(title, URLS, savePath, threadNum);
+        dialog.setModal(true);
+        dialog.exec();
+        return;
+    }
+
+    // 批量下载：按选中顺序逐个处理
+    for (int idx : selectedIndexes) {
+        auto it = VIDEOS.find(idx);
+        if (it == VIDEOS.end()) {
+            qWarning() << "无效的video index(批量):" << idx;
+            continue;
+        }
+        auto title = it->title;
+        auto GUID = it->guid;
+
+        // 设置当前下载元信息，便于后续 concat/decrypt 使用
+        DOWNLOAD_META_INFO.emplace(title, GUID);
+
+        QStringList URLS = APIService::instance().getEncryptM3U8Urls(
+            GUID,
+            readQuality()
+        );
+
+        Download dialog(this);
+        connect(&dialog, &Download::DownloadFinished, this, [this, &dialog]() {
+            dialog.accept();
+            concatVideo();
+            });
+        dialog.transferDwonloadParams(title, URLS, savePath, threadNum);
+        dialog.setModal(true);
+        dialog.exec();
+    }
 }
 
 void CCTVVideoDownloader::concatVideo()
