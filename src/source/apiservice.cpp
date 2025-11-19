@@ -40,6 +40,8 @@ APIService::~APIService()
 // 通用的网络请求函数
 QByteArray APIService::sendNetworkRequest(const QUrl& url, const QHash<QString, QString>& headers)
 {
+    qInfo() << "发送网络请求:" << url.toString();
+    
     QNetworkAccessManager manager;
     QNetworkRequest request(url);
 
@@ -58,7 +60,7 @@ QByteArray APIService::sendNetworkRequest(const QUrl& url, const QHash<QString, 
     loop.exec();
 
     if (reply->error() != QNetworkReply::NoError) {
-        qWarning() << "Network request failed:" << reply->errorString() << "URL:" << url.toString();
+        qWarning() << "网络请求失败:" << reply->errorString() << "URL:" << url.toString();
         reply->deleteLater();
         return QByteArray();
     }
@@ -67,15 +69,20 @@ QByteArray APIService::sendNetworkRequest(const QUrl& url, const QHash<QString, 
     reply->deleteLater();
 
     if (responseData.isEmpty()) {
-        qWarning() << "Empty response data from URL:" << url.toString();
+        qWarning() << "从URL获取的响应数据为空:" << url.toString();
+    } else {
+        qInfo() << "网络请求成功，响应数据大小:" << responseData.size() << "字节";
     }
 
     return responseData;
 }
 
 QSharedPointer<QStringList> APIService::getPlayColumnInfo(const QString& url) {
+    qInfo() << "获取播放栏目信息，URL:" << url;
+    
     QByteArray responseData = sendNetworkRequest(QUrl(url));
     if (responseData.isEmpty()) {
+        qWarning() << "获取播放栏目信息失败: 响应数据为空";
         return nullptr;
     }
 
@@ -102,9 +109,11 @@ QSharedPointer<QStringList> APIService::getPlayColumnInfo(const QString& url) {
 
     // 验证数据完整性
     if (title.isEmpty() || itemId.isEmpty() || columnId.isEmpty()) {
-        qWarning() << "Failed to extract required data from HTML";
+        qWarning() << "从HTML提取必要数据失败";
         return nullptr;
     }
+
+    qInfo() << "成功提取播放栏目信息 - 标题:" << title << "itemId:" << itemId << "columnId:" << columnId;
 
     results->append(title);
     results->append(itemId);
@@ -119,12 +128,17 @@ QMap<int, VideoItem> APIService::getVideoList(
     int start_index,
     int end_index)
 {
+    qInfo() << "获取视频列表 - column_id:" << column_id << "item_id:" << item_id
+             << "start_index:" << start_index << "end_index:" << end_index;
+    
     // 参数校验
     if (start_index < 0 || end_index < 0) {
+        qWarning() << "获取视频列表失败: 索引参数无效";
         return {};
     }
 
     if (start_index > end_index) {
+        qDebug() << "交换起始和结束索引";
         std::swap(start_index, end_index);
     }
 
@@ -132,13 +146,26 @@ QMap<int, VideoItem> APIService::getVideoList(
     QMap<int, VideoItem> result = fetchVideoData(column_id, start_index, end_index, FetchType::Column);
 
     if (!result.isEmpty()) {
+        qInfo() << "通过栏目方式获取到" << result.size() << "个视频";
         return result;
     }
 
+    qInfo() << "栏目方式获取失败，尝试专辑方式";
+    
     // 尝试专辑方式获取
     QString real_album_id = getRealAlbumId(item_id);
     if (!real_album_id.isEmpty()) {
+        qInfo() << "获取到真实专辑ID:" << real_album_id;
         result = fetchVideoData(real_album_id, start_index, end_index, FetchType::Album);
+        if (!result.isEmpty()) {
+            qInfo() << "通过专辑方式获取到" << result.size() << "个视频";
+        }
+    } else {
+        qWarning() << "无法获取真实专辑ID";
+    }
+
+    if (result.isEmpty()) {
+        qWarning() << "获取视频列表失败: 所有方式都未获取到数据";
     }
 
     return result;
@@ -146,6 +173,8 @@ QMap<int, VideoItem> APIService::getVideoList(
 
 QString APIService::getRealAlbumId(const QString& item_id)
 {
+    qInfo() << "获取真实专辑ID，item_id:" << item_id;
+    
     QUrl url("https://api.cntv.cn/NewVideoset/getVideoAlbumInfoByVideoId");
     QUrlQuery query;
     query.addQueryItem("id", item_id);
@@ -154,15 +183,20 @@ QString APIService::getRealAlbumId(const QString& item_id)
 
     QByteArray responseData = sendNetworkRequest(url);
     if (responseData.isEmpty()) {
+        qWarning() << "获取真实专辑ID失败: 响应数据为空";
         return "";
     }
 
     QJsonObject dataObj = parseJsonObject(responseData, "data");
     if (dataObj.isEmpty() || !dataObj.contains("id")) {
+        qWarning() << "解析真实专辑ID失败: 数据格式不正确";
         return "";
     }
 
-    return dataObj["id"].toString();
+    QString albumId = dataObj["id"].toString();
+    qInfo() << "成功获取真实专辑ID:" << albumId;
+    
+    return albumId;
 }
 
 QMap<int, VideoItem> APIService::fetchVideoData(
@@ -171,28 +205,38 @@ QMap<int, VideoItem> APIService::fetchVideoData(
     int end_index,
     FetchType fetch_type)
 {
+    qInfo() << "获取视频数据 - ID:" << id << "类型:" << (fetch_type == FetchType::Column ? "栏目" : "专辑")
+             << "索引范围:" << start_index << "-" << end_index;
+    
     constexpr int PAGE_SIZE = 100;
     const int start_page = start_index / PAGE_SIZE + 1;
     const int end_page = end_index / PAGE_SIZE + 1;
+
+    qInfo() << "分页获取 - 起始页:" << start_page << "结束页:" << end_page << "每页大小:" << PAGE_SIZE;
 
     QMap<int, VideoItem> result;
     int result_index = 0;
 
     for (int page = start_page; page <= end_page; ++page) {
         const int page_start_index = (page - 1) * PAGE_SIZE;
+        qInfo() << "处理第" << page << "页，页面起始索引:" << page_start_index;
 
         // 构建API URL
         QUrl url = buildVideoApiUrl(fetch_type, id, page, PAGE_SIZE);
         QByteArray responseData = sendNetworkRequest(url);
 
         if (responseData.isEmpty()) {
+            qWarning() << "第" << page << "页获取数据失败";
             continue;
         }
 
         QJsonArray items = parseJsonArray(responseData, "data", "list");
         if (items.isEmpty()) {
+            qWarning() << "第" << page << "页数据为空";
             continue;
         }
+
+        qInfo() << "第" << page << "页获取到" << items.size() << "个项目";
 
         // 处理当前页数据
         processPageData(items, page_start_index, start_index, end_index, result, result_index);
@@ -201,6 +245,8 @@ QMap<int, VideoItem> APIService::fetchVideoData(
         QCoreApplication::processEvents();
     }
 
+    qInfo() << "获取视频数据完成，共获取" << result.size() << "个视频";
+    
     return result;
 }
 
@@ -212,11 +258,13 @@ QUrl APIService::buildVideoApiUrl(FetchType fetch_type, const QString& id, int p
     if (fetch_type == FetchType::Column) {
         url = QUrl("https://api.cntv.cn/NewVideo/getVideoListByColumn");
         query.addQueryItem("sort", "desc");
+        qInfo() << "构建栏目API URL";
     }
     else {
         url = QUrl("https://api.cntv.cn/NewVideo/getVideoListByAlbumIdNew");
         query.addQueryItem("sort", "asc");
         query.addQueryItem("pub", "1");
+        qInfo() << "构建专辑API URL";
     }
 
     query.addQueryItem("id", id);
@@ -226,6 +274,8 @@ QUrl APIService::buildVideoApiUrl(FetchType fetch_type, const QString& id, int p
     query.addQueryItem("serviceId", "tvcctv");
 
     url.setQuery(query);
+    qInfo() << "构建的API URL:" << url.toString();
+    
     return url;
 }
 
@@ -235,17 +285,32 @@ QJsonObject APIService::parseJsonObject(const QByteArray& data, const QString& k
     QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
 
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        qWarning() << "JSON解析失败:" << parseError.errorString();
         return QJsonObject();
     }
 
     QJsonObject rootObj = doc.object();
-    return rootObj.contains(key) ? rootObj[key].toObject() : QJsonObject();
+    QJsonObject result = rootObj.contains(key) ? rootObj[key].toObject() : QJsonObject();
+    
+    if (result.isEmpty()) {
+        qDebug() << "JSON对象中未找到键:" << key;
+    }
+    
+    return result;
 }
 
 QJsonArray APIService::parseJsonArray(const QByteArray& data, const QString& objectKey, const QString& arrayKey)
 {
     QJsonObject dataObj = parseJsonObject(data, objectKey);
-    return dataObj.contains(arrayKey) ? dataObj[arrayKey].toArray() : QJsonArray();
+    QJsonArray result = dataObj.contains(arrayKey) ? dataObj[arrayKey].toArray() : QJsonArray();
+    
+    if (result.isEmpty()) {
+        qDebug() << "JSON数组中未找到键:" << arrayKey << "在对象键:" << objectKey;
+    } else {
+        qDebug() << "成功解析JSON数组，大小:" << result.size();
+    }
+    
+    return result;
 }
 
 void APIService::processPageData(
@@ -256,11 +321,15 @@ void APIService::processPageData(
     QMap<int, VideoItem>& result,
     int& result_index)
 {
+    int processedCount = 0;
+    int skippedCount = 0;
+    
     for (int i = 0; i < items.size(); ++i) {
         const int current_global_index = page_start_index + i;
 
         // 检查索引范围
         if (current_global_index < start_index || current_global_index > end_index) {
+            skippedCount++;
             continue;
         }
 
@@ -268,6 +337,8 @@ void APIService::processPageData(
 
         // 验证必要字段
         if (!item.contains("guid") || !item.contains("title")) {
+            qWarning() << "跳过无效项目: 缺少必要字段guid或title";
+            skippedCount++;
             continue;
         }
 
@@ -280,27 +351,38 @@ void APIService::processPageData(
             item["brief"].toString()
             });
 
+        processedCount++;
         ++result_index;
     }
+    
+    qDebug() << "页面数据处理完成 - 处理:" << processedCount << "个，跳过:" << skippedCount << "个";
 }
 
 QImage APIService::getImage(const QString& url)
 {
+    qInfo() << "获取图片，URL:" << url;
+    
     QByteArray imageData = sendNetworkRequest(QUrl(url));
     if (imageData.isEmpty()) {
+        qWarning() << "获取图片失败: 响应数据为空";
         return QImage();
     }
 
+    qInfo() << "图片数据大小:" << imageData.size() << "字节";
+
     QImage image;
     if (!image.loadFromData(imageData)) {
-        qWarning() << "Failed to load image from data, URL:" << url;
+        qWarning() << "从数据加载图片失败，URL:" << url;
         return QImage();
     }
+
+    qInfo() << "图片加载成功，尺寸:" << image.width() << "x" << image.height() << "格式:" << image.format();
 
     // 转换为标准格式以提高性能
     if (image.format() != QImage::Format_ARGB32 &&
         image.format() != QImage::Format_RGB32) {
         image = image.convertToFormat(QImage::Format_ARGB32);
+        qInfo() << "图片已转换为标准格式";
     }
 
     return image;
@@ -308,6 +390,8 @@ QImage APIService::getImage(const QString& url)
 
 QStringList APIService::getEncryptM3U8Urls(const QString& GUID, const QString& quality)
 {
+    qInfo() << "获取加密M3U8 URL，GUID:" << GUID << "质量:" << quality;
+    
     // 获取视频信息
     QUrl infoUrl("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do");
     QUrlQuery infoQuery;
@@ -316,6 +400,7 @@ QStringList APIService::getEncryptM3U8Urls(const QString& GUID, const QString& q
 
     QByteArray infoData = sendNetworkRequest(infoUrl);
     if (infoData.isEmpty()) {
+        qWarning() << "获取视频信息失败: 响应数据为空";
         return QStringList();
     }
 
@@ -323,34 +408,50 @@ QStringList APIService::getEncryptM3U8Urls(const QString& GUID, const QString& q
     QString hlsH5eUrl = manifestObj["hls_enc2_url"].toString();
 
     if (hlsH5eUrl.isEmpty()) {
-        qWarning() << "Failed to get hls_enc2_url";
+        qWarning() << "无法获取hls_enc2_url";
         return QStringList();
     }
+
+    qInfo() << "获取到M3U8 URL:" << hlsH5eUrl;
 
     // 获取主M3U8文件
     QByteArray m3u8Data = sendNetworkRequest(QUrl(hlsH5eUrl));
     if (m3u8Data.isEmpty()) {
+        qWarning() << "获取M3U8文件失败: 响应数据为空";
         return QStringList();
     }
+
+    qDebug() << "M3U8文件大小:" << m3u8Data.size() << "字节";
 
     // 解析质量信息
     QHash<QString, QString> qualityUrls = parseM3U8QualityUrls(m3u8Data, hlsH5eUrl);
     if (qualityUrls.isEmpty()) {
+        qWarning() << "解析M3U8质量信息失败";
         return QStringList();
     }
+
+    qDebug() << "可用的质量选项:" << qualityUrls.keys().join(", ");
 
     // 选择质量
     QString selectedQuality = selectQuality(quality, qualityUrls);
     if (selectedQuality.isEmpty()) {
+        qWarning() << "选择质量失败";
         return QStringList();
     }
 
+    qDebug() << "选择的质量:" << selectedQuality;
+
     // 获取TS文件列表
-    return getTsFileList(qualityUrls[selectedQuality], hlsH5eUrl);
+    QStringList tsList = getTsFileList(qualityUrls[selectedQuality], hlsH5eUrl);
+    qDebug() << "获取到" << tsList.size() << "个TS文件";
+    
+    return tsList;
 }
 
 QHash<QString, QString> APIService::parseM3U8QualityUrls(const QByteArray& m3u8Data, const QString& baseUrl)
 {
+    qDebug() << "解析M3U8质量URL";
+    
     QStringList m3u8Lines = QString::fromUtf8(m3u8Data).split("\n");
     QHash<QString, QualityInfo> qualityMap = {
         {"4", {460800, "480x270"}},
@@ -371,14 +472,18 @@ QHash<QString, QString> APIService::parseM3U8QualityUrls(const QByteArray& m3u8D
             if (match.hasMatch()) {
                 int bandwidth = match.captured(1).toInt();
                 currentQuality = findQualityByBandwidth(qualityMap, bandwidth);
+                qDebug() << "发现质量流 - 带宽:" << bandwidth << "质量:" << currentQuality;
             }
         }
         else if (!trimmedLine.startsWith("#") && !currentQuality.isEmpty() && !trimmedLine.isEmpty()) {
             qualityUrls[currentQuality] = trimmedLine;
+            qDebug() << "质量" << currentQuality << "的URL:" << trimmedLine;
             currentQuality.clear();
         }
     }
 
+    qDebug() << "解析完成，找到" << qualityUrls.size() << "个质量选项";
+    
     return qualityUrls;
 }
 
@@ -394,33 +499,45 @@ QString APIService::findQualityByBandwidth(const QHash<QString, QualityInfo>& qu
 
 QString APIService::selectQuality(const QString& requestedQuality, const QHash<QString, QString>& availableQualities)
 {
+    qDebug() << "选择质量，请求质量:" << requestedQuality;
+    
     if (requestedQuality == "0") {
         // 自动选择最高质量
         QStringList qualities = availableQualities.keys();
         if (qualities.isEmpty()) {
+            qWarning() << "自动选择质量失败: 无可用的质量选项";
             return QString();
         }
-        return *std::max_element(qualities.begin(), qualities.end());
+        QString selected = *std::max_element(qualities.begin(), qualities.end());
+        qDebug() << "自动选择最高质量:" << selected;
+        return selected;
     }
 
     if (availableQualities.contains(requestedQuality)) {
+        qDebug() << "使用请求的质量:" << requestedQuality;
         return requestedQuality;
     }
 
-    qWarning() << "Requested quality not available:" << requestedQuality
-        << "Available:" << availableQualities.keys().join(", ");
+    qWarning() << "请求的质量不可用:" << requestedQuality
+        << "可用的质量:" << availableQualities.keys().join(", ");
     return QString();
 }
 
 QStringList APIService::getTsFileList(const QString& qualityPath, const QString& baseUrl)
 {
+    qDebug() << "获取TS文件列表，质量路径:" << qualityPath;
+    
     QString m3u8Host = QUrl(baseUrl).host();
     QString fullM3u8Url = "https://" + m3u8Host + qualityPath;
+    qDebug() << "完整M3U8 URL:" << fullM3u8Url;
 
     QByteArray videoM3u8Data = sendNetworkRequest(QUrl(fullM3u8Url));
     if (videoM3u8Data.isEmpty()) {
+        qWarning() << "获取视频M3U8文件失败: 响应数据为空";
         return QStringList();
     }
+
+    qDebug() << "视频M3U8文件大小:" << videoM3u8Data.size() << "字节";
 
     QStringList videoLines = QString::fromUtf8(videoM3u8Data).split("\n");
     QStringList tsList;
@@ -428,9 +545,12 @@ QStringList APIService::getTsFileList(const QString& qualityPath, const QString&
 
     for (const QString& line : videoLines) {
         if (line.endsWith(".ts")) {
-            tsList << (basePath + line);
+            QString tsUrl = basePath + line;
+            tsList << tsUrl;
         }
     }
 
+    qDebug() << "解析完成，找到" << tsList.size() << "个TS文件";
+    
     return tsList;
 }

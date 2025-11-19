@@ -6,21 +6,28 @@
 #include "../head/concat.h"
 #include "../head/decrypt.h"
 #include "../head/apiservice.h"
+#include "../head/logger.h"
 
 //std::tuple<int, int> CCTVVideoDownloader::SELECTED_ID;
 
-CCTVVideoDownloader::CCTVVideoDownloader(QWidget *parent)
+CCTVVideoDownloader::CCTVVideoDownloader(QWidget* parent)
     : QMainWindow(parent)
 {
     ui.setupUi(this);
     // 设置标题和图标
     setWindowTitle(QString("央视视频下载器"));
     setWindowIcon(QIcon(QPixmap(":/cctvvideodownload.png")));
-    signalConnect();
+    // 初始化全局设置
     initGlobalSettings();
-    flashProgrammeList();
-    //g_apiservice = std::make_unique<APIService>(this);
+    // 初始化日志系统
+    Logger::instance()->init("cctvvideodownloader.log");
+    // 从配置读取日志级别并设置
+    int logLevel = readLogLevel();
+    Logger::instance()->setLogLevel(logLevel);
+    // 连接槽函数
+    signalConnect();
 
+    flashProgrammeList();
 }
 
 CCTVVideoDownloader::~CCTVVideoDownloader()
@@ -43,8 +50,11 @@ void CCTVVideoDownloader::signalConnect()
 
 void CCTVVideoDownloader::flashProgrammeList()
 {
+    qInfo() << "刷新节目列表";
+    
     // 读取配置文件
     QList<QJsonObject> programmes = readProgrammeFromConfig();
+    qInfo() << "从配置读取到" << programmes.size() << "个节目";
 
     // 获取表格控件
     QTableWidget* table = ui.tableWidget_Config;
@@ -74,19 +84,33 @@ void CCTVVideoDownloader::flashProgrammeList()
 
     // 自动调整列宽
     table->resizeColumnsToContents();
+    
+    qInfo() << "节目列表刷新完成，显示" << programmes.size() << "个节目";
 }
 
 void CCTVVideoDownloader::flashVideoList()
 {
-    if (!SELECTED_ID) { qWarning() << "SELECTED_ID为空"; return; }
+    qInfo() << "刷新视频列表";
+    
+    if (!SELECTED_ID) {
+        qWarning() << "刷新视频列表失败: SELECTED_ID为空";
+        return;
+    }
     auto [columnId, itemId] = *SELECTED_ID;
     auto [displayMin, displayMax] = readDisplayMinAndMax();
+    
+    qInfo() << "获取视频列表参数 - columnId:" << columnId << "itemId:" << itemId
+             << "显示范围:" << displayMin << "-" << displayMax;
+    
     VIDEOS = APIService::instance().getVideoList(
         columnId,
         itemId,
         displayMin,
         displayMax
     );
+    
+    qInfo() << "获取到" << VIDEOS.size() << "个视频";
+    
     // 显示结果
     ui.tableWidget_List->clearContents();
     ui.tableWidget_List->setRowCount(VIDEOS.size());
@@ -119,6 +143,8 @@ void CCTVVideoDownloader::flashVideoList()
         row++;
     }
     ui.tableWidget_List->viewport()->update();
+    
+    qInfo() << "视频列表刷新完成，显示" << VIDEOS.size() << "个视频";
 }
 
 void CCTVVideoDownloader::isProgrammeSelected(int r, int c)
@@ -128,9 +154,11 @@ void CCTVVideoDownloader::isProgrammeSelected(int r, int c)
     auto selectedItemItemId = ui.tableWidget_Config->item(r, 2)->text();
     // 获取名称
     auto selected_item_name = ui.tableWidget_Config->item(r, 0)->text();
-    //qDebug() << "选中栏目:" << selected_item_name;
+    
+    qInfo() << "选中栏目 - 行:" << r << "列:" << c << "名称:" << selected_item_name
+             << "columnId:" << selectedItemColumnId << "itemId:" << selectedItemItemId;
+    
     SELECTED_ID.emplace(selectedItemColumnId, selectedItemItemId);
-    //qDebug() << std::get<0>(SELECTED_ID.value()) << std::get<1>(SELECTED_ID.value());
     flashVideoList();
 }
 
@@ -203,38 +231,52 @@ void CCTVVideoDownloader::isVideoSelected(int r, int c)
 
 void CCTVVideoDownloader::openAboutDialog()
 {
+    qInfo() << "打开关于对话框";
     About aboutDialog(this);
     aboutDialog.exec();
+    qInfo() << "关于对话框已关闭";
 }
 
 void CCTVVideoDownloader::openSettingDialog()
 {
+    qInfo() << "打开设置对话框";
     Setting setttingDialog(this);
     setttingDialog.exec();
+    qInfo() << "设置对话框已关闭";
 }
 
 void CCTVVideoDownloader::openSaveDir()
 {
+    qInfo() << "打开保存目录";
     g_settings->beginGroup("settings");
-    auto url = QUrl::fromLocalFile(g_settings->value("save_dir").toString());
+    auto saveDir = g_settings->value("save_dir").toString();
+    auto url = QUrl::fromLocalFile(saveDir);
     g_settings->endGroup();
+    
+    qInfo() << "保存目录:" << saveDir;
+    
     // 使用QDesktopServices打开路径
     if (!QDesktopServices::openUrl(url)) {
-        qWarning() << "打开文件保存位置失败";
+        qWarning() << "打开文件保存位置失败:" << saveDir;
         QMessageBox::warning(nullptr, "Error", "打开文件保存位置失败");
+    } else {
+        qInfo() << "成功打开保存目录";
     }
-
 }
 
 void CCTVVideoDownloader::openImportDialog()
 {
+    qInfo() << "打开导入对话框";
     Import importDialog(this);
     connect(&importDialog, &Import::importFinished, this, &CCTVVideoDownloader::flashProgrammeList);
     importDialog.exec();
+    qInfo() << "导入对话框已关闭";
 }
 
 void CCTVVideoDownloader::openDownloadDialog()
 {
+    qInfo() << "打开下载对话框";
+    
     // 检查列表中被选中的项
     QString savePath = readSavePath();
     int threadNum = readThreadNum();
@@ -248,31 +290,42 @@ void CCTVVideoDownloader::openDownloadDialog()
         }
     }
 
+    qInfo() << "选中" << selectedIndexes.size() << "个视频进行下载，保存路径:" << savePath << "线程数:" << threadNum;
+
     // 如果没有选中任何项，使用单个选中视频
     if (selectedIndexes.empty()) {
+        qInfo() << "未选中批量下载，使用单个视频下载";
         if (!DOWNLOAD_META_INFO.has_value()) {
+            qWarning() << "下载失败: 未选择要下载的视频";
             QMessageBox::warning(this, "Warning", "请先选择要下载的视频！");
             return;
         }
         auto [title, GUID] = *DOWNLOAD_META_INFO;
+        qInfo() << "单个视频下载 - 标题:" << title << "GUID:" << GUID;
+
         QStringList URLS = APIService::instance().getEncryptM3U8Urls(
             GUID,
             readQuality()
         );
 
+        qInfo() << "获取到" << URLS.size() << "个TS文件URL";
+
         Download dialog(this);
         // 先关闭下载窗口再进行完成后操作
         connect(&dialog, &Download::DownloadFinished, this, [this, &dialog]() {
+            qInfo() << "下载完成，关闭下载对话框";
             dialog.accept();
             concatVideo();
             });
         dialog.transferDwonloadParams(title, URLS, savePath, threadNum);
         dialog.setModal(true);
         dialog.exec();
+        qInfo() << "下载对话框已关闭";
         return;
     }
 
     // 按选中顺序逐个处理
+    qInfo() << "开始批量下载" << selectedIndexes.size() << "个视频";
     for (int idx : selectedIndexes) {
         auto it = VIDEOS.find(idx);
         if (it == VIDEOS.end()) {
@@ -282,6 +335,8 @@ void CCTVVideoDownloader::openDownloadDialog()
         auto title = it->title;
         auto GUID = it->guid;
 
+        qInfo() << "批量下载第" << idx << "个视频 - 标题:" << title << "GUID:" << GUID;
+
         // 设置当前下载元信息，便于后续 concat/decrypt 使用
         DOWNLOAD_META_INFO.emplace(title, GUID);
 
@@ -290,32 +345,58 @@ void CCTVVideoDownloader::openDownloadDialog()
             readQuality()
         );
 
+        qInfo() << "获取到" << URLS.size() << "个TS文件URL";
+
         Download dialog(this);
         connect(&dialog, &Download::DownloadFinished, this, [this, &dialog]() {
+            qInfo() << "下载完成，关闭下载对话框";
             dialog.accept();
             concatVideo();
             });
         dialog.transferDwonloadParams(title, URLS, savePath, threadNum);
         dialog.setModal(true);
         dialog.exec();
+        qInfo() << "下载对话框已关闭";
     }
+    
+    qInfo() << "批量下载全部完成";
 }
 
 void CCTVVideoDownloader::concatVideo()
 {
+    if (!DOWNLOAD_META_INFO.has_value()) {
+        qWarning() << "视频拼接失败: 下载元信息为空";
+        return;
+    }
+    
     auto [title, GUID] = *DOWNLOAD_META_INFO;
     QString savePath = readSavePath();
+    
+    qInfo() << "开始视频拼接 - 标题:" << title << "GUID:" << GUID << "保存路径:" << savePath;
+    
     Concat concatDialog(this);
     connect(&concatDialog, &Concat::ConcatFinished, this, &CCTVVideoDownloader::decryptVideo);
     concatDialog.transferConcatParams(title, savePath);
     concatDialog.exec();
+    
+    qInfo() << "视频拼接对话框已关闭";
 }
 
 void CCTVVideoDownloader::decryptVideo()
 {
+    if (!DOWNLOAD_META_INFO.has_value()) {
+        qWarning() << "视频解密失败: 下载元信息为空";
+        return;
+    }
+    
     auto [title, GUID] = *DOWNLOAD_META_INFO;
     QString savePath = readSavePath();
+    
+    qInfo() << "开始视频解密 - 标题:" << title << "GUID:" << GUID << "保存路径:" << savePath;
+    
     Decrypt decryptDialog(this);
     decryptDialog.transferDecryptParams(title, savePath);
     decryptDialog.exec();
+    
+    qInfo() << "视频解密对话框已关闭";
 }

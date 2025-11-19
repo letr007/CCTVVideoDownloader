@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>230</width>
-    <height>255</height>
+    <height>270</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -16,8 +16,8 @@
   <widget class="QDialogButtonBox" name="buttonBox">
    <property name="geometry">
     <rect>
-     <x>33</x>
-     <y>220</y>
+     <x>35</x>
+     <y>240</y>
      <width>150</width>
      <height>20</height>
     </rect>
@@ -241,6 +241,44 @@
    <property name="text">
     <string>-</string>
    </property>
+  </widget>
+  <widget class="QLabel" name="label_7">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>210</y>
+     <width>60</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>日志级别:</string>
+   </property>
+  </widget>
+  <widget class="QComboBox" name="comboBox_log">
+   <property name="geometry">
+    <rect>
+     <x>70</x>
+     <y>210</y>
+     <width>150</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <item>
+    <property name="text">
+     <string>DEBUG</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>INFO</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>WARNING</string>
+    </property>
+   </item>
   </widget>
  </widget>
  <resources/>

@@ -85,6 +85,9 @@
     <QtMoc Include="src\head\setting.h">
       <Filter>Header Files</Filter>
     </QtMoc>
+    <QtMoc Include="src\head\logger.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\head\config.h">
@@ -162,6 +165,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\source\tsmerger.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\source\logger.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

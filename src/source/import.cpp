@@ -50,7 +50,7 @@ void Import::ImportProgrammeFromUrl()
 
 	if (isDuplicate)
 	{
-		qDebug() << "跳过重复数据";
+		qInfo() << "跳过重复数据";
 		g_settings->endGroup();
 		return;
 	}
@@ -77,6 +77,6 @@ void Import::ImportProgrammeFromUrl()
 	g_settings->endGroup();
 	g_settings->sync();
 
-	qDebug() << "成功存储节目:" << newId;
+	qInfo() << "成功存储节目:" << newId;
 }
 
