@@ -107,7 +107,7 @@ void CCTVVideoDownloader::flashVideoList()
         // 在第一列创建复选框
         QTableWidgetItem* checkItem = new QTableWidgetItem();
         checkItem->setCheckState(Qt::Unchecked);
-        checkItem->setFlags(checkItem->flags() | Qt::ItemIsUserCheckable);
+        checkItem->setFlags(checkItem->flags() | Qt::ItemIsUserCheckable ^ Qt::ItemIsEditable);
         checkItem->setTextAlignment(Qt::AlignCenter); // 居中对齐
         ui.tableWidget_List->setItem(row, 0, checkItem);
 
@@ -136,6 +136,32 @@ void CCTVVideoDownloader::isProgrammeSelected(int r, int c)
 
 void CCTVVideoDownloader::isVideoSelected(int r, int c)
 {
+	QApplication::keyboardModifiers();
+	if (c == 1 && QApplication::keyboardModifiers() & Qt::ControlModifier) {
+        // Ctrl + 点击标题列，切换复选框状态
+        auto item =  ui.tableWidget_List->item(r, 0);
+        if (item->checkState() == Qt::Checked) {
+            item->setCheckState(Qt::Unchecked);
+        } else {
+            item->setCheckState(Qt::Checked);
+        }
+    }
+
+	QList<QTableWidgetSelectionRange> ranges = ui.tableWidget_List->selectedRanges();
+    if (ranges.size() > 0 && (QApplication::keyboardModifiers() & Qt::ControlModifier)) {
+		for (const QTableWidgetSelectionRange& range : ranges) {
+            for (int row = range.topRow(); row <= range.bottomRow(); ++row) {
+                if (row == r) continue; // 跳过当前行，已处理
+                auto item =  ui.tableWidget_List->item(row, 0);
+                if (item->checkState() == Qt::Checked) {
+                    item->setCheckState(Qt::Unchecked);
+                } else {
+                    item->setCheckState(Qt::Checked);
+                }
+            }
+        }
+	}
+
     auto selectedIndex = ui.tableWidget_List->currentRow();
 	//qDebug() << "选中视频索引:" << selectedIndex;
     // 获取当前视频信息
@@ -209,7 +235,7 @@ void CCTVVideoDownloader::openImportDialog()
 
 void CCTVVideoDownloader::openDownloadDialog()
 {
-    // 支持批量下载：检查列表中被选中的项
+    // 检查列表中被选中的项
     QString savePath = readSavePath();
     int threadNum = readThreadNum();
     QList<int> selectedIndexes;
@@ -222,7 +248,7 @@ void CCTVVideoDownloader::openDownloadDialog()
         }
     }
 
-    // 如果没有选中任何项，保留原来的行为：使用单个选中视频
+    // 如果没有选中任何项，使用单个选中视频
     if (selectedIndexes.empty()) {
         if (!DOWNLOAD_META_INFO.has_value()) {
             QMessageBox::warning(this, "Warning", "请先选择要下载的视频！");
@@ -246,7 +272,7 @@ void CCTVVideoDownloader::openDownloadDialog()
         return;
     }
 
-    // 批量下载：按选中顺序逐个处理
+    // 按选中顺序逐个处理
     for (int idx : selectedIndexes) {
         auto it = VIDEOS.find(idx);
         if (it == VIDEOS.end()) {
