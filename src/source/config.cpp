@@ -24,7 +24,7 @@ extern void initGlobalSettings()
 		g_settings->setValue("display_min", 1);
 		g_settings->setValue("display_max", 100);
 		g_settings->setValue("quality", 1);
-		g_settings->setValue("log_level", "INFO"); // 默认日志级别为INFO
+		g_settings->setValue("log_level", 1); // 默认日志级别为INFO
 		g_settings->endGroup();
 		g_settings->beginGroup("programme");
 		g_settings->endGroup();
