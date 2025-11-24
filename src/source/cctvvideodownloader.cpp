@@ -175,21 +175,6 @@ void CCTVVideoDownloader::isVideoSelected(int r, int c)
         }
     }
 
-	QList<QTableWidgetSelectionRange> ranges = ui.tableWidget_List->selectedRanges();
-    if (ranges.size() > 0 && (QApplication::keyboardModifiers() & Qt::ControlModifier)) {
-		for (const QTableWidgetSelectionRange& range : ranges) {
-            for (int row = range.topRow(); row <= range.bottomRow(); ++row) {
-                if (row == r) continue; // 跳过当前行，已处理
-                auto item =  ui.tableWidget_List->item(row, 0);
-                if (item->checkState() == Qt::Checked) {
-                    item->setCheckState(Qt::Unchecked);
-                } else {
-                    item->setCheckState(Qt::Checked);
-                }
-            }
-        }
-	}
-
     auto selectedIndex = ui.tableWidget_List->currentRow();
 	//qDebug() << "选中视频索引:" << selectedIndex;
     // 获取当前视频信息
