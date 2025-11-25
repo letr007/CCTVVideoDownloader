@@ -117,19 +117,49 @@ void DecryptWorker::doDecrypt()
     
 	// 清理视频名称中可能的路径非法字符
 	m_name.replace(QRegularExpression(R"([\\/:*?"<>|])"), "_");
-    qInfo() << "清理后的视频名称:" << m_name;
-    
-    QString finalPath = QDir(m_savePath).filePath("%1.mp4").arg(m_name);
-    qInfo() << "最终文件路径:" << finalPath;
-    
+	qInfo() << "清理后的视频名称:" << m_name;
+
+	QString finalPath = QDir(m_savePath).filePath("%1.mp4").arg(m_name);
+	qInfo() << "初始文件路径:" << finalPath;
+
+	// 生成不重复的最终文件路径
+	int counter = 1;
+	QString uniqueFinalPath = finalPath;
+	QFileInfo fileInfo(finalPath);
+	QString baseName = fileInfo.completeBaseName();
+	QString suffix = fileInfo.suffix();
+	QString path = fileInfo.path();
+
+	while (QFile::exists(uniqueFinalPath)) {
+		uniqueFinalPath = QDir(path).filePath(
+			QString("%1(%2).%3").arg(baseName).arg(counter).arg(suffix)
+		);
+		counter++;
+
+		// 防止无限循环
+		if (counter > 1000) {
+			qCritical() << "无法生成唯一最终文件路径，达到尝试次数上限";
+			emit decryptFinished(false, "无法生成唯一的视频文件名");
+			return;
+		}
+	}
+
+	// 如果生成了新文件名，记录信息
+	if (uniqueFinalPath != finalPath) {
+		qInfo() << "原文件已存在，使用新文件名:" << uniqueFinalPath;
+		finalPath = uniqueFinalPath;
+	}
+
+	qInfo() << "最终文件路径:" << finalPath;
+
 	if (!QFile::rename(outputFilePath, finalPath))
 	{
 		qCritical() << "重命名视频文件失败，从" << outputFilePath << "到" << finalPath;
 		emit decryptFinished(false, "重命名视频文件失败");
-        return;
+		return;
 	}
 
-    qInfo() << "重命名视频文件成功";
+	qInfo() << "重命名视频文件成功";
 
 	if (!removeDirectory(filePath))
 	{
