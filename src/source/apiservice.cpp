@@ -45,9 +45,9 @@ QByteArray APIService::sendNetworkRequest(const QUrl& url, const QHash<QString, 
     QNetworkAccessManager manager;
     QNetworkRequest request(url);
 
-    // 设置默认User-Agent
+    // 设置User-Agent
     request.setHeader(QNetworkRequest::UserAgentHeader,
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+        "Lavf/60.10.100");
 
     // 添加自定义头部
     for (auto it = headers.begin(); it != headers.end(); ++it) {
