@@ -21,8 +21,8 @@ extern void initGlobalSettings()
 		g_settings->setValue("save_dir", "C:\\Video");
 		g_settings->setValue("thread_num", 10);
 		g_settings->setValue("transcode", false);
-		g_settings->setValue("data_beg", QDate::currentDate().toString("yyyyMM"));
-		g_settings->setValue("data_end", QDate::currentDate().addMonths(-1).toString("yyyyMM"));
+		g_settings->setValue("date_beg", QDate::currentDate().toString("yyyyMM"));
+		g_settings->setValue("date_end", QDate::currentDate().addMonths(-1).toString("yyyyMM"));
 		g_settings->setValue("quality", 1);
 		g_settings->setValue("log_level", 1); // 默认日志级别为INFO
 		g_settings->endGroup();
