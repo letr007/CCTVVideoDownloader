@@ -413,6 +413,19 @@ QStringList APIService::getEncryptM3U8Urls(const QString& GUID, const QString& q
     }
 
     qInfo() << "获取到M3U8 URL:" << hlsH5eUrl;
+    
+    // 替换CDN
+    QRegularExpression re("https://[^/]+/asp/enc2/");
+    QRegularExpressionMatch match = re.match(hlsH5eUrl);
+
+    if (match.hasMatch()) {
+        hlsH5eUrl.replace(match.captured(0), "https://dh5cntv.a.bdydns.com/asp/enc2/");
+    }
+    else {
+        qWarning() << "无法替换CDN，使用默认CDN";
+    }
+
+    qInfo() << "替换后M3U8 URL:" << hlsH5eUrl;
 
     // 获取主M3U8文件
     QByteArray m3u8Data = sendNetworkRequest(QUrl(hlsH5eUrl));
