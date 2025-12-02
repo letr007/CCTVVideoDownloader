@@ -156,25 +156,6 @@
     <string>列表显示节目区间:</string>
    </property>
   </widget>
-  <widget class="QSpinBox" name="spinBox_program_2">
-   <property name="geometry">
-    <rect>
-     <x>130</x>
-     <y>105</y>
-     <width>90</width>
-     <height>20</height>
-    </rect>
-   </property>
-   <property name="minimum">
-    <number>20</number>
-   </property>
-   <property name="maximum">
-    <number>999999</number>
-   </property>
-   <property name="singleStep">
-    <number>10</number>
-   </property>
-  </widget>
   <widget class="QComboBox" name="comboBox_quality">
    <property name="geometry">
     <rect>
@@ -210,36 +191,17 @@
     </property>
    </item>
   </widget>
-  <widget class="QSpinBox" name="spinBox_program_1">
-   <property name="geometry">
-    <rect>
-     <x>10</x>
-     <y>105</y>
-     <width>90</width>
-     <height>20</height>
-    </rect>
-   </property>
-   <property name="minimum">
-    <number>0</number>
-   </property>
-   <property name="maximum">
-    <number>9999</number>
-   </property>
-   <property name="singleStep">
-    <number>10</number>
-   </property>
-  </widget>
   <widget class="QLabel" name="label_6">
    <property name="geometry">
     <rect>
-     <x>112</x>
+     <x>109</x>
      <y>105</y>
-     <width>10</width>
+     <width>15</width>
      <height>20</height>
     </rect>
    </property>
    <property name="text">
-    <string>-</string>
+    <string>至</string>
    </property>
   </widget>
   <widget class="QLabel" name="label_7">
@@ -279,6 +241,38 @@
      <string>WARNING</string>
     </property>
    </item>
+  </widget>
+  <widget class="QDateEdit" name="dateEdit_1">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>105</y>
+     <width>100</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="displayFormat">
+    <string>yyyy年M月</string>
+   </property>
+   <property name="timeSpec">
+    <enum>Qt::TimeSpec::UTC</enum>
+   </property>
+  </widget>
+  <widget class="QDateEdit" name="dateEdit_2">
+   <property name="geometry">
+    <rect>
+     <x>120</x>
+     <y>105</y>
+     <width>100</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="displayFormat">
+    <string>yyyy年M月</string>
+   </property>
+   <property name="timeSpec">
+    <enum>Qt::TimeSpec::UTC</enum>
+   </property>
   </widget>
  </widget>
  <resources/>

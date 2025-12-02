@@ -57,7 +57,8 @@ public:
 
     // API接口
     QSharedPointer<QStringList> getPlayColumnInfo(const QString& url);
-    QMap<int, VideoItem> getVideoList(const QString& column_id, const QString& item_id, int start_index, int end_index);
+    QMap<int, VideoItem> getVideoList(const QString& column_id, const QString& item_id, const QString& start_date, const QString& end_date);
+    //QMap<int, VideoItem> getVideoList(const QString& column_id, const QString& item_id, int start_index, int end_index);
     QImage getImage(const QString& url);
     QStringList getEncryptM3U8Urls(const QString& GUID, const QString& quality);
 
@@ -71,19 +72,18 @@ private:
 
     // 内部辅助方法
     QString getRealAlbumId(const QString& item_id);
-    QMap<int, VideoItem> fetchVideoData(const QString& id, int start_index, int end_index, FetchType fetch_type);
-    QByteArray sendNetworkRequest(const QUrl& url, const QHash<QString, QString>& headers = QHash<QString, QString>());
+    QMap<int, VideoItem> fetchVideoData(const QString& id, const QStringList dataList, FetchType fetch_type);
+    QByteArray sendNetworkRequest(const QUrl& url, const QHash<QString, QString>& headers = QHash<QString, QString>());    
 
     // JSON解析相关方法
     QJsonObject parseJsonObject(const QByteArray& data, const QString& key = QString());
     QJsonArray parseJsonArray(const QByteArray& data, const QString& objectKey = QString(), const QString& arrayKey = QString());
 
     // URL构建方法
-    QUrl buildVideoApiUrl(FetchType fetch_type, const QString& id, int page, int page_size);
+    QUrl buildVideoApiUrl(FetchType fetch_type, const QString& id, const QString& date, int page, int page_size);
 
     // 数据处理方法
-    void processPageData(const QJsonArray& items, int page_start_index, int start_index, int end_index,
-        QMap<int, VideoItem>& result, int& result_index);
+    void processMonthData(const QJsonArray& items, const QString& month, QMap<int, VideoItem>& result, int& result_index);
 
     // M3U8相关方法
     QHash<QString, QString> parseM3U8QualityUrls(const QByteArray& m3u8Data, const QString& baseUrl);

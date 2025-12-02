@@ -125,25 +125,31 @@ QSharedPointer<QStringList> APIService::getPlayColumnInfo(const QString& url) {
 QMap<int, VideoItem> APIService::getVideoList(
     const QString& column_id,
     const QString& item_id,
-    int start_index,
-    int end_index)
+    const QString& start_date,
+    const QString& end_date)
 {
     qInfo() << "获取视频列表 - column_id:" << column_id << "item_id:" << item_id
-             << "start_index:" << start_index << "end_index:" << end_index;
+             << "start_index:" << start_date << "end_index:" << end_date;
     
     // 参数校验
-    if (start_index < 0 || end_index < 0) {
-        qWarning() << "获取视频列表失败: 索引参数无效";
-        return {};
+	QDate dateBegin = QDateTime::fromString(start_date, "yyyyMM").date();
+	QDate dateEnd = QDateTime::fromString(end_date, "yyyyMM").date();
+
+    if (dateBegin < dateEnd) {
+		QDate tmp = dateBegin;
+		dateBegin = dateEnd;
+		dateEnd = tmp;
     }
 
-    if (start_index > end_index) {
-        qDebug() << "交换起始和结束索引";
-        std::swap(start_index, end_index);
+    // 生成日期列表
+	QStringList dateList;
+    for (QDate date = dateBegin; date >= dateEnd; date = date.addMonths(-1)) {
+		dateList.append(date.toString("yyyyMM"));
     }
+	qInfo() << "生成的日期列表:" << dateList;
 
     // 先尝试栏目方式获取
-    QMap<int, VideoItem> result = fetchVideoData(column_id, start_index, end_index, FetchType::Column);
+    QMap<int, VideoItem> result = fetchVideoData(column_id, dateList, FetchType::Column);
 
     if (!result.isEmpty()) {
         qInfo() << "通过栏目方式获取到" << result.size() << "个视频";
@@ -156,7 +162,7 @@ QMap<int, VideoItem> APIService::getVideoList(
     QString real_album_id = getRealAlbumId(item_id);
     if (!real_album_id.isEmpty()) {
         qInfo() << "获取到真实专辑ID:" << real_album_id;
-        result = fetchVideoData(real_album_id, start_index, end_index, FetchType::Album);
+        result = fetchVideoData(real_album_id, dateList, FetchType::Album);
         if (!result.isEmpty()) {
             qInfo() << "通过专辑方式获取到" << result.size() << "个视频";
         }
@@ -201,56 +207,51 @@ QString APIService::getRealAlbumId(const QString& item_id)
 
 QMap<int, VideoItem> APIService::fetchVideoData(
     const QString& id,
-    int start_index,
-    int end_index,
+	QStringList dateList,
     FetchType fetch_type)
 {
-    qInfo() << "获取视频数据 - ID:" << id << "类型:" << (fetch_type == FetchType::Column ? "栏目" : "专辑")
-             << "索引范围:" << start_index << "-" << end_index;
-    
-    constexpr int PAGE_SIZE = 100;
-    const int start_page = start_index / PAGE_SIZE + 1;
-    const int end_page = end_index / PAGE_SIZE + 1;
-
-    qInfo() << "分页获取 - 起始页:" << start_page << "结束页:" << end_page << "每页大小:" << PAGE_SIZE;
+    qInfo() << "获取视频数据 - ID:" << id << "类型:" << (fetch_type == FetchType::Column ? "栏目" : "专辑");
+    qInfo() << "日期列表:" << dateList;
 
     QMap<int, VideoItem> result;
     int result_index = 0;
 
-    for (int page = start_page; page <= end_page; ++page) {
-        const int page_start_index = (page - 1) * PAGE_SIZE;
-        qInfo() << "处理第" << page << "页，页面起始索引:" << page_start_index;
+    // 按月循环
+    for (const QString& date : dateList) {
+        qInfo() << "处理月份:" << date << "格式:yyyyMM";
 
         // 构建API URL
-        QUrl url = buildVideoApiUrl(fetch_type, id, page, PAGE_SIZE);
+        QUrl url = buildVideoApiUrl(fetch_type, id, date, 1, 100);
+        qInfo() << "请求URL:" << url.toString();
+
         QByteArray responseData = sendNetworkRequest(url);
 
         if (responseData.isEmpty()) {
-            qWarning() << "第" << page << "页获取数据失败";
+            qWarning() << "月份" << date << "获取数据失败";
             continue;
         }
 
         QJsonArray items = parseJsonArray(responseData, "data", "list");
         if (items.isEmpty()) {
-            qWarning() << "第" << page << "页数据为空";
+            qWarning() << "月份" << date << "数据为空";
             continue;
         }
 
-        qInfo() << "第" << page << "页获取到" << items.size() << "个项目";
+        qInfo() << "月份" << date << "获取到" << items.size() << "个项目";
 
-        // 处理当前页数据
-        processPageData(items, page_start_index, start_index, end_index, result, result_index);
+        // 处理当前月数据
+        processMonthData(items, date, result, result_index);
 
         // 处理事件循环
         QCoreApplication::processEvents();
     }
 
     qInfo() << "获取视频数据完成，共获取" << result.size() << "个视频";
-    
+
     return result;
 }
 
-QUrl APIService::buildVideoApiUrl(FetchType fetch_type, const QString& id, int page, int page_size)
+QUrl APIService::buildVideoApiUrl(FetchType fetch_type, const QString& id, const QString& date, int page = 1, int page_size = 100)
 {
     QUrl url;
     QUrlQuery query;
@@ -270,6 +271,7 @@ QUrl APIService::buildVideoApiUrl(FetchType fetch_type, const QString& id, int p
     query.addQueryItem("id", id);
     query.addQueryItem("n", QString::number(page_size));
     query.addQueryItem("p", QString::number(page));
+	query.addQueryItem("d", date);
     query.addQueryItem("mode", "0");
     query.addQueryItem("serviceId", "tvcctv");
 
@@ -313,49 +315,47 @@ QJsonArray APIService::parseJsonArray(const QByteArray& data, const QString& obj
     return result;
 }
 
-void APIService::processPageData(
+void APIService::processMonthData(
     const QJsonArray& items,
-    int page_start_index,
-    int start_index,
-    int end_index,
+    const QString& month,
     QMap<int, VideoItem>& result,
     int& result_index)
 {
     int processedCount = 0;
     int skippedCount = 0;
-    
+
+    qInfo() << "处理月份" << month << "的数据，共" << items.size() << "个项目";
+
     for (int i = 0; i < items.size(); ++i) {
-        const int current_global_index = page_start_index + i;
-
-        // 检查索引范围
-        if (current_global_index < start_index || current_global_index > end_index) {
-            skippedCount++;
-            continue;
-        }
-
         QJsonObject item = items[i].toObject();
 
         // 验证必要字段
         if (!item.contains("guid") || !item.contains("title")) {
-            qWarning() << "跳过无效项目: 缺少必要字段guid或title";
+            qWarning() << "月份" << month << " - 跳过无效项目: 缺少必要字段guid或title";
             skippedCount++;
             continue;
         }
 
         // 创建VideoItem
-        result.insert(result_index, VideoItem{
-            item["guid"].toString(),
-            item["time"].toString(),
-            item["title"].toString(),
-            item["image"].toString(),
-            item["brief"].toString()
-            });
+        VideoItem videoItem;
+        videoItem.guid = item["guid"].toString();
+        videoItem.time = item["time"].toString();
+        videoItem.title = item["title"].toString();
+        videoItem.image = item["image"].toString();
+        videoItem.brief = item["brief"].toString();
 
+        // 添加到结果集
+        result[result_index++] = videoItem;
         processedCount++;
-        ++result_index;
+
+        // 调试输出
+        if (processedCount % 10 == 0) {
+            qDebug() << "月份" << month << " - 已处理" << processedCount << "个视频";
+        }
     }
-    
-    qDebug() << "页面数据处理完成 - 处理:" << processedCount << "个，跳过:" << skippedCount << "个";
+
+    qInfo() << "月份" << month << "数据处理完成 - 成功处理:" << processedCount
+        << "个，跳过:" << skippedCount << "个";
 }
 
 QImage APIService::getImage(const QString& url)
@@ -566,4 +566,4 @@ QStringList APIService::getTsFileList(const QString& qualityPath, const QString&
     qDebug() << "解析完成，找到" << tsList.size() << "个TS文件";
     
     return tsList;
-}
+}////////////////////////

@@ -10,7 +10,7 @@
 extern std::unique_ptr<QSettings> g_settings;
 
 extern QList<QJsonObject> readProgrammeFromConfig();
-extern std::tuple<int, int> readDisplayMinAndMax();
+extern std::tuple<QString, QString> readDisplayMinAndMax();
 extern QString readQuality();
 extern QString readSavePath();
 extern int readThreadNum();

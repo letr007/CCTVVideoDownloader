@@ -21,8 +21,8 @@ extern void initGlobalSettings()
 		g_settings->setValue("save_dir", "C:\\Video");
 		g_settings->setValue("thread_num", 10);
 		g_settings->setValue("transcode", false);
-		g_settings->setValue("display_min", 1);
-		g_settings->setValue("display_max", 100);
+		g_settings->setValue("data_beg", QDate::currentDate().toString("yyyyMM"));
+		g_settings->setValue("data_end", QDate::currentDate().addMonths(-1).toString("yyyyMM"));
 		g_settings->setValue("quality", 1);
 		g_settings->setValue("log_level", 1); // 默认日志级别为INFO
 		g_settings->endGroup();
@@ -78,14 +78,14 @@ extern QList<QJsonObject> readProgrammeFromConfig()
 	return results;
 }
 
-extern std::tuple<int, int> readDisplayMinAndMax()
+extern std::tuple<QString, QString> readDisplayMinAndMax()
 {
-	qInfo() << "读取显示范围配置";
+	qInfo() << "读取显示日期范围配置";
 	
 	g_settings->sync();
 	g_settings->beginGroup("settings");
-	int displayMin = g_settings->value("display_min").toInt();
-	int displayMax = g_settings->value("display_max").toInt();
+	QString displayMin = g_settings->value("date_beg").toString();
+	QString displayMax = g_settings->value("date_end").toString();
 	g_settings->endGroup();
 	
 	qInfo() << "显示范围 - 最小值:" << displayMin << "最大值:" << displayMax;
