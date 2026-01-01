@@ -56,7 +56,21 @@ void DownloadTask::run()
     QNetworkAccessManager manager;
     auto url = QUrl(m_url);
     QNetworkRequest request(url);
+    // 设置SSL配置以绕过SSL验证
+    QSslConfiguration sslConfig = request.sslConfiguration();
+    sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+    request.setSslConfiguration(sslConfig);
+
     QNetworkReply* reply = manager.get(request);
+    
+    // 连接SSL错误处理，忽略SSL错误
+    QObject::connect(reply, &QNetworkReply::errorOccurred,
+        [reply](QNetworkReply::NetworkError error) {
+            if (error == QNetworkReply::SslHandshakeFailedError) {
+                qWarning() << "SSL握手失败，尝试忽略错误:" << reply->errorString();
+                reply->ignoreSslErrors();
+            }
+        });
 
     QObject::connect(reply, &QNetworkReply::downloadProgress, [&](qint64 rec, qint64 total) {
         if (total > 0) {
