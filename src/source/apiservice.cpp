@@ -44,6 +44,10 @@ QByteArray APIService::sendNetworkRequest(const QUrl& url, const QHash<QString, 
     
     QNetworkAccessManager manager;
     QNetworkRequest request(url);
+    // 设置SSL配置以绕过SSL验证
+    QSslConfiguration sslConfig = request.sslConfiguration();
+    sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+    request.setSslConfiguration(sslConfig);
 
     // 设置User-Agent
     request.setHeader(QNetworkRequest::UserAgentHeader,
@@ -55,6 +59,15 @@ QByteArray APIService::sendNetworkRequest(const QUrl& url, const QHash<QString, 
     }
 
     QNetworkReply* reply = manager.get(request);
+    // 连接SSL错误处理，忽略SSL错误
+    QObject::connect(reply, &QNetworkReply::errorOccurred,
+        [reply](QNetworkReply::NetworkError error) {
+            if (error == QNetworkReply::SslHandshakeFailedError) {
+                qWarning() << "SSL握手失败，尝试忽略错误:" << reply->errorString();
+                reply->ignoreSslErrors();
+            }
+        });
+    
     QEventLoop loop;
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     loop.exec();
@@ -419,7 +432,11 @@ QStringList APIService::getEncryptM3U8Urls(const QString& GUID, const QString& q
     QRegularExpressionMatch match = re.match(hlsH5eUrl);
 
     if (match.hasMatch()) {
-        hlsH5eUrl.replace(match.captured(0), "https://dh5cntv.a.bdydns.com/asp/enc2/");
+        // hlsH5eUrl.replace(match.captured(0), "https://dh5cntv.a.bdydns.com/asp/enc2/");
+        // replace CDN
+        // drm.cntv.vod.dnsv1.com
+        // dhls.cntv.baishancdnx.cn.bsgslb.cn
+        hlsH5eUrl.replace(match.captured(0), "https://drm.cntv.vod.dnsv1.com/asp/enc2/");
     }
     else {
         qWarning() << "无法替换CDN，使用默认CDN";
