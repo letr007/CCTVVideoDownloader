@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.11.35222.181
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CCTVVideoDownloader", "CCTVVideoDownloader.vcxproj", "{323D5ECB-4C02-4F8D-90BD-D412A48CB421}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "test", "test\test.vcxproj", "{7421B47F-0773-4CAD-9669-7FB031239F17}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{323D5ECB-4C02-4F8D-90BD-D412A48CB421}.Debug|x64.ActiveCfg = Debug|x64
+		{323D5ECB-4C02-4F8D-90BD-D412A48CB421}.Debug|x64.Build.0 = Debug|x64
+		{323D5ECB-4C02-4F8D-90BD-D412A48CB421}.Release|x64.ActiveCfg = Release|x64
+		{323D5ECB-4C02-4F8D-90BD-D412A48CB421}.Release|x64.Build.0 = Release|x64
+		{7421B47F-0773-4CAD-9669-7FB031239F17}.Debug|x64.ActiveCfg = Debug|x64
+		{7421B47F-0773-4CAD-9669-7FB031239F17}.Debug|x64.Build.0 = Debug|x64
+		{7421B47F-0773-4CAD-9669-7FB031239F17}.Release|x64.ActiveCfg = Debug|x64
+		{7421B47F-0773-4CAD-9669-7FB031239F17}.Release|x64.Build.0 = Debug|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {8CED3827-5DC3-4946-964E-0AE08AF0185E}
+	EndGlobalSection
+EndGlobal
