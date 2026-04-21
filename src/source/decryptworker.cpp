@@ -88,6 +88,30 @@ void DecryptWorker::doDecrypt()
 	QString cboxExe = QDir(QCoreApplication::applicationDirPath()).filePath("decrypt/cbox.exe");
     qInfo() << "输出文件路径:" << outputFilePath << "CBOX执行文件:" << cboxExe;
 
+	QString licenseSource = QDir(QCoreApplication::applicationDirPath()).filePath("decrypt/UDRM_LICENSE.v1.0");
+	QString licenseTarget = QDir(m_savePath).filePath("UDRM_LICENSE.v1.0");
+	qInfo() << "许可证源文件路径:" << licenseSource << "，目标路径:" << licenseTarget;
+
+	// 检查目标文件是否已存在，仅当不存在时才复制
+	if (!QFile::exists(licenseTarget)) {
+		if (QFile::exists(licenseSource)) {
+			if (QFile::copy(licenseSource, licenseTarget)) {
+				qInfo() << "成功复制许可证文件到输出目录。";
+			}
+			else {
+				qWarning() << "复制许可证文件失败。解密进程因缺少许可证而失败。";
+			}
+		}
+		else {
+			qCritical() << "源许可证文件不存在，路径:" << licenseSource;
+			emit decryptFinished(false, "解密所需的许可证文件不存在");
+			return;
+		}
+	}
+	else {
+		qInfo() << "目标许可证文件已存在，跳过复制。";
+	}
+
 	QProcess cbox;
 	QStringList args;
 	args << cboxPath << outputFilePath;
