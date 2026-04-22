@@ -13,6 +13,36 @@
 
 欢迎使用央视频下载器！该程序允许您从[央视网](https://tv.cctv.com)获取视频内容，并支持多线程处理。以下是该程序的一些主要功能和使用说明。
 
+## :hammer_and_wrench:构建方式
+
+当前项目以 **CMake** 作为主要构建入口。
+
+### 环境要求
+
+- CMake 3.21+
+- Visual Studio 2022
+- Qt 6.8.0（`msvc2022_64`）
+
+### 配置
+
+```powershell
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="D:/ProgramFiles/Qt/6.8.0/msvc2022_64"
+```
+
+### 构建
+
+```powershell
+cmake --build build --config Release
+```
+
+构建完成后，可执行文件默认位于：
+
+```text
+build/Release/CCTVVideoDownloader.exe
+```
+
+运行所需的 `decrypt` 目录会在构建后自动复制到输出目录。
+
 ## :white_check_mark:功能特点
 
 - 获取节目列表信息
