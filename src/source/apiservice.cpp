@@ -533,12 +533,34 @@ QString APIService::selectQuality(const QString& requestedQuality, const QHash<Q
     
     if (requestedQuality == "0") {
         // 自动选择最高质量
-        QStringList qualities = availableQualities.keys();
-        if (qualities.isEmpty()) {
+        if (availableQualities.isEmpty()) {
             qWarning() << "自动选择质量失败: 无可用的质量选项";
             return QString();
         }
-        QString selected = *std::max_element(qualities.begin(), qualities.end());
+
+        static const QHash<QString, int> qualityBandwidths = {
+            {"1", 2048000},
+            {"2", 1228800},
+            {"3", 870400},
+            {"4", 460800}
+        };
+
+        QString selected;
+        int maxBandwidth = -1;
+
+        for (auto it = availableQualities.begin(); it != availableQualities.end(); ++it) {
+            const int bandwidth = qualityBandwidths.value(it.key(), -1);
+            if (bandwidth > maxBandwidth) {
+                maxBandwidth = bandwidth;
+                selected = it.key();
+            }
+        }
+
+        if (selected.isEmpty()) {
+            qWarning() << "自动选择质量失败: 未匹配到已知质量档位，使用首个可用项";
+            selected = availableQualities.constBegin().key();
+        }
+
         qDebug() << "自动选择最高质量:" << selected;
         return selected;
     }
