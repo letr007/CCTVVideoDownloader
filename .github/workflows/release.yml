@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.0'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          cache: 'true'
+
+      - name: Configure CMake
+        shell: pwsh
+        run: >-
+          cmake -S . -B build
+          -G "Visual Studio 17 2022"
+          -A x64
+          -DCMAKE_PREFIX_PATH="${env:QT_ROOT_DIR}"
+
+      - name: Build Release
+        shell: pwsh
+        run: cmake --build build --config Release
+
+      - name: Verify build outputs
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "build/Release/CCTVVideoDownloader.exe")) {
+            throw "Missing build/Release/CCTVVideoDownloader.exe"
+          }
+
+          if (-not (Test-Path "build/Release/decrypt")) {
+            throw "Missing build/Release/decrypt"
+          }
+
+      - name: Prepare release metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $tagWithoutV = $tag.Substring(1)
+          $zipName = "CCTVVideoDownloader.v$tagWithoutV.win.x64.zip"
+          $releaseName = "CCTVVideoDownloader V$tagWithoutV"
+
+          "tag_without_v=$tagWithoutV" >> $env:GITHUB_OUTPUT
+          "zip_name=$zipName" >> $env:GITHUB_OUTPUT
+          "release_name=$releaseName" >> $env:GITHUB_OUTPUT
+
+      - name: Stage release files
+        shell: pwsh
+        run: |
+          $artifactDir = "artifact"
+          $packageDir = Join-Path $artifactDir "CCTVVideoDownloader"
+
+          if (Test-Path $artifactDir) {
+            Remove-Item $artifactDir -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Path $packageDir | Out-Null
+          Copy-Item "build/Release/CCTVVideoDownloader.exe" $packageDir
+          Copy-Item "build/Release/decrypt" $packageDir -Recurse
+
+      - name: Deploy Qt runtime
+        shell: pwsh
+        run: |
+          $packageDir = "artifact/CCTVVideoDownloader"
+          & "$env:QT_ROOT_DIR/bin/windeployqt.exe" `
+            --release `
+            --no-compiler-runtime `
+            --no-translations `
+            "$packageDir/CCTVVideoDownloader.exe"
+
+      - name: Download VC++ redistributable
+        shell: pwsh
+        run: |
+          Invoke-WebRequest `
+            -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" `
+            -OutFile "artifact/vc_redist.x64.exe"
+
+      - name: Create release zip
+        shell: pwsh
+        run: |
+          $packageDir = "artifact/CCTVVideoDownloader"
+          $zipPath = Join-Path "artifact" "${{ steps.meta.outputs.zip_name }}"
+          Compress-Archive -Path "$packageDir/*" -DestinationPath $zipPath
+
+      - name: Generate release notes
+        id: notes
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $changelogPath = "changelogs/$tag.md"
+          $notesPath = "artifact/release-notes.md"
+
+          if (Test-Path $changelogPath) {
+            Copy-Item $changelogPath $notesPath
+            "source=changelog" >> $env:GITHUB_OUTPUT
+            "path=$notesPath" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          "source=generated" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        if: steps.notes.outputs.source == 'changelog'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.meta.outputs.release_name }}
+          body_path: ${{ steps.notes.outputs.path }}
+          files: |
+            artifact/${{ steps.meta.outputs.zip_name }}
+            artifact/vc_redist.x64.exe
+
+      - name: Create GitHub Release with generated notes
+        if: steps.notes.outputs.source == 'generated'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.meta.outputs.release_name }}
+          files: |
+            artifact/${{ steps.meta.outputs.zip_name }}
+            artifact/vc_redist.x64.exe
+          generate_release_notes: true

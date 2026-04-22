@@ -1,0 +1,69 @@
+name: Windows Release Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.0'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          cache: 'true'
+
+      - name: Configure CMake
+        shell: pwsh
+        run: >-
+          cmake -S . -B build
+          -G "Visual Studio 17 2022"
+          -A x64
+          -DCMAKE_PREFIX_PATH="${env:QT_ROOT_DIR}"
+
+      - name: Build Release
+        shell: pwsh
+        run: cmake --build build --config Release
+
+      - name: Verify build outputs
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "build/Release/CCTVVideoDownloader.exe")) {
+            throw "Missing build/Release/CCTVVideoDownloader.exe"
+          }
+
+          if (-not (Test-Path "build/Release/decrypt")) {
+            throw "Missing build/Release/decrypt"
+          }
+
+      - name: Create artifact zip
+        shell: pwsh
+        run: |
+          $artifactDir = "artifact"
+          $packageDir = Join-Path $artifactDir "CCTVVideoDownloader-windows-x64"
+          $zipPath = Join-Path $artifactDir "CCTVVideoDownloader-windows-x64-release.zip"
+
+          if (Test-Path $artifactDir) {
+            Remove-Item $artifactDir -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Path $packageDir | Out-Null
+          Copy-Item "build/Release/CCTVVideoDownloader.exe" $packageDir
+          Copy-Item "build/Release/decrypt" $packageDir -Recurse
+
+          Compress-Archive -Path "$packageDir/*" -DestinationPath $zipPath
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CCTVVideoDownloader-windows-x64-release
+          path: artifact/CCTVVideoDownloader-windows-x64-release.zip
+          if-no-files-found: error
