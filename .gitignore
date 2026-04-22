@@ -365,3 +365,13 @@ FodyWeavers.xsd
 #自定义
 config/
 *.evb
+
+# CMake
+build/
+build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Testing/
