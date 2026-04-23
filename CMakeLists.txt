@@ -15,6 +15,12 @@ set(CMAKE_AUTOUIC_SEARCH_PATHS
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network)
 
+if (BUILD_TESTING)
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    include(CTest)
+    add_subdirectory(tests)
+endif()
+
 set(PROJECT_SOURCES
     src/source/about.cpp
     src/source/apiservice.cpp

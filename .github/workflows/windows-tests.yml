@@ -1,0 +1,45 @@
+name: Windows Tests
+
+# CI responsibility split:
+# - windows-tests.yml: configure with BUILD_TESTING=ON, build tests, run ctest
+# - windows-release.yml: configure/build/package release binaries
+# - release.yml: tag-based GitHub release creation
+# - Merge/release gating must be enforced by GitHub required checks / branch protection,
+#   not by workflow filenames alone.
+# NOTE: Execution order and required-checks gating are controlled by repository branch protection settings, not workflow filenames.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.0'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          cache: 'true'
+
+      - name: Configure CMake for tests
+        shell: pwsh
+        run: >-
+          cmake -S . -B build-test -G "Visual Studio 17 2022" -A x64
+          -DCMAKE_PREFIX_PATH="${env:QT_ROOT_DIR}"
+          -DBUILD_TESTING=ON
+
+      - name: Build test target
+        shell: pwsh
+        run: cmake --build build-test --config Debug --target core_regression_tests
+
+      - name: Run regression tests
+        shell: pwsh
+        run: ctest --test-dir build-test --build-config Debug --output-on-failure -R core_regression_tests

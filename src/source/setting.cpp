@@ -69,4 +69,4 @@ void Setting::saveSettings()
 	g_settings->setValue("log_level", ui.comboBox_log->currentIndex());
 	g_settings->endGroup();
 	g_settings->sync();
-}////
+}

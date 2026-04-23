@@ -1,4 +1,4 @@
-﻿#include "../head/apiservice.h"
+#include "../head/apiservice.h"
 #include <QCoreApplication>
 #include <algorithm>
 #include <QStringList>
@@ -293,7 +293,6 @@ QUrl APIService::buildVideoApiUrl(FetchType fetch_type, const QString& id, const
     
     return url;
 }
-
 QJsonObject APIService::parseJsonObject(const QByteArray& data, const QString& key)
 {
     QJsonParseError parseError;
@@ -589,6 +588,11 @@ QStringList APIService::getTsFileList(const QString& qualityPath, const QString&
         return QStringList();
     }
 
+    return buildTsUrlsFromPlaylistData(videoM3u8Data, fullM3u8Url);
+}
+
+QStringList APIService::buildTsUrlsFromPlaylistData(const QByteArray& videoM3u8Data, const QString& fullM3u8Url)
+{
     qDebug() << "视频M3U8文件大小:" << videoM3u8Data.size() << "字节";
 
     QStringList videoLines = QString::fromUtf8(videoM3u8Data).split("\n");
@@ -605,4 +609,5 @@ QStringList APIService::getTsFileList(const QString& qualityPath, const QString&
     qDebug() << "解析完成，找到" << tsList.size() << "个TS文件";
     
     return tsList;
-}////////////////////////
+}
+

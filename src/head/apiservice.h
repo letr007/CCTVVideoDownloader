@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <QObject>
 #include <QPointer>
@@ -10,6 +10,7 @@
 #include <QStringList>
 #include <QImage>
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QUrl>
 
 // 视频信息
@@ -46,6 +47,10 @@ enum class FetchType {
 class APIService : public QObject
 {
     Q_OBJECT
+
+#ifdef CORE_REGRESSION_TESTS
+    friend class APIServiceTestAdapter;
+#endif
 
 public:
     // 线程安全的单例访问
@@ -89,7 +94,11 @@ private:
     QHash<QString, QString> parseM3U8QualityUrls(const QByteArray& m3u8Data, const QString& baseUrl);
     QString findQualityByBandwidth(const QHash<QString, QualityInfo>& qualityMap, int bandwidth);
     QString selectQuality(const QString& requestedQuality, const QHash<QString, QString>& availableQualities);
+    QStringList buildTsUrlsFromPlaylistData(const QByteArray& videoM3u8Data, const QString& fullM3u8Url);
     QStringList getTsFileList(const QString& qualityPath, const QString& baseUrl);
+
+
+
 
 private:
     static QPointer<APIService> m_instance;
@@ -97,3 +106,4 @@ private:
 
     QMutex m_mutex;
 };
+
