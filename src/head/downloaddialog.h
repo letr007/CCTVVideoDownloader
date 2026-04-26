@@ -26,7 +26,7 @@ public:
 	void stratDownload();
 
 signals:
-	void DownloadFinished();
+	void DownloadFinished(bool success);
 
 private slots:
 	void onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal, const QVariant& userData);
@@ -45,4 +45,6 @@ private:
 	DownloadEngine* m_engine;
 	DownloadModel* m_model;
 	QHash<int, DownloadInfo> m_infoList;
+	bool m_downloadSuccessful = true;
+	bool m_userCancelled = false;
 };

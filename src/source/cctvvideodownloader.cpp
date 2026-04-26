@@ -326,15 +326,17 @@ void CCTVVideoDownloader::openDownloadDialog()
 
         Download dialog(this);
         // 先关闭下载窗口再进行完成后操作
-        connect(&dialog, &Download::DownloadFinished, this, [this, &dialog]() {
+        connect(&dialog, &Download::DownloadFinished, this, [&dialog](bool success) {
             qInfo() << "下载完成，关闭下载对话框";
-            dialog.accept();
-            concatVideo();
+            success ? dialog.accept() : dialog.reject();
             });
         dialog.transferDwonloadParams(title, URLS, savePath, threadNum);
         dialog.setModal(true);
-        dialog.exec();
+        const int result = dialog.exec();
         qInfo() << "下载对话框已关闭";
+        if (result == QDialog::Accepted) {
+            concatVideo();
+        }
         return;
     }
 
@@ -362,15 +364,19 @@ void CCTVVideoDownloader::openDownloadDialog()
         qInfo() << "获取到" << URLS.size() << "个TS文件URL";
 
         Download dialog(this);
-        connect(&dialog, &Download::DownloadFinished, this, [this, &dialog]() {
+        connect(&dialog, &Download::DownloadFinished, this, [&dialog](bool success) {
             qInfo() << "下载完成，关闭下载对话框";
-            dialog.accept();
-            concatVideo();
+            success ? dialog.accept() : dialog.reject();
             });
         dialog.transferDwonloadParams(title, URLS, savePath, threadNum);
         dialog.setModal(true);
-        dialog.exec();
+        const int result = dialog.exec();
         qInfo() << "下载对话框已关闭";
+        if (result != QDialog::Accepted) {
+            qInfo() << "批量下载已取消或失败，停止后续任务";
+            break;
+        }
+        concatVideo();
     }
     
     qInfo() << "批量下载全部完成";

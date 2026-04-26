@@ -94,12 +94,14 @@ void Download::onDownloadProgress(
 
 void Download::stratDownload()
 {
+	connect(m_engine, &DownloadEngine::downloadProgress, this, &Download::onDownloadProgress);
+	connect(m_engine, &DownloadEngine::downloadFinished, this, &Download::onDownloadFinished);
+	connect(m_engine, &DownloadEngine::allDownloadFinished, this, &Download::onAllDownloadFinished);
+
 	for (const auto& info : m_infoList)
 	{
 		m_engine->download(info.url, m_savePath, info.index);
 	}
-	connect(m_engine, &DownloadEngine::downloadProgress, this, &Download::onDownloadProgress);
-	connect(m_engine, &DownloadEngine::allDownloadFinished, this, &Download::onAllDownloadFinished);
 }
 
 void Download::closeEvent(QCloseEvent *event)
@@ -115,6 +117,10 @@ void Download::closeEvent(QCloseEvent *event)
 
 		if (reply == QMessageBox::Yes)
 		{
+			m_userCancelled = true;
+			m_downloadSuccessful = false;
+			m_engine->cancelAll();
+			setResult(QDialog::Rejected);
 			event->accept();
 		}
 		else
@@ -124,6 +130,7 @@ void Download::closeEvent(QCloseEvent *event)
 	}
 	else
 	{
+		setResult(QDialog::Rejected);
 		event->accept();
 	}
 }
@@ -131,7 +138,7 @@ void Download::closeEvent(QCloseEvent *event)
 void Download::onAllDownloadFinished()
 {
 	//qDebug() << "下载完成";
-	emit DownloadFinished();
+	emit DownloadFinished(!m_userCancelled && m_downloadSuccessful);
 }
 
 void Download::onDownloadFinished(
@@ -141,6 +148,7 @@ void Download::onDownloadFinished(
 {
 	if (!success)
 	{
+		m_downloadSuccessful = false;
 		auto index = userData.toInt();
 		if (m_infoList.contains(index))
 		{
