@@ -120,6 +120,34 @@ QSharedPointer<QStringList> APIService::getPlayColumnInfo(const QString& url) {
     QString itemId = safeMatch(regexPatterns[1], html);
     QString columnId = safeMatch(regexPatterns[2], html);
 
+    if (title.isEmpty() || itemId.isEmpty() || columnId.isEmpty()) {
+        QRegularExpression lmUrlRegex(R"(tv\.cctv\.com/lm/([^/?#]+))");
+        auto lmUrlMatch = lmUrlRegex.match(url);
+        if (lmUrlMatch.hasMatch()) {
+            qInfo() << "尝试从栏目首页提取栏目信息";
+
+            QString lmTitle = safeMatch(QRegularExpression(R"(<meta\s+property=["']og:title["']\s+content=["'](.*?)["'])", QRegularExpression::CaseInsensitiveOption), html).trimmed();
+            if (lmTitle.isEmpty()) {
+                lmTitle = safeMatch(QRegularExpression(R"(<title>\s*(.*?)\s*(?:_CCTV|</title>))", QRegularExpression::CaseInsensitiveOption), html).trimmed();
+            }
+
+            QString lmItemId = safeMatch(QRegularExpression(R"(play\(\s*["']([0-9a-fA-F]{32})["'])"), html).trimmed();
+
+            QString videosetUrl = QString("https://tv.cctv.com/lm/%1/videoset").arg(lmUrlMatch.captured(1));
+            QByteArray videosetData = sendNetworkRequest(QUrl(videosetUrl));
+            QString lmColumnId;
+            if (!videosetData.isEmpty()) {
+                lmColumnId = safeMatch(QRegularExpression(R"(var\s+lmtopId\s*=\s*["'](TOPC\d+)["'];)"), QString::fromUtf8(videosetData)).trimmed();
+            }
+
+            if (!lmTitle.isEmpty() && !lmColumnId.isEmpty()) {
+                title = lmTitle;
+                itemId = lmItemId.isEmpty() ? lmColumnId : lmItemId;
+                columnId = lmColumnId;
+            }
+        }
+    }
+
     // 验证数据完整性
     if (title.isEmpty() || itemId.isEmpty() || columnId.isEmpty()) {
         qWarning() << "从HTML提取必要数据失败";
