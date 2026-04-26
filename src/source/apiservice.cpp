@@ -229,34 +229,49 @@ QMap<int, VideoItem> APIService::fetchVideoData(
     QMap<int, VideoItem> result;
     int result_index = 0;
 
+    constexpr int pageSize = 100;
+
     // 按月循环
     for (const QString& date : dateList) {
         qInfo() << "处理月份:" << date << "格式:yyyyMM";
 
-        // 构建API URL
-        QUrl url = buildVideoApiUrl(fetch_type, id, date, 1, 100);
-        qInfo() << "请求URL:" << url.toString();
+        int page = 1;
+        int totalPages = 1;
 
-        QByteArray responseData = sendNetworkRequest(url);
+        do {
+            // 构建API URL
+            QUrl url = buildVideoApiUrl(fetch_type, id, date, page, pageSize);
+            qInfo() << "请求URL:" << url.toString();
 
-        if (responseData.isEmpty()) {
-            qWarning() << "月份" << date << "获取数据失败";
-            continue;
-        }
+            QByteArray responseData = sendNetworkRequest(url);
 
-        QJsonArray items = parseJsonArray(responseData, "data", "list");
-        if (items.isEmpty()) {
-            qWarning() << "月份" << date << "数据为空";
-            continue;
-        }
+            if (responseData.isEmpty()) {
+                qWarning() << "月份" << date << "第" << page << "页获取数据失败";
+                break;
+            }
 
-        qInfo() << "月份" << date << "获取到" << items.size() << "个项目";
+            QJsonObject dataObj = parseJsonObject(responseData, "data");
+            QJsonArray items = dataObj.value("list").toArray();
+            if (items.isEmpty()) {
+                qWarning() << "月份" << date << "第" << page << "页数据为空";
+                break;
+            }
 
-        // 处理当前月数据
-        processMonthData(items, date, result, result_index);
+            if (page == 1) {
+                const int total = dataObj.value("total").toInt(items.size());
+                totalPages = std::max(1, (total + pageSize - 1) / pageSize);
+                qInfo() << "月份" << date << "总数:" << total << "总页数:" << totalPages;
+            }
 
-        // 处理事件循环
-        QCoreApplication::processEvents();
+            qInfo() << "月份" << date << "第" << page << "/" << totalPages << "页获取到" << items.size() << "个项目";
+
+            // 处理当前页数据
+            processMonthData(items, date, result, result_index);
+
+            // 处理事件循环
+            QCoreApplication::processEvents();
+            ++page;
+        } while (page <= totalPages);
     }
 
     qInfo() << "获取视频数据完成，共获取" << result.size() << "个视频";

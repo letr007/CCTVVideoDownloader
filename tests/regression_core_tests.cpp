@@ -372,6 +372,11 @@ void CoreRegressionTests::apiservice_buildVideoApiUrl_buildsExpectedQuery()
     QCOMPARE(albumQuery.queryItemValue(QString("id")), QString("album-id"));
     QCOMPARE(albumQuery.queryItemValue(QString("pub")), QString("1"));
     QCOMPARE(albumQuery.queryItemValue(QString("sort")), QString("asc"));
+
+    const auto pagedUrl = APIServiceTestAdapter::buildVideoApiUrl(apiService, FetchType::Column, QString("TOPC1451559129520755"), QString("202602"), 4, 100);
+    const auto pagedQuery = QUrlQuery(pagedUrl);
+    QCOMPARE(pagedQuery.queryItemValue(QString("p")), QString("4"));
+    QCOMPARE(pagedQuery.queryItemValue(QString("n")), QString("100"));
 }
 
 void CoreRegressionTests::apiservice_buildTsUrlsFromPlaylistData_returnsExpectedAbsoluteUrls()
