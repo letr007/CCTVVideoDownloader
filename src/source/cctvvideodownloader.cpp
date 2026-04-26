@@ -46,6 +46,7 @@ void CCTVVideoDownloader::signalConnect()
     connect(ui.flash_list, &QPushButton::clicked, this, &CCTVVideoDownloader::flashVideoList); // 刷新视频
     connect(ui.tableWidget_List, &QTableWidget::cellClicked, this, &CCTVVideoDownloader::isVideoSelected); // 刷新信息
     connect(ui.pushButton, &QPushButton::clicked, this, &CCTVVideoDownloader::openDownloadDialog); // 下载
+    connect(ui.btn_select_all, &QPushButton::clicked, this, &CCTVVideoDownloader::toggleSelectAllVideos); // 全选视频
 }
 
 void CCTVVideoDownloader::flashProgrammeList()
@@ -143,6 +144,7 @@ void CCTVVideoDownloader::flashVideoList()
         row++;
     }
     ui.tableWidget_List->viewport()->update();
+    ui.btn_select_all->setText("全选");
     
     qInfo() << "视频列表刷新完成，显示" << VIDEOS.size() << "个视频";
 }
@@ -212,6 +214,33 @@ void CCTVVideoDownloader::isVideoSelected(int r, int c)
     ui.label_introduce->setWordWrap(true);
     ui.label_time->setText(time);
     
+}
+
+void CCTVVideoDownloader::toggleSelectAllVideos()
+{
+    int rows = ui.tableWidget_List->rowCount();
+    if (rows == 0) {
+        return;
+    }
+
+    bool allChecked = true;
+    for (int r = 0; r < rows; ++r) {
+        auto item = ui.tableWidget_List->item(r, 0);
+        if (!item || item->checkState() != Qt::Checked) {
+            allChecked = false;
+            break;
+        }
+    }
+
+    Qt::CheckState newState = allChecked ? Qt::Unchecked : Qt::Checked;
+    for (int r = 0; r < rows; ++r) {
+        auto item = ui.tableWidget_List->item(r, 0);
+        if (item) {
+            item->setCheckState(newState);
+        }
+    }
+
+    ui.btn_select_all->setText(allChecked ? "全选" : "取消");
 }
 
 void CCTVVideoDownloader::openAboutDialog()

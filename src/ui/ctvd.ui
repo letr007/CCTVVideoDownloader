@@ -167,6 +167,19 @@
      </size>
     </property>
    </widget>
+   <widget class="QPushButton" name="btn_select_all">
+    <property name="geometry">
+     <rect>
+      <x>145</x>
+      <y>242</y>
+      <width>55</width>
+      <height>25</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>全选</string>
+    </property>
+   </widget>
    <widget class="QLabel" name="label_img">
     <property name="geometry">
      <rect>

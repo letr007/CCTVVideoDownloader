@@ -46,6 +46,8 @@ public:
 
     void ImportProgrammeFromUrl();
 
+    void toggleSelectAllVideos();
+
 private:
     Ui::MainWindow ui;
     inline static std::optional<std::tuple<QString, QString>> SELECTED_ID;
