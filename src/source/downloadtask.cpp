@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QPointer>
+#include <QTimer>
 
 static QString extractFilenameFromUrlImpl(const QString& url) {
     QUrl qurl(url);
@@ -135,6 +136,16 @@ void DownloadTask::run()
 
     QEventLoop loop;
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    QTimer cancelTimer;
+    QObject::connect(&cancelTimer, &QTimer::timeout, [&]() {
+        if (m_cancelled.load(std::memory_order_relaxed) && !reply->isFinished()) {
+            reply->abort();
+        }
+    });
+    cancelTimer.start(10);
+    if (m_cancelled.load(std::memory_order_relaxed) && !reply->isFinished()) {
+        reply->abort();
+    }
     loop.exec();
 
     if (reply->parent() == nullptr) {

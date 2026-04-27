@@ -396,16 +396,19 @@ void CoreRegressionTests::downloadTask_cancelWhileReplyPending_emitsSingleCancel
     const QString userData = QStringLiteral("cancel-user");
     const QUrl url(QStringLiteral("https://fake.test/files/video-cancel.bin"));
 
-    manager.queueSuccess(url, QByteArray(), 120);
+    manager.queueSuccess(url, QByteArray(), 1000);
 
     DownloadTask task(url.toString(), downloadDir, userData);
     DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
 
     QSignalSpy spy(&task, &DownloadTask::downloadFinished);
     QTimer::singleShot(10, &task, &DownloadTask::cancel);
+    QElapsedTimer elapsed;
+    elapsed.start();
     task.run();
 
     QCOMPARE(spy.count(), 1);
+    QVERIFY2(elapsed.elapsed() < 300, "Cancelled fake reply should unblock promptly instead of waiting for the original delay");
     const auto arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toBool(), false);
     QCOMPARE(arguments.at(2).toString(), userData);
