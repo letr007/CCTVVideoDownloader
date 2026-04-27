@@ -16,6 +16,7 @@
 #include <QFile>
 #include <QElapsedTimer>
 #include <QTimer>
+#include <functional>
 #include <memory>
 #include <tuple>
 
@@ -101,14 +102,14 @@ public:
 
 class DownloadEngineTestAdapter {
 public:
-    static void setTestNetworkAccessManager(DownloadEngine& engine, QNetworkAccessManager* networkAccessManager)
+    static void setTestReplyFactory(DownloadEngine& engine, const std::function<QNetworkReply*(const QNetworkRequest&)>& replyFactory)
     {
-        engine.setTestNetworkAccessManager(networkAccessManager);
+        engine.setTestReplyFactory(replyFactory);
     }
 
-    static void clearTestNetworkAccessManager(DownloadEngine& engine)
+    static void clearTestReplyFactory(DownloadEngine& engine)
     {
-        engine.clearTestNetworkAccessManager();
+        engine.clearTestReplyFactory();
     }
 };
 
@@ -466,7 +467,9 @@ void CoreRegressionTests::downloadEngine_fakeNetwork_success_emitsDownloadAndAll
     manager.queueSuccess(url, expectedBody);
 
     DownloadEngine engine;
-    DownloadEngineTestAdapter::setTestNetworkAccessManager(engine, &manager);
+    DownloadEngineTestAdapter::setTestReplyFactory(engine, [&manager](const QNetworkRequest& request) {
+        return manager.createReplyForRequest(QNetworkAccessManager::GetOperation, request);
+    });
     QSignalSpy finishedSpy(&engine, &DownloadEngine::downloadFinished);
     QSignalSpy allFinishedSpy(&engine, &DownloadEngine::allDownloadFinished);
 
@@ -502,7 +505,9 @@ void CoreRegressionTests::downloadEngine_fakeNetwork_error_emitsFailureAndAllFin
     manager.queueError(url, QNetworkReply::ConnectionRefusedError, expectedError);
 
     DownloadEngine engine;
-    DownloadEngineTestAdapter::setTestNetworkAccessManager(engine, &manager);
+    DownloadEngineTestAdapter::setTestReplyFactory(engine, [&manager](const QNetworkRequest& request) {
+        return manager.createReplyForRequest(QNetworkAccessManager::GetOperation, request);
+    });
     QSignalSpy finishedSpy(&engine, &DownloadEngine::downloadFinished);
     QSignalSpy allFinishedSpy(&engine, &DownloadEngine::allDownloadFinished);
 
@@ -533,7 +538,9 @@ void CoreRegressionTests::downloadEngine_cancelActiveTask_emitsSingleCancelledFa
     manager.queueSuccess(url, QByteArray("cancel me"), 120);
 
     DownloadEngine engine;
-    DownloadEngineTestAdapter::setTestNetworkAccessManager(engine, &manager);
+    DownloadEngineTestAdapter::setTestReplyFactory(engine, [&manager](const QNetworkRequest& request) {
+        return manager.createReplyForRequest(QNetworkAccessManager::GetOperation, request);
+    });
     QSignalSpy finishedSpy(&engine, &DownloadEngine::downloadFinished);
     QSignalSpy allFinishedSpy(&engine, &DownloadEngine::allDownloadFinished);
 

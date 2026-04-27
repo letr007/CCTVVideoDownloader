@@ -34,7 +34,6 @@ public:
 signals:
     void progressChanged(qint64 bytesReceived, qint64 bytesTotal, const QVariant& userData);
     void downloadFinished(bool success, const QString& errorString, const QVariant& userData);
-    void runCompleted();
 
 private:
 #ifdef CORE_REGRESSION_TESTS

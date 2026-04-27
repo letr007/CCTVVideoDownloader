@@ -41,7 +41,6 @@ void DownloadTask::run()
 
     auto finishRun = [&]() {
         qInfo() << "下载任务执行结束 - 用户数据:" << m_userData;
-        emit runCompleted();
     };
     
     if (m_cancelled.load(std::memory_order_relaxed)) {

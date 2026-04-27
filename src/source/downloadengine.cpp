@@ -2,10 +2,6 @@
 #include "../head/downloadtask.h"
 #include <QDebug>
 
-#ifdef CORE_REGRESSION_TESTS
-#include "../../tests/fakes/fake_networkaccessmanager.h"
-#endif
-
 inline size_t qHash(const QVariant& var, size_t seed = 0)
 {
     if (!var.isValid()) return 0;
@@ -22,6 +18,8 @@ DownloadEngine::DownloadEngine(QObject* parent)
 DownloadEngine::~DownloadEngine()
 {
     cancelAll();
+    m_threadPool.waitForDone();
+    deleteTrackedTasks();
 }
 
 void DownloadEngine::download(const QString& url, const QString& saveDir, const QVariant& userData)
@@ -38,18 +36,13 @@ void DownloadEngine::download(const QString& url, const QString& saveDir, const 
     task->setAutoDelete(false);
 
 #ifdef CORE_REGRESSION_TESTS
-    if (auto* fakeNetworkAccessManager = qobject_cast<FakeNetworkAccessManager*>(m_testNetworkAccessManager.data())) {
-        task->setTestReplyFactory([fakeNetworkAccessManager](const QNetworkRequest& request) {
-            return fakeNetworkAccessManager->createReplyForRequest(QNetworkAccessManager::GetOperation, request);
-        });
-    } else if (m_testNetworkAccessManager) {
-        task->setTestNetworkAccessManager(m_testNetworkAccessManager);
+    if (m_testReplyFactory) {
+        task->setTestReplyFactory(m_testReplyFactory);
     }
 #endif
 
     connect(task, &DownloadTask::progressChanged, this, &DownloadEngine::onDownloadProgress, Qt::QueuedConnection);
     connect(task, &DownloadTask::downloadFinished, this, &DownloadEngine::onDownloadFinished, Qt::QueuedConnection);
-    connect(task, &DownloadTask::runCompleted, this, &DownloadEngine::onTaskRunCompleted, Qt::QueuedConnection);
 
     m_activeDownloads.insert(userData, task);
     m_threadPool.start(task);
@@ -112,26 +105,21 @@ void DownloadEngine::onDownloadFinished(bool success, const QString& errorString
 {
     qInfo() << "下载任务完成 - 用户数据:" << userData << "成功:" << success << "错误信息:" << errorString;
 
-    DownloadTask* task = nullptr;
-    bool shouldDeleteTask = false;
     bool allFinished = false;
 
     {
         QMutexLocker locker(&m_mutex);
-        task = m_activeDownloads.take(userData);
-        if (task != nullptr && m_completedTasks.remove(task)) {
-            shouldDeleteTask = true;
+        if (auto* task = m_activeDownloads.take(userData)) {
+            m_completedTasks.insert(task);
         }
         allFinished = m_activeDownloads.isEmpty();
-    }
-
-    if (shouldDeleteTask) {
-        delete task;
     }
 
     emit downloadFinished(success, errorString, userData);
 
     if (allFinished) {
+        m_threadPool.waitForDone();
+        deleteCompletedTasks();
         qInfo() << "所有下载任务已完成";
         emit allDownloadFinished();
     } else {
@@ -139,26 +127,31 @@ void DownloadEngine::onDownloadFinished(bool success, const QString& errorString
     }
 }
 
-void DownloadEngine::onTaskRunCompleted()
+void DownloadEngine::deleteTrackedTasks()
 {
-    auto* task = qobject_cast<DownloadTask*>(sender());
-    if (task == nullptr) {
-        return;
-    }
-
-    bool shouldDeleteTask = false;
+    QSet<DownloadTask*> tasks;
     {
         QMutexLocker locker(&m_mutex);
-        if (m_activeDownloads.values().contains(task)) {
-            m_completedTasks.insert(task);
-        } else {
-            shouldDeleteTask = true;
+        for (auto* task : std::as_const(m_activeDownloads)) {
+            tasks.insert(task);
         }
+        tasks.unite(m_completedTasks);
+        m_activeDownloads.clear();
+        m_completedTasks.clear();
     }
 
-    if (shouldDeleteTask) {
-        delete task;
+    qDeleteAll(tasks);
+}
+
+void DownloadEngine::deleteCompletedTasks()
+{
+    QSet<DownloadTask*> tasks;
+    {
+        QMutexLocker locker(&m_mutex);
+        tasks.swap(m_completedTasks);
     }
+
+    qDeleteAll(tasks);
 }
 
 void DownloadEngine::waitForAllFinished()
@@ -167,13 +160,13 @@ void DownloadEngine::waitForAllFinished()
 }
 
 #ifdef CORE_REGRESSION_TESTS
-void DownloadEngine::setTestNetworkAccessManager(QNetworkAccessManager* networkAccessManager)
+void DownloadEngine::setTestReplyFactory(const std::function<QNetworkReply*(const QNetworkRequest&)>& replyFactory)
 {
-    m_testNetworkAccessManager = networkAccessManager;
+    m_testReplyFactory = replyFactory;
 }
 
-void DownloadEngine::clearTestNetworkAccessManager()
+void DownloadEngine::clearTestReplyFactory()
 {
-    m_testNetworkAccessManager = nullptr;
+    m_testReplyFactory = {};
 }
 #endif
