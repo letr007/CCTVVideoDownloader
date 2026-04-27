@@ -15,6 +15,7 @@
 #include <QCoreApplication>
 #include <QFile>
 #include <QElapsedTimer>
+#include <QTimer>
 #include <memory>
 #include <tuple>
 
@@ -84,6 +85,19 @@ public:
     }
 };
 
+class DownloadTaskTestAdapter {
+public:
+    static void setTestNetworkAccessManager(DownloadTask& task, QNetworkAccessManager* networkAccessManager)
+    {
+        task.setTestNetworkAccessManager(networkAccessManager);
+    }
+
+    static void clearTestNetworkAccessManager(DownloadTask& task)
+    {
+        task.clearTestNetworkAccessManager();
+    }
+};
+
 class CoreRegressionTests : public QObject
 {
     Q_OBJECT
@@ -98,6 +112,10 @@ private slots:
 
     void downloadTask_cancelBeforeRun_emitsCancelledSignal();
     void downloadTask_fileOpenFailure_emitsCannotOpenFileSignal();
+    void downloadTask_fakeNetwork_success_writesExactBytes();
+    void downloadTask_fakeNetwork_error_emitsFailureOnce();
+    void downloadTask_cancelWhileReplyPending_emitsSingleCancelledCompletion();
+    void downloadTask_delayedFakeReply_completesWithinBoundedTime();
     void decryptWorker_renameFailure_emitsRenameError();
 
     void apiservice_parseJsonObject_returnsEmptyOnInvalidJson();
@@ -291,6 +309,118 @@ void CoreRegressionTests::downloadTask_fileOpenFailure_emitsCannotOpenFileSignal
     QCOMPARE(arguments.at(0).toBool(), false);
     QCOMPARE(arguments.at(1).toString(), QString("Cannot open file"));
     QCOMPARE(arguments.at(2).toString(), QString("openfail"));
+}
+
+void CoreRegressionTests::downloadTask_fakeNetwork_success_writesExactBytes()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("download_fake_success");
+    const QString userData = QStringLiteral("success-user");
+    const QUrl url(QStringLiteral("https://fake.test/files/video-success.bin"));
+    const QByteArray expectedBody("exact fake download payload\nwith second line");
+    const QString expectedFilePath = QDir(downloadDir).filePath(QStringLiteral("video-success.bin"));
+
+    manager.queueSuccess(url, expectedBody);
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(arguments.at(1).toString(), expectedFilePath);
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    QCOMPARE(manager.requestedUrls().constFirst(), url);
+
+    QFile outputFile(expectedFilePath);
+    QVERIFY(outputFile.open(QIODevice::ReadOnly));
+    QCOMPARE(outputFile.readAll(), expectedBody);
+}
+
+void CoreRegressionTests::downloadTask_fakeNetwork_error_emitsFailureOnce()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("download_fake_error");
+    const QString userData = QStringLiteral("error-user");
+    const QUrl url(QStringLiteral("https://fake.test/files/video-error.bin"));
+    const QString expectedError = QStringLiteral("deterministic fake download error");
+
+    manager.queueError(url, QNetworkReply::ConnectionRefusedError, expectedError);
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), expectedError);
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    QCOMPARE(manager.requestedUrls().constFirst(), url);
+}
+
+void CoreRegressionTests::downloadTask_cancelWhileReplyPending_emitsSingleCancelledCompletion()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("download_fake_cancel_pending");
+    const QString userData = QStringLiteral("cancel-user");
+    const QUrl url(QStringLiteral("https://fake.test/files/video-cancel.bin"));
+
+    manager.queueSuccess(url, QByteArray(), 120);
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    QTimer::singleShot(10, &task, &DownloadTask::cancel);
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    QCOMPARE(manager.requestedUrls().constFirst(), url);
+}
+
+void CoreRegressionTests::downloadTask_delayedFakeReply_completesWithinBoundedTime()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("download_fake_delayed");
+    const QString userData = QStringLiteral("delayed-user");
+    const QUrl url(QStringLiteral("https://fake.test/files/video-delayed.bin"));
+    const QByteArray expectedBody("delayed fake body");
+
+    manager.queueSuccess(url, expectedBody, 40);
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    QElapsedTimer elapsed;
+    elapsed.start();
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY2(elapsed.elapsed() < 500, "Delayed fake reply should complete within bounded test time");
+    QVERIFY(elapsed.elapsed() >= 30);
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    QCOMPARE(manager.requestedUrls().constFirst(), url);
 }
 
 void CoreRegressionTests::decryptWorker_renameFailure_emitsRenameError()

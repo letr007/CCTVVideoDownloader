@@ -53,7 +53,14 @@ void DownloadTask::run()
 
     qInfo() << "文件已打开，开始下载到:" << m_filePath;
 
-    QNetworkAccessManager manager;
+    QNetworkAccessManager localManager;
+    QNetworkAccessManager* manager = &localManager;
+#ifdef CORE_REGRESSION_TESTS
+    if (m_testNetworkAccessManager) {
+        manager = m_testNetworkAccessManager;
+    }
+#endif
+
     auto url = QUrl(m_url);
     QNetworkRequest request(url);
     // 设置SSL配置以绕过SSL验证
@@ -61,7 +68,7 @@ void DownloadTask::run()
     sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
     request.setSslConfiguration(sslConfig);
 
-    QNetworkReply* reply = manager.get(request);
+    QNetworkReply* reply = manager->get(request);
     
     // 连接SSL错误处理，忽略SSL错误
     QObject::connect(reply, &QNetworkReply::errorOccurred,
@@ -116,3 +123,15 @@ void DownloadTask::cancel()
     qInfo() << "取消下载任务 - 用户数据:" << m_userData;
     m_cancelled = true;
 }
+
+#ifdef CORE_REGRESSION_TESTS
+void DownloadTask::setTestNetworkAccessManager(QNetworkAccessManager* networkAccessManager)
+{
+    m_testNetworkAccessManager = networkAccessManager;
+}
+
+void DownloadTask::clearTestNetworkAccessManager()
+{
+    m_testNetworkAccessManager = nullptr;
+}
+#endif
