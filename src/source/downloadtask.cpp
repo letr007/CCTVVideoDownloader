@@ -116,7 +116,29 @@ void DownloadTask::run()
             }
         });
 
+    QTimer inactivityTimer;
+    inactivityTimer.setSingleShot(true);
+    const int timeoutMs = m_timeoutMs;
+    bool timedOut = false;
+    const QString timeoutMessage = QStringLiteral("Timed out after %1 ms").arg(timeoutMs);
+    auto resetInactivityTimer = [&]() {
+        if (timeoutMs > 0 && !timedOut && !m_cancelled.load(std::memory_order_relaxed) && !reply->isFinished()) {
+            inactivityTimer.start(timeoutMs);
+        }
+    };
+
+    QObject::connect(&inactivityTimer, &QTimer::timeout, [&]() {
+        if (timeoutMs <= 0 || timedOut || m_cancelled.load(std::memory_order_relaxed) || reply->isFinished()) {
+            return;
+        }
+
+        timedOut = true;
+        qWarning() << "下载任务超时 - 用户数据:" << m_userData << "超时毫秒:" << timeoutMs;
+        reply->abort();
+    });
+
     QObject::connect(reply, &QNetworkReply::downloadProgress, [&](qint64 rec, qint64 total) {
+        resetInactivityTimer();
         if (total > 0) {
             double progress = (static_cast<double>(rec) / total) * 100.0;
             qDebug() << "下载进度 - 用户数据:" << m_userData << "已下载:" << rec << "/" << total
@@ -126,6 +148,7 @@ void DownloadTask::run()
         });
 
     QObject::connect(reply, &QNetworkReply::readyRead, [&]() {
+        resetInactivityTimer();
         if (!m_cancelled.load(std::memory_order_relaxed)) {
             QByteArray data = reply->readAll();
             file.write(data);
@@ -134,13 +157,19 @@ void DownloadTask::run()
         });
 
     QObject::connect(reply, &QNetworkReply::finished, [&]() {
-        bool success = (reply->error() == QNetworkReply::NoError && !m_cancelled.load(std::memory_order_relaxed));
+        inactivityTimer.stop();
+        const bool cancelled = m_cancelled.load(std::memory_order_relaxed);
+        const bool success = (reply->error() == QNetworkReply::NoError && !cancelled && !timedOut);
         QString msg = success ? m_filePath : reply->errorString();
-        
+
+        if (timedOut) {
+            msg = QStringLiteral("Download failed [code=timeout; attempts=1/1]: %1").arg(timeoutMessage);
+        }
+
         if (success) {
             qInfo() << "下载任务成功完成 - 用户数据:" << m_userData << "文件大小:" << file.size() << "字节";
         } else {
-            qWarning() << "下载任务失败 - 用户数据:" << m_userData << "错误:" << reply->errorString();
+            qWarning() << "下载任务失败 - 用户数据:" << m_userData << "错误:" << msg;
         }
         
         if (reply->parent() != nullptr) {
@@ -159,6 +188,7 @@ void DownloadTask::run()
         }
     });
     cancelTimer.start(10);
+    resetInactivityTimer();
     if (m_cancelled.load(std::memory_order_relaxed) && !reply->isFinished()) {
         reply->abort();
     }

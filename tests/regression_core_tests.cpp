@@ -147,6 +147,8 @@ private slots:
     void downloadTask_defaultNetworkError_noRetry_preservesLegacyErrorString();
     void downloadTask_cancelWhileReplyPending_emitsSingleCancelledCompletion();
     void downloadTask_delayedFakeReply_completesWithinBoundedTime();
+    void downloadTask_timeoutWhileReplyStalls_emitsStructuredTimeoutOnce();
+    void downloadTask_cancelWhileReplyPending_withTimeoutEnabled_preservesCancellation();
     void downloadEngine_idleConstructionDestruction_isSafe();
     void downloadEngine_fakeNetwork_success_emitsDownloadAndAllFinished();
     void downloadEngine_fakeNetwork_error_emitsFailureAndAllFinished();
@@ -503,6 +505,71 @@ void CoreRegressionTests::downloadTask_delayedFakeReply_completesWithinBoundedTi
     const auto arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toBool(), true);
     QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    QCOMPARE(manager.requestedUrls().constFirst(), url);
+}
+
+void CoreRegressionTests::downloadTask_timeoutWhileReplyStalls_emitsStructuredTimeoutOnce()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("download_fake_timeout");
+    const QString userData = QStringLiteral("timeout-user");
+    const QUrl url(QStringLiteral("https://fake.test/files/video-timeout.bin"));
+    const QByteArray expectedBody("timeout fake body");
+
+    manager.queueSuccess(url, expectedBody, 1000);
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    task.setTimeoutMs(20);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    QElapsedTimer elapsed;
+    elapsed.start();
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY2(elapsed.elapsed() < 300, "Inactivity timeout should abort a stalled fake reply promptly");
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QStringLiteral("Download failed [code=timeout; attempts=1/1]: Timed out after 20 ms"));
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    QCOMPARE(manager.requestedUrls().constFirst(), url);
+
+    auto* reply = manager.lastReply();
+    QVERIFY(reply != nullptr);
+    QVERIFY(reply->wasAborted());
+}
+
+void CoreRegressionTests::downloadTask_cancelWhileReplyPending_withTimeoutEnabled_preservesCancellation()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("download_fake_cancel_timeout_enabled");
+    const QString userData = QStringLiteral("cancel-timeout-user");
+    const QUrl url(QStringLiteral("https://fake.test/files/video-cancel-timeout.bin"));
+
+    manager.queueSuccess(url, QByteArray("cancel me"), 1000);
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    task.setTimeoutMs(200);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    QTimer::singleShot(10, &task, &DownloadTask::cancel);
+    QElapsedTimer elapsed;
+    elapsed.start();
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY2(elapsed.elapsed() < 300, "Cancellation should still win promptly when timeout is enabled");
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QStringLiteral("Operation canceled"));
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QVERIFY(!arguments.at(1).toString().contains(QStringLiteral("code=timeout")));
     QCOMPARE(manager.requestCount(), 1);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
     QCOMPARE(manager.requestedUrls().constFirst(), url);
