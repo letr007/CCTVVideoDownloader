@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QList>
+#include <QMutex>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QPointer>
@@ -33,15 +34,17 @@ public:
     QList<QUrl> requestedUrls() const;
     QStringList unexpectedFailures() const;
     FakeNetworkReply* lastReply() const;
+    QNetworkReply* createReplyForRequest(Operation operation, const QNetworkRequest& request, QObject* parent = nullptr);
 
 protected:
     QNetworkReply* createRequest(Operation operation, const QNetworkRequest& request, QIODevice* outgoingData) override;
 
 private:
-    FakeNetworkReply* createUnexpectedReply(Operation operation, const QNetworkRequest& request, const QString& reason);
+    FakeNetworkReply* createUnexpectedReply(Operation operation, const QNetworkRequest& request, const QString& reason, QObject* parent = nullptr);
 
     QList<QueuedReply> m_queue;
     QList<QUrl> m_requestedUrls;
     QStringList m_unexpectedFailures;
     QPointer<FakeNetworkReply> m_lastReply;
+    mutable QMutex m_mutex;
 };
