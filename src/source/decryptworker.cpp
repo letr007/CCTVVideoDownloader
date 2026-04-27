@@ -6,6 +6,144 @@
 #include <QCoreApplication>
 #include <QRegularExpression>
 
+namespace {
+
+int normalizeProcessTimeoutMs(int timeoutMs)
+{
+    return timeoutMs > 0 ? timeoutMs : 30000;
+}
+
+bool canCreateAndRemoveProbeFile(const QString& directoryPath)
+{
+    const QString probeFilePath = QDir(directoryPath).filePath(
+        QStringLiteral(".decrypt_write_probe_%1.tmp").arg(QString::number(QCoreApplication::applicationPid()))
+    );
+
+    QFile probeFile(probeFilePath);
+    if (!probeFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        return false;
+    }
+
+    if (probeFile.write("ok") != 2) {
+        probeFile.close();
+        QFile::remove(probeFilePath);
+        return false;
+    }
+
+    probeFile.close();
+    return QFile::remove(probeFilePath);
+}
+
+QString cappedDiagnosticText(const QString& text)
+{
+    QString trimmed = text.trimmed();
+    if (trimmed.size() > 2048) {
+        trimmed.truncate(2048);
+    }
+    return trimmed;
+}
+
+QString preferredProcessDiagnostic(const DecryptProcessResult& result)
+{
+    const QString stderrText = cappedDiagnosticText(result.stderrText);
+    if (!stderrText.isEmpty()) {
+        return stderrText;
+    }
+
+    const QString stdoutText = cappedDiagnosticText(result.stdoutText);
+    if (!stdoutText.isEmpty()) {
+        return stdoutText;
+    }
+
+    return QStringLiteral("cbox 退出失败");
+}
+
+void logProcessDiagnostics(const DecryptProcessResult& result)
+{
+    qInfo() << "CBOX stdout:" << cappedDiagnosticText(result.stdoutText);
+    qInfo() << "CBOX stderr:" << cappedDiagnosticText(result.stderrText);
+}
+
+bool restoreConvertedInputToMp4(const QString& cboxPath, const QString& mp4Path)
+{
+    if (QFileInfo::exists(mp4Path) || !QFileInfo::exists(cboxPath)) {
+        return true;
+    }
+
+    if (QFile::rename(cboxPath, mp4Path)) {
+        return true;
+    }
+
+    if (!QFile::copy(cboxPath, mp4Path)) {
+        return false;
+    }
+
+    if (!QFile::remove(cboxPath)) {
+        QFile::remove(mp4Path);
+        return false;
+    }
+
+    return true;
+}
+
+void cleanupProcessFailureArtifacts(const QString& savePath, bool removeCopiedLicense)
+{
+    const QString outputTxtPath = QDir(savePath).filePath("output.txt");
+    if (QFile::exists(outputTxtPath) && !QFile::remove(outputTxtPath)) {
+        qWarning() << "清理 output.txt 失败:" << outputTxtPath;
+    }
+
+    if (!removeCopiedLicense) {
+        return;
+    }
+
+    const QString licensePath = QDir(savePath).filePath("UDRM_LICENSE.v1.0");
+    if (QFile::exists(licensePath) && !QFile::remove(licensePath)) {
+        qWarning() << "清理许可证文件失败:" << licensePath;
+    }
+}
+
+DecryptProcessResult runDecryptProcess(const DecryptProcessRequest& request)
+{
+    QProcess cbox;
+    cbox.setWorkingDirectory(request.workingDirectory);
+    cbox.start(request.program, request.arguments);
+
+    DecryptProcessResult result;
+    if (!cbox.waitForStarted(request.timeoutMs)) {
+        result.errorString = cbox.errorString();
+        return result;
+    }
+
+    result.started = true;
+    if (!cbox.waitForFinished(request.timeoutMs)) {
+        result.timedOut = true;
+        result.stdoutText = QString::fromLocal8Bit(cbox.readAllStandardOutput());
+        result.stderrText = QString::fromLocal8Bit(cbox.readAllStandardError());
+        result.errorString = cbox.errorString();
+
+        cbox.terminate();
+        if (!cbox.waitForFinished(1000) && cbox.state() != QProcess::NotRunning) {
+            cbox.kill();
+            cbox.waitForFinished(1000);
+        }
+
+        result.exitCode = cbox.exitCode();
+        result.exitStatus = cbox.exitStatus();
+        result.errorString = cbox.errorString();
+        return result;
+    }
+
+    result.exitCode = cbox.exitCode();
+    result.exitStatus = cbox.exitStatus();
+    result.stdoutText = QString::fromLocal8Bit(cbox.readAllStandardOutput());
+    result.stderrText = QString::fromLocal8Bit(cbox.readAllStandardError());
+    result.errorString = cbox.errorString();
+    return result;
+}
+
+} // namespace
+
 bool removeDirectory(const QString& path) {
     qDebug() << "删除目录:" << path;
     
@@ -49,6 +187,22 @@ bool removeDirectory(const QString& path) {
 
 DecryptWorker::DecryptWorker(QObject* parent)
 {
+}
+
+void DecryptWorker::setProcessTimeoutMs(int timeoutMs)
+{
+    m_processTimeoutMs = normalizeProcessTimeoutMs(timeoutMs);
+}
+
+QString DecryptWorker::decryptAssetsDir() const
+{
+#ifdef CORE_REGRESSION_TESTS
+    if (!m_testDecryptAssetsDir.isEmpty()) {
+        return m_testDecryptAssetsDir;
+    }
+#endif
+
+    return QDir(QCoreApplication::applicationDirPath()).filePath("decrypt");
 }
 
 void DecryptWorker::doDecrypt()
@@ -200,3 +354,25 @@ void DecryptWorker::doDecrypt()
     qInfo() << "视频解密全部完成，输出文件:" << finalPath;
 	emit decryptFinished(true, "解密完成，输出 " + m_name);
 }
+
+#ifdef CORE_REGRESSION_TESTS
+void DecryptWorker::setTestProcessRunner(const std::function<DecryptProcessResult(const DecryptProcessRequest&)>& runner)
+{
+    m_testProcessRunner = runner;
+}
+
+void DecryptWorker::clearTestProcessRunner()
+{
+    m_testProcessRunner = {};
+}
+
+void DecryptWorker::setTestDecryptAssetsDir(const QString& decryptAssetsDir)
+{
+    m_testDecryptAssetsDir = decryptAssetsDir;
+}
+
+void DecryptWorker::clearTestDecryptAssetsDir()
+{
+    m_testDecryptAssetsDir.clear();
+}
+#endif

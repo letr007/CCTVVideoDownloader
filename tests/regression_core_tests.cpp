@@ -29,6 +29,35 @@
 #include "fakes/fake_networkaccessmanager.h"
 #include "fakes/fake_networkreply.h"
 
+namespace {
+
+QString decryptTaskHash(const QString& name)
+{
+    return QString(QCryptographicHash::hash(name.toUtf8(), QCryptographicHash::Sha256).toHex());
+}
+
+bool createEmptyFile(const QString& filePath)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    file.close();
+    return true;
+}
+
+void createDecryptAssets(const QString& assetsDirPath, bool includeCboxExe = true, bool includeLicense = true)
+{
+    if (includeCboxExe) {
+        QVERIFY(createEmptyFile(QDir(assetsDirPath).filePath("cbox.exe")));
+    }
+    if (includeLicense) {
+        QVERIFY(createEmptyFile(QDir(assetsDirPath).filePath("UDRM_LICENSE.v1.0")));
+    }
+}
+
+}
+
 class APIServiceTestAdapter {
 public:
     static QByteArray sendNetworkRequest(APIService& apiService, const QUrl& url, const QHash<QString, QString>& headers = {})
@@ -125,6 +154,34 @@ public:
     static void clearTestReplyFactory(DownloadEngine& engine)
     {
         engine.clearTestReplyFactory();
+    }
+};
+
+class DecryptWorkerTestAdapter {
+public:
+    static void setProcessTimeoutMs(DecryptWorker& worker, int timeoutMs)
+    {
+        worker.setProcessTimeoutMs(timeoutMs);
+    }
+
+    static void setTestProcessRunner(DecryptWorker& worker, const std::function<DecryptProcessResult(const DecryptProcessRequest&)>& runner)
+    {
+        worker.setTestProcessRunner(runner);
+    }
+
+    static void clearTestProcessRunner(DecryptWorker& worker)
+    {
+        worker.clearTestProcessRunner();
+    }
+
+    static void setTestDecryptAssetsDir(DecryptWorker& worker, const QString& decryptAssetsDir)
+    {
+        worker.setTestDecryptAssetsDir(decryptAssetsDir);
+    }
+
+    static void clearTestDecryptAssetsDir(DecryptWorker& worker)
+    {
+        worker.clearTestDecryptAssetsDir();
     }
 };
 
