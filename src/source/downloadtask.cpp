@@ -21,9 +21,25 @@ static QString extractFilenameFromUrlImpl(const QString& url) {
     return filename;
 }
 
+static int normalizeTimeoutMs(int timeoutMs)
+{
+    return timeoutMs > 0 ? timeoutMs : 0;
+}
+
+static int normalizeMaxAttempts(int maxAttempts)
+{
+    return maxAttempts >= 1 ? maxAttempts : 1;
+}
+
+static int normalizeRetryDelayMs(int retryDelayMs)
+{
+    return retryDelayMs >= 0 ? retryDelayMs : 0;
+}
+
 DownloadTask::DownloadTask(const QString& url, const QString& saveDir, const QVariant& userData)
     : QObject(nullptr), QRunnable(),
-    m_url(url), m_saveDir(saveDir), m_userData(userData), m_cancelled(false)
+    m_url(url), m_saveDir(saveDir), m_userData(userData), m_cancelled(false),
+    m_timeoutMs(0), m_maxAttempts(1), m_retryDelayMs(0)
 {
     QString filename = extractFilenameFromUrlImpl(url);
     m_filePath = QDir(m_saveDir).filePath(filename);
@@ -159,6 +175,21 @@ void DownloadTask::cancel()
 {
     qInfo() << "取消下载任务 - 用户数据:" << m_userData;
     m_cancelled.store(true, std::memory_order_relaxed);
+}
+
+void DownloadTask::setTimeoutMs(int timeoutMs)
+{
+    m_timeoutMs = normalizeTimeoutMs(timeoutMs);
+}
+
+void DownloadTask::setMaxAttempts(int maxAttempts)
+{
+    m_maxAttempts = normalizeMaxAttempts(maxAttempts);
+}
+
+void DownloadTask::setRetryDelayMs(int retryDelayMs)
+{
+    m_retryDelayMs = normalizeRetryDelayMs(retryDelayMs);
 }
 
 #ifdef CORE_REGRESSION_TESTS

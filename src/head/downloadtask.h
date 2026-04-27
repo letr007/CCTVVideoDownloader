@@ -29,6 +29,9 @@ public:
 
     void run() override;
     void cancel();
+    void setTimeoutMs(int timeoutMs);
+    void setMaxAttempts(int maxAttempts);
+    void setRetryDelayMs(int retryDelayMs);
     void setAutoDelete(bool autoDelete) { QRunnable::setAutoDelete(autoDelete); }
 
 signals:
@@ -48,6 +51,9 @@ private:
     QString m_filePath;
     QVariant m_userData;
     std::atomic_bool m_cancelled;
+    int m_timeoutMs;
+    int m_maxAttempts;
+    int m_retryDelayMs;
 
 #ifdef CORE_REGRESSION_TESTS
     QPointer<QNetworkAccessManager> m_testNetworkAccessManager;

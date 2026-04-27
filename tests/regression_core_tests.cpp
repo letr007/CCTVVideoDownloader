@@ -98,6 +98,21 @@ public:
     {
         task.clearTestNetworkAccessManager();
     }
+
+    static int timeoutMs(const DownloadTask& task)
+    {
+        return task.m_timeoutMs;
+    }
+
+    static int maxAttempts(const DownloadTask& task)
+    {
+        return task.m_maxAttempts;
+    }
+
+    static int retryDelayMs(const DownloadTask& task)
+    {
+        return task.m_retryDelayMs;
+    }
 };
 
 class DownloadEngineTestAdapter {
@@ -129,6 +144,7 @@ private slots:
     void downloadTask_fileOpenFailure_emitsCannotOpenFileSignal();
     void downloadTask_fakeNetwork_success_writesExactBytes();
     void downloadTask_fakeNetwork_error_emitsFailureOnce();
+    void downloadTask_defaultNetworkError_noRetry_preservesLegacyErrorString();
     void downloadTask_cancelWhileReplyPending_emitsSingleCancelledCompletion();
     void downloadTask_delayedFakeReply_completesWithinBoundedTime();
     void downloadEngine_idleConstructionDestruction_isSafe();
@@ -370,6 +386,51 @@ void CoreRegressionTests::downloadTask_fakeNetwork_error_emitsFailureOnce()
     const QString userData = QStringLiteral("error-user");
     const QUrl url(QStringLiteral("https://fake.test/files/video-error.bin"));
     const QString expectedError = QStringLiteral("deterministic fake download error");
+
+    manager.queueError(url, QNetworkReply::ConnectionRefusedError, expectedError);
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), expectedError);
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    QCOMPARE(manager.requestedUrls().constFirst(), url);
+}
+
+void CoreRegressionTests::downloadTask_defaultNetworkError_noRetry_preservesLegacyErrorString()
+{
+    DownloadTask defaultsTask("https://example.com/defaults.mp4", QDir(m_tempDir->path()).filePath("download_defaults"), QString("defaults-user"));
+    QCOMPARE(DownloadTaskTestAdapter::timeoutMs(defaultsTask), 0);
+    QCOMPARE(DownloadTaskTestAdapter::maxAttempts(defaultsTask), 1);
+    QCOMPARE(DownloadTaskTestAdapter::retryDelayMs(defaultsTask), 0);
+
+    defaultsTask.setTimeoutMs(-25);
+    defaultsTask.setMaxAttempts(0);
+    defaultsTask.setRetryDelayMs(-10);
+    QCOMPARE(DownloadTaskTestAdapter::timeoutMs(defaultsTask), 0);
+    QCOMPARE(DownloadTaskTestAdapter::maxAttempts(defaultsTask), 1);
+    QCOMPARE(DownloadTaskTestAdapter::retryDelayMs(defaultsTask), 0);
+
+    defaultsTask.setTimeoutMs(2500);
+    defaultsTask.setMaxAttempts(3);
+    defaultsTask.setRetryDelayMs(75);
+    QCOMPARE(DownloadTaskTestAdapter::timeoutMs(defaultsTask), 2500);
+    QCOMPARE(DownloadTaskTestAdapter::maxAttempts(defaultsTask), 3);
+    QCOMPARE(DownloadTaskTestAdapter::retryDelayMs(defaultsTask), 75);
+
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("download_fake_error_legacy_default");
+    const QString userData = QStringLiteral("legacy-default-user");
+    const QUrl url(QStringLiteral("https://fake.test/files/video-error-default.bin"));
+    const QString expectedError = QStringLiteral("deterministic legacy default fake error");
 
     manager.queueError(url, QNetworkReply::ConnectionRefusedError, expectedError);
 
