@@ -34,6 +34,9 @@ void DownloadEngine::download(const QString& url, const QString& saveDir, const 
 
     auto* task = new DownloadTask(url, saveDir, userData);
     task->setAutoDelete(false);
+    task->setTimeoutMs(m_defaultTimeoutMs);
+    task->setMaxAttempts(m_defaultMaxAttempts);
+    task->setRetryDelayMs(m_defaultRetryDelayMs);
 
 #ifdef CORE_REGRESSION_TESTS
     if (m_testReplyFactory) {
@@ -90,6 +93,21 @@ int DownloadEngine::maxThreadCount() const
 void DownloadEngine::setMaxThreadCount(int count)
 {
     m_threadPool.setMaxThreadCount(count);
+}
+
+void DownloadEngine::setDefaultTimeoutMs(int timeoutMs)
+{
+    m_defaultTimeoutMs = timeoutMs > 0 ? timeoutMs : 0;
+}
+
+void DownloadEngine::setDefaultMaxAttempts(int maxAttempts)
+{
+    m_defaultMaxAttempts = maxAttempts >= 1 ? maxAttempts : 1;
+}
+
+void DownloadEngine::setDefaultRetryDelayMs(int retryDelayMs)
+{
+    m_defaultRetryDelayMs = retryDelayMs >= 0 ? retryDelayMs : 0;
 }
 
 void DownloadEngine::onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal, const QVariant& userData)

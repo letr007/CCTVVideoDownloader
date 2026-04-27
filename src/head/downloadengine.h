@@ -32,6 +32,10 @@ public:
     int maxThreadCount() const;
     void setMaxThreadCount(int count);
 
+    void setDefaultTimeoutMs(int timeoutMs);
+    void setDefaultMaxAttempts(int maxAttempts);
+    void setDefaultRetryDelayMs(int retryDelayMs);
+
     void waitForAllFinished();
 
 #ifdef CORE_REGRESSION_TESTS
@@ -56,6 +60,10 @@ private:
     QHash<QVariant, DownloadTask*> m_activeDownloads;
     QSet<DownloadTask*> m_completedTasks;
     mutable QMutex m_mutex;
+
+    int m_defaultTimeoutMs{0};
+    int m_defaultMaxAttempts{1};
+    int m_defaultRetryDelayMs{0};
 
 #ifdef CORE_REGRESSION_TESTS
     std::function<QNetworkReply*(const QNetworkRequest&)> m_testReplyFactory;

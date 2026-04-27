@@ -158,6 +158,8 @@ private slots:
     void downloadEngine_fakeNetwork_error_emitsFailureAndAllFinished();
     void downloadEngine_cancelActiveTask_emitsSingleCancelledFailureAndAllFinished();
     void downloadEngine_cancelWhenIdle_isSafeNoOp();
+    void downloadEngine_retrySettings_propagateToTask();
+
     void decryptWorker_renameFailure_emitsRenameError();
     void decryptWorker_missingLicense_emitsPreflightErrorBeforeProcessStart();
 
@@ -836,6 +838,51 @@ void CoreRegressionTests::downloadEngine_cancelWhenIdle_isSafeNoOp()
     QCOMPARE(engine.activeDownloads(), 0);
     QCOMPARE(finishedSpy.count(), 0);
     QCOMPARE(allFinishedSpy.count(), 0);
+}
+
+void CoreRegressionTests::downloadEngine_retrySettings_propagateToTask()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("engine_retry_propagate");
+    const QString userData = QStringLiteral("engine-retry-propagate-user");
+    const QUrl url(QStringLiteral("https://fake.test/engine/video-retry-propagate.bin"));
+    const QString firstError = QStringLiteral("first engine retry error");
+    const QByteArray expectedBody("engine retry success body");
+    const QString expectedFilePath = QDir(downloadDir).filePath(QStringLiteral("video-retry-propagate.bin"));
+
+    manager.queueError(url, QNetworkReply::ConnectionRefusedError, firstError);
+    manager.queueSuccess(url, expectedBody);
+
+    DownloadEngine engine;
+    engine.setDefaultMaxAttempts(2);
+    engine.setDefaultRetryDelayMs(5);
+    DownloadEngineTestAdapter::setTestReplyFactory(engine, [&manager](const QNetworkRequest& request) {
+        return manager.createReplyForRequest(QNetworkAccessManager::GetOperation, request);
+    });
+    QSignalSpy finishedSpy(&engine, &DownloadEngine::downloadFinished);
+    QSignalSpy allFinishedSpy(&engine, &DownloadEngine::allDownloadFinished);
+
+    engine.download(url.toString(), downloadDir, userData);
+
+    QVERIFY2(finishedSpy.wait(2000), "engine retry propagate should emit downloadFinished");
+    QTRY_COMPARE_WITH_TIMEOUT(allFinishedSpy.count(), 1, 2000);
+    engine.waitForAllFinished();
+
+    QCOMPARE(engine.activeDownloads(), 0);
+    QCOMPARE(finishedSpy.count(), 1);
+    const auto arguments = finishedSpy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(arguments.at(1).toString(), expectedFilePath);
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 2);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    QCOMPARE(manager.requestedUrls().size(), 2);
+    QCOMPARE(manager.requestedUrls().at(0), url);
+    QCOMPARE(manager.requestedUrls().at(1), url);
+
+    QFile outputFile(expectedFilePath);
+    QVERIFY(outputFile.open(QIODevice::ReadOnly));
+    QCOMPARE(outputFile.readAll(), expectedBody);
 }
 
 void CoreRegressionTests::decryptWorker_renameFailure_emitsRenameError()
