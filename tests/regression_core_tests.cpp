@@ -28,6 +28,11 @@
 
 class APIServiceTestAdapter {
 public:
+    static QByteArray sendNetworkRequest(APIService& apiService, const QUrl& url, const QHash<QString, QString>& headers = {})
+    {
+        return apiService.sendNetworkRequest(url, headers);
+    }
+
     static QJsonObject parseJsonObject(APIService& apiService, const QByteArray& data, const QString& key = QString())
     {
         return apiService.parseJsonObject(data, key);
@@ -67,6 +72,16 @@ public:
     {
         return apiService.getTsFileList(qualityPath, baseUrl);
     }
+
+    static void setTestNetworkAccessManager(APIService& apiService, QNetworkAccessManager* networkAccessManager)
+    {
+        apiService.setTestNetworkAccessManager(networkAccessManager);
+    }
+
+    static void clearTestNetworkAccessManager(APIService& apiService)
+    {
+        apiService.clearTestNetworkAccessManager();
+    }
 };
 
 class CoreRegressionTests : public QObject
@@ -91,6 +106,8 @@ private slots:
     void apiservice_parseM3U8QualityUrls_and_selectQuality_chooseHighestForZero();
     void apiservice_buildVideoApiUrl_buildsExpectedQuery();
     void apiservice_buildTsUrlsFromPlaylistData_returnsExpectedAbsoluteUrls();
+    void apiservice_sendNetworkRequest_fakeSuccess_returnsDeterministicBody();
+    void apiservice_sendNetworkRequest_fakeError_returnsEmptyData();
     void apiservice_getTsFileList_returnsExpectedUrlsFromSyntheticData();
 
     void fakeNetworkReply_success_emitsReadyReadProgressAndFinished();
@@ -116,7 +133,7 @@ void CoreRegressionTests::init()
 
 void CoreRegressionTests::cleanup()
 {
-    APIService::s_testM3u8Response.clear();
+    APIServiceTestAdapter::clearTestNetworkAccessManager(APIService::instance());
     g_settings.reset();
     QVERIFY(QDir::setCurrent(m_originalCurrentPath));
     m_tempDir.reset();
@@ -412,9 +429,45 @@ segment-0002.ts
     QCOMPARE(tsUrls.at(1), QString("https://example.com/path/video/segment-0002.ts"));
 }
 
+void CoreRegressionTests::apiservice_sendNetworkRequest_fakeSuccess_returnsDeterministicBody()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl url(QStringLiteral("https://fake.test/apiservice-success.json"));
+    const QByteArray expectedBody(R"({"result":"ok","source":"fake-manager"})");
+
+    manager.queueSuccess(url, expectedBody);
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const QByteArray response = APIServiceTestAdapter::sendNetworkRequest(apiService, url);
+
+    QCOMPARE(response, expectedBody);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    QCOMPARE(manager.requestedUrls().constFirst(), url);
+}
+
+void CoreRegressionTests::apiservice_sendNetworkRequest_fakeError_returnsEmptyData()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl url(QStringLiteral("https://fake.test/apiservice-error.json"));
+
+    manager.queueError(url, QNetworkReply::ConnectionRefusedError, QStringLiteral("deterministic connection refused"));
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const QByteArray response = APIServiceTestAdapter::sendNetworkRequest(apiService, url);
+
+    QVERIFY2(response.isEmpty(), "network errors should preserve the current empty-byte-array failure contract");
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    QCOMPARE(manager.requestedUrls().constFirst(), url);
+}
+
 void CoreRegressionTests::apiservice_getTsFileList_returnsExpectedUrlsFromSyntheticData()
 {
     APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
 
     const QByteArray syntheticPlaylist = R"(
 #EXTM3U
@@ -423,17 +476,22 @@ segment-0001.ts
 #EXTINF:2.0,
 segment-0002.ts
 )";
-    APIService::s_testM3u8Response = syntheticPlaylist;
 
     const QString qualityPath = QString("/asp/enc/video-123/index.m3u8");
     const QString baseUrl = QString("https://dh5.example.com/asp/enc/video-123/index.m3u8");
+    const QUrl expectedM3u8Url(QStringLiteral("https://dh5.example.com/asp/enc/video-123/index.m3u8"));
+
+    manager.queueSuccess(expectedM3u8Url, syntheticPlaylist);
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
     const auto tsUrls = APIServiceTestAdapter::getTsFileList(apiService, qualityPath, baseUrl);
 
     QCOMPARE(tsUrls.size(), 2);
     QCOMPARE(tsUrls.at(0), QString("https://dh5.example.com/asp/enc/video-123/segment-0001.ts"));
     QCOMPARE(tsUrls.at(1), QString("https://dh5.example.com/asp/enc/video-123/segment-0002.ts"));
-
-    APIService::s_testM3u8Response.clear();
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    QCOMPARE(manager.requestedUrls().constFirst(), expectedM3u8Url);
 }
 
 void CoreRegressionTests::fakeNetworkReply_success_emitsReadyReadProgressAndFinished()

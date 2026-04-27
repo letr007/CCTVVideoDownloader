@@ -18,10 +18,6 @@
 QPointer<APIService> APIService::m_instance = nullptr;
 QMutex APIService::m_instanceMutex;
 
-#ifdef CORE_REGRESSION_TESTS
-QByteArray APIService::s_testM3u8Response;
-#endif
-
 APIService& APIService::instance() {
     if (m_instance.isNull()) {
         QMutexLocker locker(&m_instanceMutex);
@@ -44,13 +40,16 @@ APIService::~APIService()
 // 通用的网络请求函数
 QByteArray APIService::sendNetworkRequest(const QUrl& url, const QHash<QString, QString>& headers)
 {
-#ifdef CORE_REGRESSION_TESTS
-    if (!s_testM3u8Response.isEmpty())
-        return s_testM3u8Response;
-#endif
     qInfo() << "发送网络请求:" << url.toString();
-    
-    QNetworkAccessManager manager;
+
+    QNetworkAccessManager localManager;
+    QNetworkAccessManager* manager = &localManager;
+#ifdef CORE_REGRESSION_TESTS
+    if (m_testNetworkAccessManager) {
+        manager = m_testNetworkAccessManager;
+    }
+#endif
+
     QNetworkRequest request(url);
     // 设置SSL配置以绕过SSL验证
     QSslConfiguration sslConfig = request.sslConfiguration();
@@ -66,7 +65,7 @@ QByteArray APIService::sendNetworkRequest(const QUrl& url, const QHash<QString, 
         request.setRawHeader(it.key().toUtf8(), it.value().toUtf8());
     }
 
-    QNetworkReply* reply = manager.get(request);
+    QNetworkReply* reply = manager->get(request);
     // 连接SSL错误处理，忽略SSL错误
     QObject::connect(reply, &QNetworkReply::errorOccurred,
         [reply](QNetworkReply::NetworkError error) {
@@ -97,6 +96,18 @@ QByteArray APIService::sendNetworkRequest(const QUrl& url, const QHash<QString, 
 
     return responseData;
 }
+
+#ifdef CORE_REGRESSION_TESTS
+void APIService::setTestNetworkAccessManager(QNetworkAccessManager* networkAccessManager)
+{
+    m_testNetworkAccessManager = networkAccessManager;
+}
+
+void APIService::clearTestNetworkAccessManager()
+{
+    m_testNetworkAccessManager = nullptr;
+}
+#endif
 
 QSharedPointer<QStringList> APIService::getPlayColumnInfo(const QString& url) {
     qInfo() << "获取播放栏目信息，URL:" << url;

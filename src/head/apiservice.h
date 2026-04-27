@@ -11,6 +11,7 @@
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QNetworkAccessManager>
 #include <QUrl>
 
 // 视频信息
@@ -97,6 +98,11 @@ private:
     QStringList buildTsUrlsFromPlaylistData(const QByteArray& videoM3u8Data, const QString& fullM3u8Url);
     QStringList getTsFileList(const QString& qualityPath, const QString& baseUrl);
 
+#ifdef CORE_REGRESSION_TESTS
+    void setTestNetworkAccessManager(QNetworkAccessManager* networkAccessManager);
+    void clearTestNetworkAccessManager();
+#endif
+
 
 
 
@@ -107,8 +113,7 @@ private:
     QMutex m_mutex;
 
 #ifdef CORE_REGRESSION_TESTS
-public:
-    static QByteArray s_testM3u8Response;
+    QPointer<QNetworkAccessManager> m_testNetworkAccessManager;
 #endif
 };
 
