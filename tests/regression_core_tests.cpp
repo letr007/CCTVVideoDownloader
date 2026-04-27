@@ -14,6 +14,7 @@
 #include <QCryptographicHash>
 #include <QCoreApplication>
 #include <QFile>
+#include <QElapsedTimer>
 #include <memory>
 #include <tuple>
 
@@ -22,6 +23,8 @@
 #include "apiservice.h"
 #include "downloadtask.h"
 #include "decryptworker.h"
+#include "fakes/fake_networkaccessmanager.h"
+#include "fakes/fake_networkreply.h"
 
 class APIServiceTestAdapter {
 public:
@@ -89,6 +92,11 @@ private slots:
     void apiservice_buildVideoApiUrl_buildsExpectedQuery();
     void apiservice_buildTsUrlsFromPlaylistData_returnsExpectedAbsoluteUrls();
     void apiservice_getTsFileList_returnsExpectedUrlsFromSyntheticData();
+
+    void fakeNetworkReply_success_emitsReadyReadProgressAndFinished();
+    void fakeNetworkReply_abort_marksCancelledAndFinishes();
+    void fakeNetworkAccessManager_queueErrorAndUnexpectedRequestFailDeterministically();
+    void fakeNetworkAccessManager_delayedFinish_waitsUntilQueuedCompletion();
 
 private:
     void initializeSettingsSandbox();
@@ -426,6 +434,117 @@ segment-0002.ts
     QCOMPARE(tsUrls.at(1), QString("https://dh5.example.com/asp/enc/video-123/segment-0002.ts"));
 
     APIService::s_testM3u8Response.clear();
+}
+
+void CoreRegressionTests::fakeNetworkReply_success_emitsReadyReadProgressAndFinished()
+{
+    FakeNetworkAccessManager manager;
+    const QUrl url(QStringLiteral("https://fake.test/success.bin"));
+    const QByteArray body("deterministic-body");
+    manager.queueSuccess(url, body);
+
+    QNetworkReply* reply = manager.get(QNetworkRequest(url));
+    QVERIFY(reply != nullptr);
+
+    QSignalSpy readyReadSpy(reply, &QNetworkReply::readyRead);
+    QSignalSpy progressSpy(reply, &QNetworkReply::downloadProgress);
+    QSignalSpy finishedSpy(reply, &QNetworkReply::finished);
+
+    QVERIFY(finishedSpy.wait(1000));
+    QCOMPARE(reply->error(), QNetworkReply::NoError);
+    QCOMPARE(reply->readAll(), body);
+    QCOMPARE(readyReadSpy.count(), 1);
+    QVERIFY(progressSpy.count() >= 1);
+    QCOMPARE(finishedSpy.count(), 1);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+
+    const QList<QVariant> lastProgress = progressSpy.takeLast();
+    QCOMPARE(lastProgress.at(0).toLongLong(), body.size());
+    QCOMPARE(lastProgress.at(1).toLongLong(), body.size());
+}
+
+void CoreRegressionTests::fakeNetworkReply_abort_marksCancelledAndFinishes()
+{
+    FakeNetworkAccessManager manager;
+    const QUrl url(QStringLiteral("https://fake.test/pending.bin"));
+    manager.queueSuccess(url, QByteArray("pending-data"), 200);
+
+    QNetworkReply* reply = manager.get(QNetworkRequest(url));
+    QVERIFY(reply != nullptr);
+
+    auto* fakeReply = qobject_cast<FakeNetworkReply*>(reply);
+    QVERIFY(fakeReply != nullptr);
+
+    QSignalSpy finishedSpy(reply, &QNetworkReply::finished);
+    QSignalSpy errorSpy(reply, &QNetworkReply::errorOccurred);
+
+    fakeReply->abort();
+
+    QVERIFY(finishedSpy.count() == 1 || finishedSpy.wait(1000));
+    QCOMPARE(finishedSpy.count(), 1);
+    QCOMPARE(errorSpy.count(), 1);
+    QVERIFY(fakeReply->wasAborted());
+    QCOMPARE(reply->error(), QNetworkReply::OperationCanceledError);
+    QCOMPARE(reply->readAll(), QByteArray());
+}
+
+void CoreRegressionTests::fakeNetworkAccessManager_queueErrorAndUnexpectedRequestFailDeterministically()
+{
+    {
+        FakeNetworkAccessManager manager;
+        const QUrl queuedUrl(QStringLiteral("https://fake.test/error.json"));
+        manager.queueError(queuedUrl, QNetworkReply::ConnectionRefusedError, QStringLiteral("queued connection refused"));
+
+        QNetworkReply* reply = manager.get(QNetworkRequest(queuedUrl));
+        QVERIFY(reply != nullptr);
+
+        QSignalSpy finishedSpy(reply, &QNetworkReply::finished);
+        QVERIFY(finishedSpy.wait(1000));
+
+        QCOMPARE(reply->error(), QNetworkReply::ConnectionRefusedError);
+        QCOMPARE(reply->errorString(), QStringLiteral("queued connection refused"));
+        QCOMPARE(manager.unexpectedRequestCount(), 0);
+        QCOMPARE(manager.queuedReplyCount(), 0);
+    }
+
+    {
+        FakeNetworkAccessManager manager;
+        manager.queueSuccess(QUrl(QStringLiteral("https://fake.test/expected.json")), QByteArray("never-consumed"));
+
+        QNetworkReply* reply = manager.get(QNetworkRequest(QUrl(QStringLiteral("https://fake.test/unexpected.json"))));
+        QVERIFY(reply != nullptr);
+
+        QSignalSpy finishedSpy(reply, &QNetworkReply::finished);
+        QVERIFY(finishedSpy.wait(1000));
+
+        QCOMPARE(reply->error(), QNetworkReply::ProtocolFailure);
+        QVERIFY(reply->errorString().contains(QStringLiteral("Unexpected request")));
+        QCOMPARE(manager.unexpectedRequestCount(), 1);
+        QCOMPARE(manager.queuedReplyCount(), 1);
+        QCOMPARE(manager.requestedUrls().constFirst(), QUrl(QStringLiteral("https://fake.test/unexpected.json")));
+    }
+}
+
+void CoreRegressionTests::fakeNetworkAccessManager_delayedFinish_waitsUntilQueuedCompletion()
+{
+    FakeNetworkAccessManager manager;
+    const QUrl url(QStringLiteral("https://fake.test/delayed.bin"));
+    manager.queueSuccess(url, QByteArray("slow-body"), 40);
+
+    QElapsedTimer elapsed;
+    elapsed.start();
+
+    QNetworkReply* reply = manager.get(QNetworkRequest(url));
+    QVERIFY(reply != nullptr);
+
+    QSignalSpy finishedSpy(reply, &QNetworkReply::finished);
+    QCOMPARE(finishedSpy.count(), 0);
+    QTest::qWait(10);
+    QCOMPARE(finishedSpy.count(), 0);
+    QVERIFY(finishedSpy.wait(1000));
+    QVERIFY(elapsed.elapsed() >= 30);
+    QCOMPARE(reply->error(), QNetworkReply::NoError);
 }
 
 QTEST_MAIN(CoreRegressionTests)

@@ -2,10 +2,14 @@ qt6_wrap_cpp(core_regression_tests_moc
     ${PROJECT_SOURCE_DIR}/src/head/apiservice.h
     ${PROJECT_SOURCE_DIR}/src/head/downloadtask.h
     ${PROJECT_SOURCE_DIR}/src/head/decryptworker.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/fakes/fake_networkreply.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/fakes/fake_networkaccessmanager.h
 )
 
 qt_add_executable(core_regression_tests
     regression_core_tests.cpp
+    fakes/fake_networkreply.cpp
+    fakes/fake_networkaccessmanager.cpp
     ${PROJECT_SOURCE_DIR}/src/source/config.cpp
     ${PROJECT_SOURCE_DIR}/src/source/setting.cpp
     ${PROJECT_SOURCE_DIR}/src/source/apiservice.cpp
