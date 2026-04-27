@@ -136,8 +136,6 @@ void DownloadEngine::onDownloadFinished(bool success, const QString& errorString
     emit downloadFinished(success, errorString, userData);
 
     if (allFinished) {
-        m_threadPool.waitForDone();
-        deleteCompletedTasks();
         qInfo() << "所有下载任务已完成";
         emit allDownloadFinished();
     } else {

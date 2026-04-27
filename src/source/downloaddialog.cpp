@@ -1,6 +1,7 @@
 ﻿#include "../head/downloaddialog.h"
 #include <QMessageBox>
 #include <QCloseEvent>
+#include <QtGlobal>
 
 Download::Download(QWidget* parent)
 	: QDialog(parent)
@@ -28,9 +29,14 @@ Download::~Download()
 {
 	disconnect(m_engine, nullptr, this, nullptr);
 	if (m_engine) {
-		m_engine->cancelAll();
-		m_engine->deleteLater();
-		m_engine->waitForAllFinished();
+		if (m_engine->activeDownloads() > 0) {
+			m_engine->setParent(nullptr);
+			connect(m_engine, &DownloadEngine::allDownloadFinished, m_engine, &QObject::deleteLater);
+			m_engine->cancelAll();
+		} else {
+			m_engine->waitForAllFinished();
+			delete m_engine;
+		}
 		m_engine = nullptr;
 	}
 }
@@ -72,7 +78,10 @@ void Download::onDownloadProgress(
 	const QVariant& userData
 )
 {
-	double progress = 100 * (bytesReceived / bytesTotal);
+	double progress = bytesTotal > 0
+		? 100.0 * static_cast<double>(bytesReceived) / static_cast<double>(bytesTotal)
+		: 0.0;
+	progress = qBound(0.0, progress, 100.0);
 	auto index = userData.toInt();
 	if (m_infoList.contains(index))
 	{
