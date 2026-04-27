@@ -136,6 +136,7 @@ private slots:
     void downloadEngine_cancelActiveTask_emitsSingleCancelledFailureAndAllFinished();
     void downloadEngine_cancelWhenIdle_isSafeNoOp();
     void decryptWorker_renameFailure_emitsRenameError();
+    void decryptWorker_missingLicense_emitsPreflightErrorBeforeProcessStart();
 
     void apiservice_parseJsonObject_returnsEmptyOnInvalidJson();
     void apiservice_parseJsonArray_missingObjectOrArrayKey_returnsEmptyArray();
@@ -590,6 +591,33 @@ void CoreRegressionTests::decryptWorker_renameFailure_emitsRenameError()
     const auto arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toBool(), false);
     QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("重命名MP4->CBOX失败"));
+}
+
+void CoreRegressionTests::decryptWorker_missingLicense_emitsPreflightErrorBeforeProcessStart()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_missing_license");
+    QVERIFY(QDir().mkpath(savePath));
+
+    const QString name = QString("license-video");
+    worker.setParams(name, savePath);
+
+    const QString taskHash = QString(QCryptographicHash::hash(name.toUtf8(), QCryptographicHash::Sha256).toHex());
+    const QString tempTaskPath = QDir(savePath).filePath(taskHash);
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    const QString mp4Path = QDir(tempTaskPath).filePath("result.mp4");
+    QFile mp4File(mp4Path);
+    QVERIFY(mp4File.open(QIODevice::WriteOnly));
+    mp4File.close();
+
+    worker.doDecrypt();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密所需的许可证文件不存在"));
 }
 
 void CoreRegressionTests::apiservice_parseJsonObject_returnsEmptyOnInvalidJson()
