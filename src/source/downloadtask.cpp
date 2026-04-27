@@ -8,6 +8,7 @@
 #include <QUrl>
 #include <QDateTime>
 #include <QDebug>
+#include <QPointer>
 
 static QString extractFilenameFromUrlImpl(const QString& url) {
     QUrl qurl(url);
@@ -37,10 +38,16 @@ DownloadTask::~DownloadTask()
 void DownloadTask::run()
 {
     qInfo() << "开始执行下载任务 - URL:" << m_url << "用户数据:" << m_userData;
+
+    auto finishRun = [&]() {
+        qInfo() << "下载任务执行结束 - 用户数据:" << m_userData;
+        emit runCompleted();
+    };
     
-    if (m_cancelled) {
+    if (m_cancelled.load(std::memory_order_relaxed)) {
         qWarning() << "下载任务已被取消，用户数据:" << m_userData;
         emit downloadFinished(false, "Cancelled", m_userData);
+        finishRun();
         return;
     }
 
@@ -48,18 +55,11 @@ void DownloadTask::run()
     if (!file.open(QIODevice::WriteOnly)) {
         qCritical() << "无法打开文件进行写入:" << m_filePath;
         emit downloadFinished(false, "Cannot open file", m_userData);
+        finishRun();
         return;
     }
 
     qInfo() << "文件已打开，开始下载到:" << m_filePath;
-
-    QNetworkAccessManager localManager;
-    QNetworkAccessManager* manager = &localManager;
-#ifdef CORE_REGRESSION_TESTS
-    if (m_testNetworkAccessManager) {
-        manager = m_testNetworkAccessManager;
-    }
-#endif
 
     auto url = QUrl(m_url);
     QNetworkRequest request(url);
@@ -68,7 +68,28 @@ void DownloadTask::run()
     sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
     request.setSslConfiguration(sslConfig);
 
-    QNetworkReply* reply = manager->get(request);
+    QNetworkAccessManager localManager;
+    QNetworkAccessManager* manager = &localManager;
+    QNetworkReply* reply = nullptr;
+#ifdef CORE_REGRESSION_TESTS
+    if (m_testReplyFactory) {
+        reply = m_testReplyFactory(request);
+    } else if (m_testNetworkAccessManager) {
+        manager = m_testNetworkAccessManager;
+    }
+#endif
+
+    if (reply == nullptr) {
+        reply = manager->get(request);
+    }
+
+    if (reply == nullptr) {
+        qCritical() << "无法创建网络回复对象 - 用户数据:" << m_userData;
+        file.close();
+        emit downloadFinished(false, "Cannot create network reply", m_userData);
+        finishRun();
+        return;
+    }
     
     // 连接SSL错误处理，忽略SSL错误
     QObject::connect(reply, &QNetworkReply::errorOccurred,
@@ -89,7 +110,7 @@ void DownloadTask::run()
         });
 
     QObject::connect(reply, &QNetworkReply::readyRead, [&]() {
-        if (!m_cancelled) {
+        if (!m_cancelled.load(std::memory_order_relaxed)) {
             QByteArray data = reply->readAll();
             file.write(data);
             qDebug() << "写入" << data.size() << "字节数据到文件";
@@ -97,7 +118,7 @@ void DownloadTask::run()
         });
 
     QObject::connect(reply, &QNetworkReply::finished, [&]() {
-        bool success = (reply->error() == QNetworkReply::NoError && !m_cancelled);
+        bool success = (reply->error() == QNetworkReply::NoError && !m_cancelled.load(std::memory_order_relaxed));
         QString msg = success ? m_filePath : reply->errorString();
         
         if (success) {
@@ -106,7 +127,9 @@ void DownloadTask::run()
             qWarning() << "下载任务失败 - 用户数据:" << m_userData << "错误:" << reply->errorString();
         }
         
-        reply->deleteLater();
+        if (reply->parent() != nullptr) {
+            reply->deleteLater();
+        }
         file.close();
         emit downloadFinished(success, msg, m_userData);
         });
@@ -114,14 +137,18 @@ void DownloadTask::run()
     QEventLoop loop;
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     loop.exec();
-    
-    qInfo() << "下载任务执行结束 - 用户数据:" << m_userData;
+
+    if (reply->parent() == nullptr) {
+        delete reply;
+    }
+
+    finishRun();
 }
 
 void DownloadTask::cancel()
 {
     qInfo() << "取消下载任务 - 用户数据:" << m_userData;
-    m_cancelled = true;
+    m_cancelled.store(true, std::memory_order_relaxed);
 }
 
 #ifdef CORE_REGRESSION_TESTS
@@ -133,5 +160,15 @@ void DownloadTask::setTestNetworkAccessManager(QNetworkAccessManager* networkAcc
 void DownloadTask::clearTestNetworkAccessManager()
 {
     m_testNetworkAccessManager = nullptr;
+}
+
+void DownloadTask::setTestReplyFactory(const std::function<QNetworkReply*(const QNetworkRequest&)>& replyFactory)
+{
+    m_testReplyFactory = replyFactory;
+}
+
+void DownloadTask::clearTestReplyFactory()
+{
+    m_testReplyFactory = {};
 }
 #endif

@@ -2,6 +2,10 @@
 #include "../head/downloadtask.h"
 #include <QDebug>
 
+#ifdef CORE_REGRESSION_TESTS
+#include "../../tests/fakes/fake_networkaccessmanager.h"
+#endif
+
 inline size_t qHash(const QVariant& var, size_t seed = 0)
 {
     if (!var.isValid()) return 0;
@@ -34,13 +38,18 @@ void DownloadEngine::download(const QString& url, const QString& saveDir, const 
     task->setAutoDelete(false);
 
 #ifdef CORE_REGRESSION_TESTS
-    if (m_testNetworkAccessManager) {
+    if (auto* fakeNetworkAccessManager = qobject_cast<FakeNetworkAccessManager*>(m_testNetworkAccessManager.data())) {
+        task->setTestReplyFactory([fakeNetworkAccessManager](const QNetworkRequest& request) {
+            return fakeNetworkAccessManager->createReplyForRequest(QNetworkAccessManager::GetOperation, request);
+        });
+    } else if (m_testNetworkAccessManager) {
         task->setTestNetworkAccessManager(m_testNetworkAccessManager);
     }
 #endif
 
     connect(task, &DownloadTask::progressChanged, this, &DownloadEngine::onDownloadProgress, Qt::QueuedConnection);
     connect(task, &DownloadTask::downloadFinished, this, &DownloadEngine::onDownloadFinished, Qt::QueuedConnection);
+    connect(task, &DownloadTask::runCompleted, this, &DownloadEngine::onTaskRunCompleted, Qt::QueuedConnection);
 
     m_activeDownloads.insert(userData, task);
     m_threadPool.start(task);
@@ -102,23 +111,53 @@ void DownloadEngine::onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal,
 void DownloadEngine::onDownloadFinished(bool success, const QString& errorString, const QVariant& userData)
 {
     qInfo() << "下载任务完成 - 用户数据:" << userData << "成功:" << success << "错误信息:" << errorString;
-    
-    QMutexLocker locker(&m_mutex);
-    // 取出task并释放
-    auto task = m_activeDownloads.take(userData);
-    locker.unlock();
-    delete task;
-    m_activeDownloads.remove(userData);
+
+    DownloadTask* task = nullptr;
+    bool shouldDeleteTask = false;
+    bool allFinished = false;
+
+    {
+        QMutexLocker locker(&m_mutex);
+        task = m_activeDownloads.take(userData);
+        if (task != nullptr && m_completedTasks.remove(task)) {
+            shouldDeleteTask = true;
+        }
+        allFinished = m_activeDownloads.isEmpty();
+    }
+
+    if (shouldDeleteTask) {
+        delete task;
+    }
 
     emit downloadFinished(success, errorString, userData);
 
-    QMutexLocker locker2(&m_mutex);
-    if (m_activeDownloads.isEmpty()) {
-        locker2.unlock();
+    if (allFinished) {
         qInfo() << "所有下载任务已完成";
         emit allDownloadFinished();
     } else {
-        qInfo() << "剩余活跃下载任务数:" << m_activeDownloads.size();
+        qInfo() << "剩余活跃下载任务数:" << activeDownloads();
+    }
+}
+
+void DownloadEngine::onTaskRunCompleted()
+{
+    auto* task = qobject_cast<DownloadTask*>(sender());
+    if (task == nullptr) {
+        return;
+    }
+
+    bool shouldDeleteTask = false;
+    {
+        QMutexLocker locker(&m_mutex);
+        if (m_activeDownloads.values().contains(task)) {
+            m_completedTasks.insert(task);
+        } else {
+            shouldDeleteTask = true;
+        }
+    }
+
+    if (shouldDeleteTask) {
+        delete task;
     }
 }
 

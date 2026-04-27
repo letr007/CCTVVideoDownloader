@@ -5,6 +5,7 @@
 #include <QMutex>
 #include <QHash>
 #include <QPointer>
+#include <QSet>
 #include <QtNetwork/QNetworkAccessManager>
 
 class DownloadTask;
@@ -39,10 +40,12 @@ signals:
 private slots:
     void onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal, const QVariant& userData);
     void onDownloadFinished(bool success, const QString& errorString, const QVariant& userData);
+    void onTaskRunCompleted();
 
 private:
     QThreadPool m_threadPool;
     QHash<QVariant, DownloadTask*> m_activeDownloads;
+    QSet<DownloadTask*> m_completedTasks;
     mutable QMutex m_mutex;
 
 #ifdef CORE_REGRESSION_TESTS
