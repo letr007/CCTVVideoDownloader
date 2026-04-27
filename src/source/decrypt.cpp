@@ -5,6 +5,7 @@
 #include <QMessageBox>
 
 Decrypt::Decrypt(QWidget* parent)
+	: QDialog(parent)
 {
 	ui.setupUi(this);
 	ui.label_text->setText("正在进行视频解密...");
@@ -37,7 +38,7 @@ void Decrypt::onDecryptFinished(bool ok, const QString& msg)
 	else
 	{
 		qWarning() << msg;
-		QMessageBox::warning(NULL, "发生错误", msg, QMessageBox::Yes, QMessageBox::Yes);
+		QMessageBox::warning(this, "发生错误", msg, QMessageBox::Yes, QMessageBox::Yes);
 		close();
 	}
 }

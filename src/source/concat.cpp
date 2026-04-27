@@ -5,6 +5,7 @@
 #include <QMessageBox>
 
 Concat::Concat(QWidget* parent)
+	: QDialog(parent)
 {
 	ui.setupUi(this);
 	ui.label_text->setText("正在进行视频拼接...");
@@ -43,7 +44,7 @@ void Concat::onConcatFinished(bool ok, const QString& msg)
 	else
 	{
 		qWarning() << msg;
-		QMessageBox::warning(NULL, "发生错误", msg, QMessageBox::Yes, QMessageBox::Yes);
+		QMessageBox::warning(this, "发生错误", msg, QMessageBox::Yes, QMessageBox::Yes);
 		close();
 	}
 }
