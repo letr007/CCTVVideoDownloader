@@ -1,4 +1,4 @@
-#include <QtTest>
+﻿#include <QtTest>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -218,7 +218,23 @@ private slots:
     void downloadEngine_retrySettings_propagateToTask();
 
     void decryptWorker_renameFailure_emitsRenameError();
+    void decryptWorker_fakeProcessRunner_seamSkipsRealProcess();
+    void decryptWorker_processTimeoutNormalization_passesDefaultTimeoutToRunner();
+    void decryptWorker_testDecryptAssetsDir_usesTemporaryAssets();
+    void decryptWorker_invalidParams_emitsStructuredPreflightError();
+    void decryptWorker_missingInput_emitsPreflightErrorBeforeMutation();
+    void decryptWorker_missingCbox_emitsPreflightErrorBeforeProcessStart();
     void decryptWorker_missingLicense_emitsPreflightErrorBeforeProcessStart();
+    void decryptWorker_outputUnwritable_emitsPreflightErrorBeforeProcessStart();
+    void decryptWorker_startFailed_emitsStructuredProcessStartError();
+    void decryptWorker_timedOut_emitsStructuredTimeoutError();
+    void decryptWorker_processFailed_prefersStderrAndCleansUpArtifacts();
+    void decryptWorker_processFailed_fallsBackToStdoutDiagnostic();
+    void decryptWorker_processFailed_truncatesLongDiagnostic();
+    void decryptWorker_processFailed_restoresTempResultMp4();
+    void decryptWorker_processFailed_preservesPreExistingLicense();
+    void decryptWorker_success_preservesPreExistingLicense();
+    void decryptWorker_crashExitWithZeroExitCode_emitsProcessFailure();
 
     void apiservice_parseJsonObject_returnsEmptyOnInvalidJson();
     void apiservice_parseJsonArray_missingObjectOrArrayKey_returnsEmptyArray();
@@ -952,17 +968,295 @@ void CoreRegressionTests::decryptWorker_renameFailure_emitsRenameError()
 
     const QString name = QString("unit-video");
     worker.setParams(name, savePath);
-    const QString taskHash = QString(QCryptographicHash::hash(name.toUtf8(), QCryptographicHash::Sha256).toHex());
+    const QString taskHash = decryptTaskHash(name);
     const QString tempTaskPath = QDir(savePath).filePath(taskHash);
     QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString cboxPath = QDir(tempTaskPath).filePath("input.cbox");
+    QVERIFY(QDir().mkpath(cboxPath));
 
     worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
 
     QCOMPARE(spy.count(), 1);
 
     const auto arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toBool(), false);
     QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("重命名MP4->CBOX失败"));
+}
+
+void CoreRegressionTests::decryptWorker_fakeProcessRunner_seamSkipsRealProcess()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_fake_runner_success");
+    QVERIFY(QDir().mkpath(savePath));
+    QVERIFY(createEmptyFile(QDir(savePath).filePath("UDRM_LICENSE.v1.0")));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("fake-runner-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString taskHash = decryptTaskHash(name);
+    const QString tempTaskPath = QDir(savePath).filePath(taskHash);
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+
+    bool runnerCalled = false;
+    DecryptProcessRequest capturedRequest;
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest& request) -> DecryptProcessResult {
+        runnerCalled = true;
+        capturedRequest = request;
+
+        QFile outputFile(request.arguments.at(1));
+        if (outputFile.open(QIODevice::WriteOnly)) {
+            outputFile.write("fake decrypted bytes");
+            outputFile.close();
+        }
+
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 0;
+        result.exitStatus = QProcess::NormalExit;
+        result.stdoutText = QStringLiteral("synthetic stdout");
+        result.stderrText = QStringLiteral("synthetic stderr");
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(runnerCalled);
+    QCOMPARE(capturedRequest.arguments.size(), 2);
+    QCOMPARE(capturedRequest.arguments.at(0), QDir(tempTaskPath).filePath("input.cbox"));
+    QCOMPARE(capturedRequest.arguments.at(1), QDir(savePath).filePath("result.mp4"));
+    QVERIFY(QFileInfo::exists(QDir(savePath).filePath("fake-runner-video.mp4")));
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密完成，输出 fake-runner-video"));
+}
+
+void CoreRegressionTests::decryptWorker_processTimeoutNormalization_passesDefaultTimeoutToRunner()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_timeout_default");
+    QVERIFY(QDir().mkpath(savePath));
+    QVERIFY(createEmptyFile(QDir(savePath).filePath("UDRM_LICENSE.v1.0")));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("timeout-default-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setProcessTimeoutMs(worker, 0);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString taskHash = decryptTaskHash(name);
+    const QString tempTaskPath = QDir(savePath).filePath(taskHash);
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+
+    int seenTimeoutMs = -1;
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest& request) -> DecryptProcessResult {
+        seenTimeoutMs = request.timeoutMs;
+
+        QFile outputFile(request.arguments.at(1));
+        if (outputFile.open(QIODevice::WriteOnly)) {
+            outputFile.write("fake decrypted bytes");
+            outputFile.close();
+        }
+
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 0;
+        result.exitStatus = QProcess::NormalExit;
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(seenTimeoutMs, 30000);
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密完成，输出 timeout-default-video"));
+}
+
+void CoreRegressionTests::decryptWorker_testDecryptAssetsDir_usesTemporaryAssets()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_assets_dir_success");
+    QVERIFY(QDir().mkpath(savePath));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("assets-dir-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString taskHash = decryptTaskHash(name);
+    const QString tempTaskPath = QDir(savePath).filePath(taskHash);
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+
+    DecryptProcessRequest capturedRequest;
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest& request) -> DecryptProcessResult {
+        capturedRequest = request;
+
+        QFile outputFile(request.arguments.at(1));
+        if (outputFile.open(QIODevice::WriteOnly)) {
+            outputFile.write("fake decrypted bytes");
+            outputFile.close();
+        }
+
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 0;
+        result.exitStatus = QProcess::NormalExit;
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(capturedRequest.program, QDir(decryptAssetsDir.path()).filePath("cbox.exe"));
+    QVERIFY(QFileInfo::exists(QDir(savePath).filePath("assets-dir-video.mp4")));
+    QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("UDRM_LICENSE.v1.0")));
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密完成，输出 assets-dir-video"));
+}
+
+void CoreRegressionTests::decryptWorker_invalidParams_emitsStructuredPreflightError()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    int runnerCallCount = 0;
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest&) {
+        ++runnerCallCount;
+        return DecryptProcessResult{};
+    });
+
+    worker.setParams(QStringLiteral("   "), QStringLiteral("   "));
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(runnerCallCount, 0);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=invalid_params]: 解密参数无效"));
+}
+
+void CoreRegressionTests::decryptWorker_missingInput_emitsPreflightErrorBeforeMutation()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_missing_input");
+    QVERIFY(QDir().mkpath(savePath));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("missing-input-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    const QString cboxPath = QDir(tempTaskPath).filePath("input.cbox");
+
+    int runnerCallCount = 0;
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest&) {
+        ++runnerCallCount;
+        return DecryptProcessResult{};
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(runnerCallCount, 0);
+    QVERIFY(!QFileInfo::exists(cboxPath));
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=input_missing]: result.mp4 不存在"));
+}
+
+void CoreRegressionTests::decryptWorker_missingCbox_emitsPreflightErrorBeforeProcessStart()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_missing_cbox");
+    QVERIFY(QDir().mkpath(savePath));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path(), false, true);
+
+    const QString name = QStringLiteral("missing-cbox-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+
+    int runnerCallCount = 0;
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest&) {
+        ++runnerCallCount;
+        return DecryptProcessResult{};
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(runnerCallCount, 0);
+    QVERIFY(!QFileInfo::exists(QDir(tempTaskPath).filePath("input.cbox")));
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=cbox_missing]: decrypt/cbox.exe 不存在"));
 }
 
 void CoreRegressionTests::decryptWorker_missingLicense_emitsPreflightErrorBeforeProcessStart()
@@ -973,23 +1267,526 @@ void CoreRegressionTests::decryptWorker_missingLicense_emitsPreflightErrorBefore
     const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_missing_license");
     QVERIFY(QDir().mkpath(savePath));
 
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path(), true, false);
+
     const QString name = QString("license-video");
     worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
 
-    const QString taskHash = QString(QCryptographicHash::hash(name.toUtf8(), QCryptographicHash::Sha256).toHex());
+    const QString taskHash = decryptTaskHash(name);
     const QString tempTaskPath = QDir(savePath).filePath(taskHash);
     QVERIFY(QDir().mkpath(tempTaskPath));
     const QString mp4Path = QDir(tempTaskPath).filePath("result.mp4");
-    QFile mp4File(mp4Path);
-    QVERIFY(mp4File.open(QIODevice::WriteOnly));
-    mp4File.close();
+    QVERIFY(createEmptyFile(mp4Path));
+
+    int runnerCallCount = 0;
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest&) {
+        ++runnerCallCount;
+        DecryptProcessResult result;
+        return result;
+    });
 
     worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(runnerCallCount, 0);
+    QVERIFY(!QFileInfo::exists(QDir(tempTaskPath).filePath("input.cbox")));
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=license_missing]: 解密所需的许可证文件不存在"));
+}
+
+void CoreRegressionTests::decryptWorker_outputUnwritable_emitsPreflightErrorBeforeProcessStart()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_output_unwritable");
+    QVERIFY(QDir().mkpath(savePath));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("unwritable-output-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+
+    const QString probePath = QDir(savePath).filePath(
+        QStringLiteral(".decrypt_write_probe_%1.tmp").arg(QString::number(QCoreApplication::applicationPid()))
+    );
+    QVERIFY(QDir().mkpath(probePath));
+
+    int runnerCallCount = 0;
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest&) {
+        ++runnerCallCount;
+        return DecryptProcessResult{};
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(runnerCallCount, 0);
+    QVERIFY(!QFileInfo::exists(QDir(tempTaskPath).filePath("input.cbox")));
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=output_unwritable]: 输出目录不可写"));
+}
+
+void CoreRegressionTests::decryptWorker_startFailed_emitsStructuredProcessStartError()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_start_failed");
+    QVERIFY(QDir().mkpath(savePath));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("start-failed-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [](const DecryptProcessRequest&) {
+        DecryptProcessResult result;
+        result.errorString = QStringLiteral("synthetic launch failure");
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(QFileInfo::exists(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(!QFileInfo::exists(QDir(tempTaskPath).filePath("input.cbox")));
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=start_failed]: 无法启动cbox: synthetic launch failure"));
+}
+
+void CoreRegressionTests::decryptWorker_timedOut_emitsStructuredTimeoutError()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_timeout");
+    QVERIFY(QDir().mkpath(savePath));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("timeout-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setProcessTimeoutMs(worker, 50);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    const QString resultMp4Path = QDir(tempTaskPath).filePath("result.mp4");
+    const QString inputCboxPath = QDir(tempTaskPath).filePath("input.cbox");
+    QVERIFY(createEmptyFile(resultMp4Path));
+
+    int observedTimeoutMs = -1;
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest& request) -> DecryptProcessResult {
+        observedTimeoutMs = request.timeoutMs;
+        DecryptProcessResult result;
+        result.started = true;
+        result.timedOut = true;
+        result.stdoutText = QStringLiteral("partial stdout");
+        result.stderrText = QStringLiteral("partial stderr");
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(observedTimeoutMs, 50);
+    QVERIFY(QFileInfo::exists(tempTaskPath));
+    QVERIFY(QFileInfo::exists(resultMp4Path));
+    QVERIFY(!QFileInfo::exists(inputCboxPath));
+    QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("UDRM_LICENSE.v1.0")));
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=timeout]: cbox 超时 50 ms"));
+}
+
+void CoreRegressionTests::decryptWorker_processFailed_prefersStderrAndCleansUpArtifacts()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_process_failed_stderr");
+    QVERIFY(QDir().mkpath(savePath));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("process-failed-stderr-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest&) -> DecryptProcessResult {
+        if (!createEmptyFile(QDir(savePath).filePath("output.txt"))) {
+            return DecryptProcessResult{};
+        }
+
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 23;
+        result.exitStatus = QProcess::NormalExit;
+        result.stdoutText = QStringLiteral("stdout diagnostic");
+        result.stderrText = QStringLiteral("  stderr diagnostic  ");
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(QFileInfo::exists(tempTaskPath));
+    QVERIFY(QFileInfo::exists(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(!QFileInfo::exists(QDir(tempTaskPath).filePath("input.cbox")));
+    QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("output.txt")));
+    QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("UDRM_LICENSE.v1.0")));
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=process_failed; exit_code=23]: stderr diagnostic"));
+}
+
+void CoreRegressionTests::decryptWorker_processFailed_fallsBackToStdoutDiagnostic()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_process_failed_stdout");
+    QVERIFY(QDir().mkpath(savePath));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("process-failed-stdout-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [](const DecryptProcessRequest&) {
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 9;
+        result.exitStatus = QProcess::NormalExit;
+        result.stdoutText = QStringLiteral("  stdout fallback diagnostic  ");
+        result.stderrText = QStringLiteral("   ");
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
 
     QCOMPARE(spy.count(), 1);
     const auto arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toBool(), false);
-    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密所需的许可证文件不存在"));
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=process_failed; exit_code=9]: stdout fallback diagnostic"));
+}
+
+void CoreRegressionTests::decryptWorker_processFailed_truncatesLongDiagnostic()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_process_failed_long_diagnostic");
+    QVERIFY(QDir().mkpath(savePath));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("process-failed-long-diagnostic-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+
+    const QString longStderr(3000, QChar('x'));
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest&) {
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 5;
+        result.exitStatus = QProcess::NormalExit;
+        result.stderrText = longStderr;
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    const QString message = arguments.at(1).toString();
+    const QString prefix = QString::fromUtf8("解密失败 [code=process_failed; exit_code=5]: ");
+    QVERIFY(message.startsWith(prefix));
+    QCOMPARE(message.size(), prefix.size() + 2048);
+    QVERIFY(!message.contains(QString(2500, QChar('x'))));
+}
+
+void CoreRegressionTests::decryptWorker_processFailed_restoresTempResultMp4()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_process_failed_rollback");
+    QVERIFY(QDir().mkpath(savePath));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("process-failed-rollback-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    const QString resultMp4Path = QDir(tempTaskPath).filePath("result.mp4");
+    const QString inputCboxPath = QDir(tempTaskPath).filePath("input.cbox");
+    QVERIFY(createEmptyFile(resultMp4Path));
+
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [](const DecryptProcessRequest&) {
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 41;
+        result.exitStatus = QProcess::NormalExit;
+        result.stderrText = QStringLiteral("rollback diagnostic");
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(QFileInfo::exists(tempTaskPath));
+    QVERIFY(QFileInfo::exists(resultMp4Path));
+    QVERIFY(!QFileInfo::exists(inputCboxPath));
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=process_failed; exit_code=41]: rollback diagnostic"));
+}
+
+
+void CoreRegressionTests::decryptWorker_processFailed_preservesPreExistingLicense()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_process_failed_preexisting_license");
+    QVERIFY(QDir().mkpath(savePath));
+
+    const QByteArray preExistingLicenseBytes("pre-existing license bytes");
+    const QString licenseTarget = QDir(savePath).filePath("UDRM_LICENSE.v1.0");
+    QFile preExistingLicense(licenseTarget);
+    QVERIFY(preExistingLicense.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QCOMPARE(preExistingLicense.write(preExistingLicenseBytes), qint64(preExistingLicenseBytes.size()));
+    preExistingLicense.close();
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("process-failed-preexisting-license-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    const QString resultMp4Path = QDir(tempTaskPath).filePath("result.mp4");
+    const QString inputCboxPath = QDir(tempTaskPath).filePath("input.cbox");
+    QVERIFY(createEmptyFile(resultMp4Path));
+
+    bool outputCreated = false;
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest&) {
+        outputCreated = createEmptyFile(QDir(savePath).filePath("output.txt"));
+
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 13;
+        result.exitStatus = QProcess::NormalExit;
+        result.stderrText = QStringLiteral("preexisting license diagnostic");
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(outputCreated);
+    QVERIFY(QFileInfo::exists(resultMp4Path));
+    QVERIFY(!QFileInfo::exists(inputCboxPath));
+    QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("output.txt")));
+    QVERIFY(QFileInfo::exists(licenseTarget));
+
+    QFile preservedLicense(licenseTarget);
+    QVERIFY(preservedLicense.open(QIODevice::ReadOnly));
+    QCOMPARE(preservedLicense.readAll(), preExistingLicenseBytes);
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=process_failed; exit_code=13]: preexisting license diagnostic"));
+}
+
+
+void CoreRegressionTests::decryptWorker_success_preservesPreExistingLicense()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_success_preexisting_license");
+    QVERIFY(QDir().mkpath(savePath));
+
+    const QByteArray preExistingLicenseBytes("pre-existing license bytes");
+    const QString licenseTarget = QDir(savePath).filePath("UDRM_LICENSE.v1.0");
+    QFile preExistingLicense(licenseTarget);
+    QVERIFY(preExistingLicense.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QCOMPARE(preExistingLicense.write(preExistingLicenseBytes), qint64(preExistingLicenseBytes.size()));
+    preExistingLicense.close();
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("success-preexisting-license-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [](const DecryptProcessRequest& request) {
+        QFile outputFile(request.arguments.at(1));
+        if (outputFile.open(QIODevice::WriteOnly)) {
+            outputFile.write("fake decrypted bytes");
+            outputFile.close();
+        }
+
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 0;
+        result.exitStatus = QProcess::NormalExit;
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(QFileInfo::exists(QDir(savePath).filePath("success-preexisting-license-video.mp4")));
+    QVERIFY(QFileInfo::exists(licenseTarget));
+
+    QFile preservedLicense(licenseTarget);
+    QVERIFY(preservedLicense.open(QIODevice::ReadOnly));
+    QCOMPARE(preservedLicense.readAll(), preExistingLicenseBytes);
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密完成，输出 success-preexisting-license-video"));
+}
+
+void CoreRegressionTests::decryptWorker_crashExitWithZeroExitCode_emitsProcessFailure()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_crash_exit_zero");
+    QVERIFY(QDir().mkpath(savePath));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("crash-exit-zero-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    const QString resultMp4Path = QDir(tempTaskPath).filePath("result.mp4");
+    const QString inputCboxPath = QDir(tempTaskPath).filePath("input.cbox");
+    QVERIFY(createEmptyFile(resultMp4Path));
+
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [](const DecryptProcessRequest&) {
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 0;
+        result.exitStatus = QProcess::CrashExit;
+        result.stderrText = QStringLiteral("crash diagnostic");
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(QFileInfo::exists(resultMp4Path));
+    QVERIFY(!QFileInfo::exists(inputCboxPath));
+    QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("UDRM_LICENSE.v1.0")));
+    QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("crash-exit-zero-video.mp4")));
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=process_failed; exit_code=0]: crash diagnostic"));
 }
 
 void CoreRegressionTests::apiservice_parseJsonObject_returnsEmptyOnInvalidJson()

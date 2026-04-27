@@ -208,17 +208,68 @@ QString DecryptWorker::decryptAssetsDir() const
 void DecryptWorker::doDecrypt()
 {
     qInfo() << "开始视频解密 - 视频名称:" << m_name << "保存路径:" << m_savePath;
+
+    const QString trimmedName = m_name.trimmed();
+    const QString trimmedSavePath = m_savePath.trimmed();
+    if (trimmedName.isEmpty() || trimmedSavePath.isEmpty()) {
+        emit decryptFinished(false, "解密失败 [code=invalid_params]: 解密参数无效");
+        return;
+    }
+
+    QFileInfo savePathInfo(trimmedSavePath);
+    if (!savePathInfo.exists() || !savePathInfo.isDir()) {
+        emit decryptFinished(false, "解密失败 [code=output_unwritable]: 输出目录不可写");
+        return;
+    }
     
 	auto nameHash = QString(
 		QCryptographicHash::hash(m_name.toUtf8(), QCryptographicHash::Sha256)
 		.toHex()
 	);
-	auto filePath = QDir::cleanPath(m_savePath + "/" + nameHash);
+	auto filePath = QDir::cleanPath(trimmedSavePath + "/" + nameHash);
     qInfo() << "临时文件路径:" << filePath;
+
+	QFileInfo tempDirectoryInfo(filePath);
+	if (!tempDirectoryInfo.exists() || !tempDirectoryInfo.isDir()) {
+		emit decryptFinished(false, "解密失败 [code=input_missing]: result.mp4 不存在");
+		return;
+	}
 
 	QString mp4Path = QDir(filePath).filePath("result.mp4");
 	QString cboxPath = QDir(filePath).filePath("input.cbox");
     qInfo() << "MP4文件路径:" << mp4Path << "CBOX文件路径:" << cboxPath;
+
+	QFileInfo mp4Info(mp4Path);
+	if (!mp4Info.exists() || !mp4Info.isFile()) {
+		emit decryptFinished(false, "解密失败 [code=input_missing]: result.mp4 不存在");
+		return;
+	}
+
+	QString outputFilePath = QDir(trimmedSavePath).filePath("result.mp4");
+	const QString assetsDir = decryptAssetsDir();
+	QString cboxExe = QDir(assetsDir).filePath("cbox.exe");
+    qInfo() << "输出文件路径:" << outputFilePath << "CBOX执行文件:" << cboxExe;
+
+	QFileInfo cboxExeInfo(cboxExe);
+	if (!cboxExeInfo.exists() || !cboxExeInfo.isFile()) {
+		emit decryptFinished(false, "解密失败 [code=cbox_missing]: decrypt/cbox.exe 不存在");
+		return;
+	}
+
+	QString licenseSource = QDir(assetsDir).filePath("UDRM_LICENSE.v1.0");
+	QString licenseTarget = QDir(trimmedSavePath).filePath("UDRM_LICENSE.v1.0");
+	qInfo() << "许可证源文件路径:" << licenseSource << "，目标路径:" << licenseTarget;
+
+	QFileInfo licenseSourceInfo(licenseSource);
+	if (!licenseSourceInfo.exists() || !licenseSourceInfo.isFile()) {
+		emit decryptFinished(false, "解密失败 [code=license_missing]: 解密所需的许可证文件不存在");
+		return;
+	}
+
+	if (!canCreateAndRemoveProbeFile(trimmedSavePath)) {
+		emit decryptFinished(false, "解密失败 [code=output_unwritable]: 输出目录不可写");
+		return;
+	}
 
 	if (QFile::exists(cboxPath)) {
         qInfo() << "删除已存在的CBOX文件";
@@ -236,68 +287,91 @@ void DecryptWorker::doDecrypt()
         qInfo() << "通过复制方式完成文件转换";
 	} else {
         qInfo() << "重命名成功";
-    }
+	}
 	
-	QString outputFilePath = QDir(m_savePath).filePath("result.mp4");
-	QString cboxExe = QDir(QCoreApplication::applicationDirPath()).filePath("decrypt/cbox.exe");
-    qInfo() << "输出文件路径:" << outputFilePath << "CBOX执行文件:" << cboxExe;
-
-	QString licenseSource = QDir(QCoreApplication::applicationDirPath()).filePath("decrypt/UDRM_LICENSE.v1.0");
-	QString licenseTarget = QDir(m_savePath).filePath("UDRM_LICENSE.v1.0");
-	qInfo() << "许可证源文件路径:" << licenseSource << "，目标路径:" << licenseTarget;
-
+	bool licenseCopiedByThisRun = false;
 	// 检查目标文件是否已存在，仅当不存在时才复制
 	if (!QFile::exists(licenseTarget)) {
-		if (QFile::exists(licenseSource)) {
-			if (QFile::copy(licenseSource, licenseTarget)) {
-				qInfo() << "成功复制许可证文件到输出目录。";
-			}
-			else {
-				qWarning() << "复制许可证文件失败。解密进程因缺少许可证而失败。";
-			}
+		if (QFile::copy(licenseSource, licenseTarget)) {
+			licenseCopiedByThisRun = true;
+			qInfo() << "成功复制许可证文件到输出目录。";
 		}
 		else {
-			qCritical() << "源许可证文件不存在，路径:" << licenseSource;
-			emit decryptFinished(false, "解密所需的许可证文件不存在");
-			return;
+			qWarning() << "复制许可证文件失败。解密进程因缺少许可证而失败。";
 		}
 	}
 	else {
 		qInfo() << "目标许可证文件已存在，跳过复制。";
 	}
 
-	QProcess cbox;
-	QStringList args;
-	args << cboxPath << outputFilePath;
-	cbox.setWorkingDirectory(m_savePath);
-    qInfo() << "启动CBOX解密进程，参数:" << args;
-	cbox.start(cboxExe, args);
+	DecryptProcessRequest request;
+	request.program = cboxExe;
+	request.arguments = { cboxPath, outputFilePath };
+	request.workingDirectory = trimmedSavePath;
+	request.timeoutMs = m_processTimeoutMs;
 
-	if (!cbox.waitForStarted())
+    qInfo() << "启动CBOX解密进程，参数:" << request.arguments;
+
+	DecryptProcessResult processResult;
+#ifdef CORE_REGRESSION_TESTS
+	if (m_testProcessRunner) {
+		processResult = m_testProcessRunner(request);
+	}
+	else {
+		processResult = runDecryptProcess(request);
+	}
+#else
+	processResult = runDecryptProcess(request);
+#endif
+
+    logProcessDiagnostics(processResult);
+
+	if (!processResult.started)
 	{
-		qCritical() << "无法启动cbox进程";
-		emit decryptFinished(false, "无法启动cbox");
+		const QString errorString = cappedDiagnosticText(processResult.errorString);
+		qCritical() << "无法启动cbox进程" << errorString;
+		if (!restoreConvertedInputToMp4(cboxPath, mp4Path)) {
+			qWarning() << "回滚 input.cbox -> result.mp4 失败:" << cboxPath << mp4Path;
+		}
+		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+		emit decryptFinished(false, errorString.isEmpty()
+			? QStringLiteral("解密失败 [code=start_failed]: 无法启动cbox")
+			: QStringLiteral("解密失败 [code=start_failed]: 无法启动cbox: ") + errorString);
 		return;
 	}
 
-    qInfo() << "CBOX进程已启动，等待解密完成...";
-	cbox.waitForFinished(-1);
-
-	if (cbox.exitCode() != 0)
+	if (processResult.timedOut)
 	{
-		QString err = cbox.readAllStandardError();
-		qCritical() << "CBOX解密失败，退出码:" << cbox.exitCode() << "错误信息:" << err;
-		emit decryptFinished(false, "解密执行失败: " + err);
+		qCritical() << "CBOX解密超时，超时时间:" << request.timeoutMs << "ms";
+		if (!restoreConvertedInputToMp4(cboxPath, mp4Path)) {
+			qWarning() << "回滚 input.cbox -> result.mp4 失败:" << cboxPath << mp4Path;
+		}
+		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+		emit decryptFinished(false, QStringLiteral("解密失败 [code=timeout]: cbox 超时 %1 ms").arg(request.timeoutMs));
 		return;
 	}
 
-    qInfo() << "CBOX解密成功完成，退出码:" << cbox.exitCode();
+	if (!processResult.timedOut && (processResult.exitCode != 0 || processResult.exitStatus != QProcess::NormalExit))
+	{
+		const QString diagnostic = preferredProcessDiagnostic(processResult);
+		qCritical() << "CBOX解密失败，退出码:" << processResult.exitCode << "错误信息:" << diagnostic;
+		if (!restoreConvertedInputToMp4(cboxPath, mp4Path)) {
+			qWarning() << "回滚 input.cbox -> result.mp4 失败:" << cboxPath << mp4Path;
+		}
+		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+		emit decryptFinished(false, QStringLiteral("解密失败 [code=process_failed; exit_code=%1]: %2")
+			.arg(processResult.exitCode)
+			.arg(diagnostic));
+		return;
+	}
+
+    qInfo() << "CBOX解密成功完成，退出码:" << processResult.exitCode;
     
 	// 清理视频名称中可能的路径非法字符
 	m_name.replace(QRegularExpression(R"([\\/:*?"<>|])"), "_");
 	qInfo() << "清理后的视频名称:" << m_name;
 
-	QString finalPath = QDir(m_savePath).filePath("%1.mp4").arg(m_name);
+	QString finalPath = QDir(trimmedSavePath).filePath("%1.mp4").arg(m_name);
 	qInfo() << "初始文件路径:" << finalPath;
 
 	// 生成不重复的最终文件路径
@@ -348,8 +422,10 @@ void DecryptWorker::doDecrypt()
     }
 
     qInfo() << "清理临时文件";
-	QFile::remove(QDir(m_savePath).filePath("output.txt"));
-	QFile::remove(QDir(m_savePath).filePath("UDRM_LICENSE.v1.0"));
+	QFile::remove(QDir(trimmedSavePath).filePath("output.txt"));
+	if (licenseCopiedByThisRun) {
+		QFile::remove(QDir(trimmedSavePath).filePath("UDRM_LICENSE.v1.0"));
+	}
 
     qInfo() << "视频解密全部完成，输出文件:" << finalPath;
 	emit decryptFinished(true, "解密完成，输出 " + m_name);
