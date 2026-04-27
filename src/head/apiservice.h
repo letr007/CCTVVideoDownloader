@@ -105,5 +105,10 @@ private:
     static QMutex m_instanceMutex;
 
     QMutex m_mutex;
+
+#ifdef CORE_REGRESSION_TESTS
+public:
+    static QByteArray s_testM3u8Response;
+#endif
 };
 

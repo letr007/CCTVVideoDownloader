@@ -18,6 +18,10 @@
 QPointer<APIService> APIService::m_instance = nullptr;
 QMutex APIService::m_instanceMutex;
 
+#ifdef CORE_REGRESSION_TESTS
+QByteArray APIService::s_testM3u8Response;
+#endif
+
 APIService& APIService::instance() {
     if (m_instance.isNull()) {
         QMutexLocker locker(&m_instanceMutex);
@@ -40,6 +44,10 @@ APIService::~APIService()
 // 通用的网络请求函数
 QByteArray APIService::sendNetworkRequest(const QUrl& url, const QHash<QString, QString>& headers)
 {
+#ifdef CORE_REGRESSION_TESTS
+    if (!s_testM3u8Response.isEmpty())
+        return s_testM3u8Response;
+#endif
     qInfo() << "发送网络请求:" << url.toString();
     
     QNetworkAccessManager manager;

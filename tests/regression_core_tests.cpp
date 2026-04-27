@@ -59,6 +59,11 @@ public:
     {
         return apiService.buildTsUrlsFromPlaylistData(playlistData, fullM3u8Url);
     }
+
+    static QStringList getTsFileList(APIService& apiService, const QString& qualityPath, const QString& baseUrl)
+    {
+        return apiService.getTsFileList(qualityPath, baseUrl);
+    }
 };
 
 class CoreRegressionTests : public QObject
@@ -83,6 +88,7 @@ private slots:
     void apiservice_parseM3U8QualityUrls_and_selectQuality_chooseHighestForZero();
     void apiservice_buildVideoApiUrl_buildsExpectedQuery();
     void apiservice_buildTsUrlsFromPlaylistData_returnsExpectedAbsoluteUrls();
+    void apiservice_getTsFileList_returnsExpectedUrlsFromSyntheticData();
 
 private:
     void initializeSettingsSandbox();
@@ -102,6 +108,7 @@ void CoreRegressionTests::init()
 
 void CoreRegressionTests::cleanup()
 {
+    APIService::s_testM3u8Response.clear();
     g_settings.reset();
     QVERIFY(QDir::setCurrent(m_originalCurrentPath));
     m_tempDir.reset();
@@ -396,6 +403,31 @@ segment-0002.ts
     QCOMPARE(tsUrls.at(0), QString("https://example.com/path/video/segment-0001.ts"));
     QCOMPARE(tsUrls.at(1), QString("https://example.com/path/video/segment-0002.ts"));
 }
+
+void CoreRegressionTests::apiservice_getTsFileList_returnsExpectedUrlsFromSyntheticData()
+{
+    APIService& apiService = APIService::instance();
+
+    const QByteArray syntheticPlaylist = R"(
+#EXTM3U
+#EXTINF:2.0,
+segment-0001.ts
+#EXTINF:2.0,
+segment-0002.ts
+)";
+    APIService::s_testM3u8Response = syntheticPlaylist;
+
+    const QString qualityPath = QString("/asp/enc/video-123/index.m3u8");
+    const QString baseUrl = QString("https://dh5.example.com/asp/enc/video-123/index.m3u8");
+    const auto tsUrls = APIServiceTestAdapter::getTsFileList(apiService, qualityPath, baseUrl);
+
+    QCOMPARE(tsUrls.size(), 2);
+    QCOMPARE(tsUrls.at(0), QString("https://dh5.example.com/asp/enc/video-123/segment-0001.ts"));
+    QCOMPARE(tsUrls.at(1), QString("https://dh5.example.com/asp/enc/video-123/segment-0002.ts"));
+
+    APIService::s_testM3u8Response.clear();
+}
+
 QTEST_MAIN(CoreRegressionTests)
 
 #include "regression_core_tests.moc"
