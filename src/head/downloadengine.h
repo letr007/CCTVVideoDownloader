@@ -20,6 +20,11 @@ class QNetworkRequest;
 class DownloadEngine : public QObject
 {
     Q_OBJECT
+
+#ifdef CORE_REGRESSION_TESTS
+    friend class DownloadEngineTestAdapter;
+#endif
+
 public:
     explicit DownloadEngine(QObject* parent = nullptr);
     ~DownloadEngine();
@@ -61,9 +66,9 @@ private:
     QSet<DownloadTask*> m_completedTasks;
     mutable QMutex m_mutex;
 
-    int m_defaultTimeoutMs{0};
-    int m_defaultMaxAttempts{1};
-    int m_defaultRetryDelayMs{0};
+    int m_defaultTimeoutMs{30000};
+    int m_defaultMaxAttempts{3};
+    int m_defaultRetryDelayMs{1000};
 
 #ifdef CORE_REGRESSION_TESTS
     std::function<QNetworkReply*(const QNetworkRequest&)> m_testReplyFactory;

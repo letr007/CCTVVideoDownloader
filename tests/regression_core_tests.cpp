@@ -146,6 +146,21 @@ public:
 
 class DownloadEngineTestAdapter {
 public:
+    static int defaultTimeoutMs(const DownloadEngine& engine)
+    {
+        return engine.m_defaultTimeoutMs;
+    }
+
+    static int defaultMaxAttempts(const DownloadEngine& engine)
+    {
+        return engine.m_defaultMaxAttempts;
+    }
+
+    static int defaultRetryDelayMs(const DownloadEngine& engine)
+    {
+        return engine.m_defaultRetryDelayMs;
+    }
+
     static void setTestReplyFactory(DownloadEngine& engine, const std::function<QNetworkReply*(const QNetworkRequest&)>& replyFactory)
     {
         engine.setTestReplyFactory(replyFactory);
@@ -215,6 +230,7 @@ private slots:
     void downloadEngine_fakeNetwork_error_emitsFailureAndAllFinished();
     void downloadEngine_cancelActiveTask_emitsSingleCancelledFailureAndAllFinished();
     void downloadEngine_cancelWhenIdle_isSafeNoOp();
+    void downloadEngine_defaults_enableTimeoutAndRetry();
     void downloadEngine_retrySettings_propagateToTask();
 
     void decryptWorker_renameFailure_emitsRenameError();
@@ -841,6 +857,7 @@ void CoreRegressionTests::downloadEngine_fakeNetwork_error_emitsFailureAndAllFin
     manager.queueError(url, QNetworkReply::ConnectionRefusedError, expectedError);
 
     DownloadEngine engine;
+    engine.setDefaultMaxAttempts(1);
     DownloadEngineTestAdapter::setTestReplyFactory(engine, [&manager](const QNetworkRequest& request) {
         return manager.createReplyForRequest(QNetworkAccessManager::GetOperation, request);
     });
@@ -911,6 +928,15 @@ void CoreRegressionTests::downloadEngine_cancelWhenIdle_isSafeNoOp()
     QCOMPARE(engine.activeDownloads(), 0);
     QCOMPARE(finishedSpy.count(), 0);
     QCOMPARE(allFinishedSpy.count(), 0);
+}
+
+void CoreRegressionTests::downloadEngine_defaults_enableTimeoutAndRetry()
+{
+    DownloadEngine engine;
+
+    QCOMPARE(DownloadEngineTestAdapter::defaultTimeoutMs(engine), 30000);
+    QCOMPARE(DownloadEngineTestAdapter::defaultMaxAttempts(engine), 3);
+    QCOMPARE(DownloadEngineTestAdapter::defaultRetryDelayMs(engine), 1000);
 }
 
 void CoreRegressionTests::downloadEngine_retrySettings_propagateToTask()
