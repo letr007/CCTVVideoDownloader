@@ -149,6 +149,10 @@ private slots:
     void downloadTask_delayedFakeReply_completesWithinBoundedTime();
     void downloadTask_timeoutWhileReplyStalls_emitsStructuredTimeoutOnce();
     void downloadTask_cancelWhileReplyPending_withTimeoutEnabled_preservesCancellation();
+    void downloadTask_retryOnNetworkError_thenSucceeds_writesOnlyFinalBytes();
+    void downloadTask_retryOnNetworkError_exhausted_emitsStructuredFailure();
+    void downloadTask_retryOnTimeout_exhausted_emitsStructuredTimeoutFailure();
+    void downloadTask_cancelDuringRetryDelay_doesNotIssueSecondRequest();
     void downloadEngine_idleConstructionDestruction_isSafe();
     void downloadEngine_fakeNetwork_success_emitsDownloadAndAllFinished();
     void downloadEngine_fakeNetwork_error_emitsFailureAndAllFinished();
@@ -573,6 +577,132 @@ void CoreRegressionTests::downloadTask_cancelWhileReplyPending_withTimeoutEnable
     QCOMPARE(manager.requestCount(), 1);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
     QCOMPARE(manager.requestedUrls().constFirst(), url);
+}
+
+void CoreRegressionTests::downloadTask_retryOnNetworkError_thenSucceeds_writesOnlyFinalBytes()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("download_fake_retry_success");
+    const QString userData = QStringLiteral("retry-success-user");
+    const QUrl url(QStringLiteral("https://fake.test/files/video-retry-success.bin"));
+    const QString expectedFilePath = QDir(downloadDir).filePath(QStringLiteral("video-retry-success.bin"));
+    const QString firstError = QStringLiteral("first deterministic fake error");
+    const QByteArray expectedBody("final success bytes only");
+
+    manager.queueError(url, QNetworkReply::ConnectionRefusedError, firstError);
+    manager.queueSuccess(url, expectedBody);
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    task.setMaxAttempts(2);
+    task.setRetryDelayMs(5);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(arguments.at(1).toString(), expectedFilePath);
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 2);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    QCOMPARE(manager.requestedUrls().size(), 2);
+    QCOMPARE(manager.requestedUrls().at(0), url);
+    QCOMPARE(manager.requestedUrls().at(1), url);
+
+    QFile outputFile(expectedFilePath);
+    QVERIFY(outputFile.open(QIODevice::ReadOnly));
+    QCOMPARE(outputFile.readAll(), expectedBody);
+}
+
+void CoreRegressionTests::downloadTask_retryOnNetworkError_exhausted_emitsStructuredFailure()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("download_fake_retry_network_exhausted");
+    const QString userData = QStringLiteral("retry-network-exhausted-user");
+    const QUrl url(QStringLiteral("https://fake.test/files/video-retry-network-exhausted.bin"));
+
+    manager.queueError(url, QNetworkReply::ConnectionRefusedError, QStringLiteral("first deterministic fake error"));
+    manager.queueError(url, QNetworkReply::ConnectionRefusedError, QStringLiteral("second deterministic fake error"));
+    manager.queueError(url, QNetworkReply::ConnectionRefusedError, QStringLiteral("third deterministic fake error"));
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    task.setMaxAttempts(3);
+    task.setRetryDelayMs(5);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QStringLiteral("Download failed [code=network_error; attempts=3/3]: third deterministic fake error"));
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 3);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::downloadTask_retryOnTimeout_exhausted_emitsStructuredTimeoutFailure()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("download_fake_retry_timeout_exhausted");
+    const QString userData = QStringLiteral("retry-timeout-exhausted-user");
+    const QUrl url(QStringLiteral("https://fake.test/files/video-retry-timeout-exhausted.bin"));
+
+    manager.queueSuccess(url, QByteArray("timeout-attempt-one"), 1000);
+    manager.queueSuccess(url, QByteArray("timeout-attempt-two"), 1000);
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    task.setTimeoutMs(20);
+    task.setMaxAttempts(2);
+    task.setRetryDelayMs(5);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    QElapsedTimer elapsed;
+    elapsed.start();
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY2(elapsed.elapsed() < 400, "Retry timeout exhaustion should abort promptly on each stalled attempt");
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QStringLiteral("Download failed [code=timeout; attempts=2/2]: Timed out after 20 ms"));
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 2);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::downloadTask_cancelDuringRetryDelay_doesNotIssueSecondRequest()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("download_fake_retry_cancel_during_delay");
+    const QString userData = QStringLiteral("retry-cancel-user");
+    const QUrl url(QStringLiteral("https://fake.test/files/video-retry-cancel.bin"));
+
+    manager.queueError(url, QNetworkReply::ConnectionRefusedError, QStringLiteral("first deterministic fake error"));
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    task.setMaxAttempts(3);
+    task.setRetryDelayMs(200);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    QTimer::singleShot(10, &task, &DownloadTask::cancel);
+    QElapsedTimer elapsed;
+    elapsed.start();
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY2(elapsed.elapsed() < 150, "Cancellation during retry delay should stay event-driven and unblock promptly");
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QStringLiteral("Cancelled"));
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
 }
 
 void CoreRegressionTests::downloadEngine_idleConstructionDestruction_isSafe()
