@@ -13,6 +13,7 @@ class DownloadTask : public QObject, public QRunnable
 
 #ifdef CORE_REGRESSION_TESTS
     friend class DownloadTaskTestAdapter;
+    friend class DownloadEngine;
 #endif
 
 public:

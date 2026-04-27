@@ -22,6 +22,7 @@
 #include "config.h"
 #include "setting.h"
 #include "apiservice.h"
+#include "downloadengine.h"
 #include "downloadtask.h"
 #include "decryptworker.h"
 #include "fakes/fake_networkaccessmanager.h"
@@ -98,6 +99,19 @@ public:
     }
 };
 
+class DownloadEngineTestAdapter {
+public:
+    static void setTestNetworkAccessManager(DownloadEngine& engine, QNetworkAccessManager* networkAccessManager)
+    {
+        engine.setTestNetworkAccessManager(networkAccessManager);
+    }
+
+    static void clearTestNetworkAccessManager(DownloadEngine& engine)
+    {
+        engine.clearTestNetworkAccessManager();
+    }
+};
+
 class CoreRegressionTests : public QObject
 {
     Q_OBJECT
@@ -116,6 +130,11 @@ private slots:
     void downloadTask_fakeNetwork_error_emitsFailureOnce();
     void downloadTask_cancelWhileReplyPending_emitsSingleCancelledCompletion();
     void downloadTask_delayedFakeReply_completesWithinBoundedTime();
+    void downloadEngine_idleConstructionDestruction_isSafe();
+    void downloadEngine_fakeNetwork_success_emitsDownloadAndAllFinished();
+    void downloadEngine_fakeNetwork_error_emitsFailureAndAllFinished();
+    void downloadEngine_cancelActiveTask_emitsSingleCancelledFailureAndAllFinished();
+    void downloadEngine_cancelWhenIdle_isSafeNoOp();
     void decryptWorker_renameFailure_emitsRenameError();
 
     void apiservice_parseJsonObject_returnsEmptyOnInvalidJson();
@@ -421,6 +440,133 @@ void CoreRegressionTests::downloadTask_delayedFakeReply_completesWithinBoundedTi
     QCOMPARE(manager.requestCount(), 1);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
     QCOMPARE(manager.requestedUrls().constFirst(), url);
+}
+
+void CoreRegressionTests::downloadEngine_idleConstructionDestruction_isSafe()
+{
+    DownloadEngine engine;
+
+    QCOMPARE(engine.activeDownloads(), 0);
+    QVERIFY(engine.maxThreadCount() >= 1);
+    engine.cancelDownload(QStringLiteral("missing-user"));
+    engine.cancelAll();
+    QCOMPARE(engine.activeDownloads(), 0);
+}
+
+void CoreRegressionTests::downloadEngine_fakeNetwork_success_emitsDownloadAndAllFinished()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("engine_fake_success");
+    const QString userData = QStringLiteral("engine-success-user");
+    const QUrl url(QStringLiteral("https://fake.test/engine/video-success.bin"));
+    const QByteArray expectedBody("engine success payload");
+    const QString expectedFilePath = QDir(downloadDir).filePath(QStringLiteral("video-success.bin"));
+
+    manager.queueSuccess(url, expectedBody);
+
+    DownloadEngine engine;
+    DownloadEngineTestAdapter::setTestNetworkAccessManager(engine, &manager);
+    QSignalSpy finishedSpy(&engine, &DownloadEngine::downloadFinished);
+    QSignalSpy allFinishedSpy(&engine, &DownloadEngine::allDownloadFinished);
+
+    engine.download(url.toString(), downloadDir, userData);
+
+    QVERIFY2(finishedSpy.wait(1000), "engine success should emit downloadFinished");
+    QTRY_COMPARE_WITH_TIMEOUT(allFinishedSpy.count(), 1, 1000);
+    engine.waitForAllFinished();
+
+    QCOMPARE(engine.activeDownloads(), 0);
+    QCOMPARE(finishedSpy.count(), 1);
+    const auto arguments = finishedSpy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(arguments.at(1).toString(), expectedFilePath);
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    QCOMPARE(manager.requestedUrls().constFirst(), url);
+
+    QFile outputFile(expectedFilePath);
+    QVERIFY(outputFile.open(QIODevice::ReadOnly));
+    QCOMPARE(outputFile.readAll(), expectedBody);
+}
+
+void CoreRegressionTests::downloadEngine_fakeNetwork_error_emitsFailureAndAllFinished()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("engine_fake_error");
+    const QString userData = QStringLiteral("engine-error-user");
+    const QUrl url(QStringLiteral("https://fake.test/engine/video-error.bin"));
+    const QString expectedError = QStringLiteral("engine deterministic fake error");
+
+    manager.queueError(url, QNetworkReply::ConnectionRefusedError, expectedError);
+
+    DownloadEngine engine;
+    DownloadEngineTestAdapter::setTestNetworkAccessManager(engine, &manager);
+    QSignalSpy finishedSpy(&engine, &DownloadEngine::downloadFinished);
+    QSignalSpy allFinishedSpy(&engine, &DownloadEngine::allDownloadFinished);
+
+    engine.download(url.toString(), downloadDir, userData);
+
+    QVERIFY2(finishedSpy.wait(1000), "engine error should emit downloadFinished");
+    QTRY_COMPARE_WITH_TIMEOUT(allFinishedSpy.count(), 1, 1000);
+    engine.waitForAllFinished();
+
+    QCOMPARE(engine.activeDownloads(), 0);
+    QCOMPARE(finishedSpy.count(), 1);
+    const auto arguments = finishedSpy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), expectedError);
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    QCOMPARE(manager.requestedUrls().constFirst(), url);
+}
+
+void CoreRegressionTests::downloadEngine_cancelActiveTask_emitsSingleCancelledFailureAndAllFinished()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("engine_fake_cancel");
+    const QString userData = QStringLiteral("engine-cancel-user");
+    const QUrl url(QStringLiteral("https://fake.test/engine/video-cancel.bin"));
+
+    manager.queueSuccess(url, QByteArray("cancel me"), 120);
+
+    DownloadEngine engine;
+    DownloadEngineTestAdapter::setTestNetworkAccessManager(engine, &manager);
+    QSignalSpy finishedSpy(&engine, &DownloadEngine::downloadFinished);
+    QSignalSpy allFinishedSpy(&engine, &DownloadEngine::allDownloadFinished);
+
+    engine.download(url.toString(), downloadDir, userData);
+    QTRY_COMPARE_WITH_TIMEOUT(engine.activeDownloads(), 1, 200);
+    QTimer::singleShot(10, &engine, [&, userData]() { engine.cancelDownload(userData); });
+
+    QVERIFY2(finishedSpy.wait(1000), "engine cancel should emit downloadFinished");
+    QTRY_COMPARE_WITH_TIMEOUT(allFinishedSpy.count(), 1, 1000);
+    engine.waitForAllFinished();
+
+    QCOMPARE(engine.activeDownloads(), 0);
+    QCOMPARE(finishedSpy.count(), 1);
+    const auto arguments = finishedSpy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    QCOMPARE(manager.requestedUrls().constFirst(), url);
+}
+
+void CoreRegressionTests::downloadEngine_cancelWhenIdle_isSafeNoOp()
+{
+    DownloadEngine engine;
+    QSignalSpy finishedSpy(&engine, &DownloadEngine::downloadFinished);
+    QSignalSpy allFinishedSpy(&engine, &DownloadEngine::allDownloadFinished);
+
+    engine.cancelDownload(QStringLiteral("idle-user"));
+    engine.cancelAll();
+    QTest::qWait(20);
+
+    QCOMPARE(engine.activeDownloads(), 0);
+    QCOMPARE(finishedSpy.count(), 0);
+    QCOMPARE(allFinishedSpy.count(), 0);
 }
 
 void CoreRegressionTests::decryptWorker_renameFailure_emitsRenameError()

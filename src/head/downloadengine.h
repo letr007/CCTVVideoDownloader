@@ -4,6 +4,8 @@
 #include <QVariant>
 #include <QMutex>
 #include <QHash>
+#include <QPointer>
+#include <QtNetwork/QNetworkAccessManager>
 
 class DownloadTask;
 
@@ -24,6 +26,11 @@ public:
 
     void waitForAllFinished();
 
+#ifdef CORE_REGRESSION_TESTS
+    void setTestNetworkAccessManager(QNetworkAccessManager* networkAccessManager);
+    void clearTestNetworkAccessManager();
+#endif
+
 signals:
     void downloadProgress(qint64 bytesReceived, qint64 bytesTotal, const QVariant& userData);
     void downloadFinished(bool success, const QString& errorString, const QVariant& userData);
@@ -37,4 +44,8 @@ private:
     QThreadPool m_threadPool;
     QHash<QVariant, DownloadTask*> m_activeDownloads;
     mutable QMutex m_mutex;
+
+#ifdef CORE_REGRESSION_TESTS
+    QPointer<QNetworkAccessManager> m_testNetworkAccessManager;
+#endif
 };

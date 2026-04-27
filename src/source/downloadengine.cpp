@@ -33,6 +33,12 @@ void DownloadEngine::download(const QString& url, const QString& saveDir, const 
     auto* task = new DownloadTask(url, saveDir, userData);
     task->setAutoDelete(false);
 
+#ifdef CORE_REGRESSION_TESTS
+    if (m_testNetworkAccessManager) {
+        task->setTestNetworkAccessManager(m_testNetworkAccessManager);
+    }
+#endif
+
     connect(task, &DownloadTask::progressChanged, this, &DownloadEngine::onDownloadProgress, Qt::QueuedConnection);
     connect(task, &DownloadTask::downloadFinished, this, &DownloadEngine::onDownloadFinished, Qt::QueuedConnection);
 
@@ -120,3 +126,15 @@ void DownloadEngine::waitForAllFinished()
 {
     m_threadPool.waitForDone();
 }
+
+#ifdef CORE_REGRESSION_TESTS
+void DownloadEngine::setTestNetworkAccessManager(QNetworkAccessManager* networkAccessManager)
+{
+    m_testNetworkAccessManager = networkAccessManager;
+}
+
+void DownloadEngine::clearTestNetworkAccessManager()
+{
+    m_testNetworkAccessManager = nullptr;
+}
+#endif
