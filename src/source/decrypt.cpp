@@ -1,4 +1,4 @@
-﻿#include "../head/decrypt.h"
+#include "../head/decrypt.h"
 #include <QThread>
 #include <QCryptographicHash>
 #include <QDir>
@@ -15,6 +15,12 @@ Decrypt::Decrypt(QWidget* parent)
 
 Decrypt::~Decrypt()
 {
+	if (decryptThread) {
+		decryptThread->quit();
+		decryptThread->wait();
+		delete decryptThread;
+		decryptThread = nullptr;
+	}
 }
 
 void Decrypt::transferDecryptParams(const QString& name, const QString& savePath)
@@ -23,6 +29,7 @@ void Decrypt::transferDecryptParams(const QString& name, const QString& savePath
 	worker->moveToThread(decryptThread);
 	connect(decryptThread, &QThread::started, worker, &DecryptWorker::doDecrypt);
 	connect(worker, &DecryptWorker::decryptFinished, this, &Decrypt::onDecryptFinished);
+	connect(worker, &DecryptWorker::decryptFinished, decryptThread, &QThread::quit);
 	connect(decryptThread, &QThread::finished, worker, &QObject::deleteLater);
 	decryptThread->start();
 }

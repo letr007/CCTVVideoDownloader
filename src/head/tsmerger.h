@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QDebug>
+#include <QFile>
 #include <vector>
 
 class TSMerger {
@@ -20,7 +21,7 @@ public:
 		pmtIdentified = false;
 	}
 private:
-	bool processFile(const QString& fileName, std::ofstream& outFile, bool isFirstFile);
+	bool processFile(const QString& fileName, QFile& outFile, bool isFirstFile);
 	void identifyPMTPID(const std::vector<uint8_t>& data, size_t packetOffset);
 	bool validatePacket(const std::vector<uint8_t>& data, size_t offset);
 };

@@ -89,6 +89,25 @@ target_link_libraries(CCTVVideoDownloader
         Qt6::Network
 )
 
+if (WIN32)
+    get_target_property(QT_QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(QT_BIN_DIR "${QT_QMAKE_EXECUTABLE}" DIRECTORY)
+    find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${QT_BIN_DIR}")
+
+    if (WINDEPLOYQT_EXECUTABLE)
+        add_custom_command(TARGET CCTVVideoDownloader POST_BUILD
+            COMMAND "${WINDEPLOYQT_EXECUTABLE}"
+                --no-translations
+                --no-system-d3d-compiler
+                --no-opengl-sw
+                "$<TARGET_FILE:CCTVVideoDownloader>"
+            COMMENT "Running windeployqt for CCTVVideoDownloader"
+        )
+    else()
+        message(WARNING "windeployqt not found; the built executable may miss Qt runtime DLLs.")
+    endif()
+endif()
+
 add_custom_command(TARGET CCTVVideoDownloader POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:CCTVVideoDownloader>/decrypt"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
