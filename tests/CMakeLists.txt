@@ -16,13 +16,19 @@ qt_add_executable(core_regression_tests
     ${PROJECT_SOURCE_DIR}/src/source/apiservice.cpp
     ${PROJECT_SOURCE_DIR}/src/source/downloadtask.cpp
     ${PROJECT_SOURCE_DIR}/src/source/downloadengine.cpp
+    ${PROJECT_SOURCE_DIR}/src/source/downloadmodel.cpp
+    ${PROJECT_SOURCE_DIR}/src/source/downloaddialog.cpp
     ${PROJECT_SOURCE_DIR}/src/source/decryptworker.cpp
+    ${PROJECT_SOURCE_DIR}/src/source/tsmerger.cpp
     ${core_regression_tests_moc}
     ${PROJECT_SOURCE_DIR}/src/head/config.h
     ${PROJECT_SOURCE_DIR}/src/head/setting.h
     ${PROJECT_SOURCE_DIR}/src/head/downloadtask.h
     ${PROJECT_SOURCE_DIR}/src/head/downloadengine.h
+    ${PROJECT_SOURCE_DIR}/src/head/downloadmodel.h
+    ${PROJECT_SOURCE_DIR}/src/head/downloaddialog.h
     ${PROJECT_SOURCE_DIR}/src/head/decryptworker.h
+    ${PROJECT_SOURCE_DIR}/src/head/tsmerger.h
 )
 
 target_include_directories(core_regression_tests

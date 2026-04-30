@@ -1,4 +1,4 @@
-﻿#include "../head/cctvvideodownloader.h"
+#include "../head/cctvvideodownloader.h"
 #include "../head/about.h"
 #include "../head/setting.h"
 #include "../head/import.h"
@@ -323,6 +323,11 @@ void CCTVVideoDownloader::openDownloadDialog()
         );
 
         qInfo() << "获取到" << URLS.size() << "个TS文件URL";
+        if (URLS.isEmpty()) {
+            qWarning() << "下载失败: 未获取到任何TS切片URL，GUID:" << GUID;
+            QMessageBox::warning(this, "Warning", "未获取到可下载的TS切片，请稍后重试或查看日志。");
+            return;
+        }
 
         Download dialog(this);
         // 先关闭下载窗口再进行完成后操作
@@ -362,6 +367,11 @@ void CCTVVideoDownloader::openDownloadDialog()
         );
 
         qInfo() << "获取到" << URLS.size() << "个TS文件URL";
+        if (URLS.isEmpty()) {
+            qWarning() << "批量下载失败: 未获取到任何TS切片URL，GUID:" << GUID;
+            QMessageBox::warning(this, "Warning", QString("视频 \"%1\" 未获取到可下载的TS切片，已跳过。").arg(title));
+            continue;
+        }
 
         Download dialog(this);
         connect(&dialog, &Download::DownloadFinished, this, [&dialog](bool success) {

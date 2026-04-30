@@ -1,6 +1,7 @@
-﻿#include "../head/tsmerger.h"
+#include "../head/tsmerger.h"
 
-#include <fstream>
+#include <QDir>
+#include <QFileInfo>
 
 bool TSMerger::merge(const std::vector<QString>& inputFiles, const QString& outputFile) {
     qInfo() << "开始合并TS文件，输入文件数:" << inputFiles.size() << "输出文件:" << outputFile;
@@ -9,8 +10,15 @@ bool TSMerger::merge(const std::vector<QString>& inputFiles, const QString& outp
         qWarning() << "没有输入文件可合并";
         return false;
     }
-    std::ofstream outfile(outputFile.toStdString(), std::ios::binary);
-    if (!outfile) {
+    const QFileInfo outputInfo(outputFile);
+    QDir().mkpath(outputInfo.absolutePath());
+    if (QFile::exists(outputFile) && !QFile::remove(outputFile)) {
+        qCritical() << "无法删除已存在的输出文件:" << outputFile;
+        return false;
+    }
+
+    QFile outfile(outputFile);
+    if (!outfile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         qCritical() << "无法打开输出文件:" << outputFile;
         return false;
     }
@@ -39,19 +47,16 @@ bool TSMerger::merge(const std::vector<QString>& inputFiles, const QString& outp
     return true;
 }
 
-bool TSMerger::processFile(const QString& filename, std::ofstream& outfile, bool isFirstFile) {
+bool TSMerger::processFile(const QString& filename, QFile& outfile, bool isFirstFile) {
     qDebug() << "处理TS文件:" << filename << "是否为第一个文件:" << isFirstFile;
     
-    std::ifstream infile(filename.toStdString(), std::ios::binary);
-    if (!infile) {
+    QFile infile(filename);
+    if (!infile.open(QIODevice::ReadOnly)) {
         qCritical() << "无法打开输入文件:" << filename;
         return false;
     }
 
-    // 获取文件大小
-    infile.seekg(0, std::ios::end);
-    size_t fileSize = infile.tellg();
-    infile.seekg(0, std::ios::beg);
+    const qint64 fileSize = infile.size();
 
     qDebug() << "文件大小:" << fileSize << "字节";
 
@@ -61,13 +66,12 @@ bool TSMerger::processFile(const QString& filename, std::ofstream& outfile, bool
     }
 
     // 读取整个文件
-    std::vector<uint8_t> data(fileSize);
-    infile.read(reinterpret_cast<char*>(data.data()), fileSize);
-
-    if (!infile) {
+    const QByteArray fileBytes = infile.readAll();
+    if (fileBytes.size() != fileSize) {
         qCritical() << "读取文件失败:" << filename;
         return false;
     }
+    std::vector<uint8_t> data(fileBytes.begin(), fileBytes.end());
 
     size_t packetCount = 0;
     size_t skippedCount = 0;
@@ -85,7 +89,10 @@ bool TSMerger::processFile(const QString& filename, std::ofstream& outfile, bool
             if (pid == 0 && !pmtIdentified) {
                 identifyPMTPID(data, i);
             }
-            outfile.write(reinterpret_cast<char*>(&data[i]), TS_PACKET_SIZE);
+            if (outfile.write(reinterpret_cast<const char*>(&data[i]), TS_PACKET_SIZE) != TS_PACKET_SIZE) {
+                qCritical() << "写入输出文件失败:" << outfile.fileName();
+                return false;
+            }
             packetCount++;
         }
         else {
@@ -93,7 +100,10 @@ bool TSMerger::processFile(const QString& filename, std::ofstream& outfile, bool
                 skippedCount++;
                 continue; // 跳过PAT和PMT包
             }
-            outfile.write(reinterpret_cast<char*>(&data[i]), TS_PACKET_SIZE);
+            if (outfile.write(reinterpret_cast<const char*>(&data[i]), TS_PACKET_SIZE) != TS_PACKET_SIZE) {
+                qCritical() << "写入输出文件失败:" << outfile.fileName();
+                return false;
+            }
             packetCount++;
         }
     }

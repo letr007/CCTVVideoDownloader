@@ -1,4 +1,4 @@
-﻿#include "../head/concat.h"
+#include "../head/concat.h"
 #include <QThread>
 #include <QCryptographicHash>
 #include <QDir>
@@ -15,6 +15,12 @@ Concat::Concat(QWidget* parent)
 
 Concat::~Concat()
 {
+	if (concatThread) {
+		concatThread->quit();
+		concatThread->wait();
+		delete concatThread;
+		concatThread = nullptr;
+	}
 }
 
 void Concat::transferConcatParams(const QString& name, const QString& savePath)
@@ -29,6 +35,7 @@ void Concat::transferConcatParams(const QString& name, const QString& savePath)
 	worker->moveToThread(concatThread);
 	connect(concatThread, &QThread::started, worker, &ConcatWorker::doConcat);
 	connect(worker, &ConcatWorker::concatFinished, this, &Concat::onConcatFinished);
+	connect(worker, &ConcatWorker::concatFinished, concatThread, &QThread::quit);
 	connect(concatThread, &QThread::finished, worker, &QObject::deleteLater);
 	concatThread->start();
 }

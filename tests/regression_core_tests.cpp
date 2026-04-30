@@ -1,4 +1,4 @@
-﻿#include <QtTest>
+#include <QtTest>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -25,7 +25,9 @@
 #include "apiservice.h"
 #include "downloadengine.h"
 #include "downloadtask.h"
+#include "downloaddialog.h"
 #include "decryptworker.h"
+#include "tsmerger.h"
 #include "fakes/fake_networkaccessmanager.h"
 #include "fakes/fake_networkreply.h"
 
@@ -44,6 +46,31 @@ bool createEmptyFile(const QString& filePath)
     }
     file.close();
     return true;
+}
+
+bool createFakeTsFile(const QString& filePath, int packetCount, quint16 pid = 0)
+{
+    QByteArray data;
+    data.reserve(packetCount * 188);
+
+    for (int i = 0; i < packetCount; ++i) {
+        QByteArray packet(188, '\0');
+        packet[0] = 0x47;
+        packet[1] = static_cast<char>((pid >> 8) & 0x1F);
+        packet[2] = static_cast<char>(pid & 0xFF);
+        packet[3] = 0x10;
+        data.append(packet);
+    }
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        return false;
+    }
+
+    const qint64 expectedSize = data.size();
+    const qint64 written = file.write(data);
+    file.close();
+    return written == expectedSize;
 }
 
 void createDecryptAssets(const QString& assetsDirPath, bool includeCboxExe = true, bool includeLicense = true)
@@ -172,6 +199,35 @@ public:
     }
 };
 
+class DownloadDialogTestAdapter {
+public:
+    static void setTestReplyFactory(Download& dialog, const std::function<QNetworkReply*(const QNetworkRequest&)>& replyFactory)
+    {
+        dialog.setTestReplyFactory(replyFactory);
+    }
+
+    static void clearTestReplyFactory(Download& dialog)
+    {
+        dialog.clearTestReplyFactory();
+    }
+
+    static void setTestDownloadPolicies(Download& dialog,
+        int initialTimeoutMs,
+        int initialMaxAttempts,
+        int initialRetryDelayMs,
+        int recoveryTimeoutMs,
+        int recoveryMaxAttempts,
+        int recoveryRetryDelayMs)
+    {
+        dialog.setTestDownloadPolicies(initialTimeoutMs,
+            initialMaxAttempts,
+            initialRetryDelayMs,
+            recoveryTimeoutMs,
+            recoveryMaxAttempts,
+            recoveryRetryDelayMs);
+    }
+};
+
 class DecryptWorkerTestAdapter {
 public:
     static void setProcessTimeoutMs(DecryptWorker& worker, int timeoutMs)
@@ -220,6 +276,7 @@ private slots:
     void downloadTask_cancelWhileReplyPending_emitsSingleCancelledCompletion();
     void downloadTask_delayedFakeReply_completesWithinBoundedTime();
     void downloadTask_timeoutWhileReplyStalls_emitsStructuredTimeoutOnce();
+    void downloadTask_completedPayloadBeforeDelayedFinish_succeedsWithoutTimeout();
     void downloadTask_cancelWhileReplyPending_withTimeoutEnabled_preservesCancellation();
     void downloadTask_retryOnNetworkError_thenSucceeds_writesOnlyFinalBytes();
     void downloadTask_retryOnNetworkError_exhausted_emitsStructuredFailure();
@@ -232,6 +289,10 @@ private slots:
     void downloadEngine_cancelWhenIdle_isSafeNoOp();
     void downloadEngine_defaults_enableTimeoutAndRetry();
     void downloadEngine_retrySettings_propagateToTask();
+    void downloadDialog_recoveryPhase_rescuesFailedShardSerially();
+    void downloadDialog_persistedPendingShards_resumeOnlyMissingPieces();
+    void downloadDialog_withoutStateFile_redownloadsExistingShard();
+    void tsMerger_mergeCreatesOutputInTaskDirectory();
 
     void decryptWorker_renameFailure_emitsRenameError();
     void decryptWorker_fakeProcessRunner_seamSkipsRealProcess();
@@ -611,9 +672,8 @@ void CoreRegressionTests::downloadTask_timeoutWhileReplyStalls_emitsStructuredTi
     const QString downloadDir = QDir(m_tempDir->path()).filePath("download_fake_timeout");
     const QString userData = QStringLiteral("timeout-user");
     const QUrl url(QStringLiteral("https://fake.test/files/video-timeout.bin"));
-    const QByteArray expectedBody("timeout fake body");
 
-    manager.queueSuccess(url, expectedBody, 1000);
+    manager.queueSuccess(url, QByteArray(), 1000);
 
     DownloadTask task(url.toString(), downloadDir, userData);
     task.setTimeoutMs(20);
@@ -637,6 +697,46 @@ void CoreRegressionTests::downloadTask_timeoutWhileReplyStalls_emitsStructuredTi
     auto* reply = manager.lastReply();
     QVERIFY(reply != nullptr);
     QVERIFY(reply->wasAborted());
+}
+
+void CoreRegressionTests::downloadTask_completedPayloadBeforeDelayedFinish_succeedsWithoutTimeout()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("download_fake_delayed_finish_after_payload");
+    const QString userData = QStringLiteral("payload-before-finish-user");
+    const QUrl url(QStringLiteral("https://fake.test/files/video-delayed-finish.bin"));
+    const QByteArray expectedBody("payload arrives before delayed finished");
+    const QString expectedFilePath = QDir(downloadDir).filePath(QStringLiteral("video-delayed-finish.bin"));
+
+    manager.queueSuccess(url, expectedBody, 80);
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    task.setTimeoutMs(20);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    QElapsedTimer elapsed;
+    elapsed.start();
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY2(elapsed.elapsed() >= 60, "Task should wait for the delayed finished signal after payload completion");
+    QVERIFY2(elapsed.elapsed() < 300, "Delayed finished handling should still complete within bounded time");
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(arguments.at(1).toString(), expectedFilePath);
+    QCOMPARE(arguments.at(2).toString(), userData);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+
+    auto* reply = manager.lastReply();
+    QVERIFY(reply != nullptr);
+    QVERIFY(!reply->wasAborted());
+
+    QFile outputFile(expectedFilePath);
+    QVERIFY(outputFile.open(QIODevice::ReadOnly));
+    QCOMPARE(outputFile.readAll(), expectedBody);
 }
 
 void CoreRegressionTests::downloadTask_cancelWhileReplyPending_withTimeoutEnabled_preservesCancellation()
@@ -742,8 +842,8 @@ void CoreRegressionTests::downloadTask_retryOnTimeout_exhausted_emitsStructuredT
     const QString userData = QStringLiteral("retry-timeout-exhausted-user");
     const QUrl url(QStringLiteral("https://fake.test/files/video-retry-timeout-exhausted.bin"));
 
-    manager.queueSuccess(url, QByteArray("timeout-attempt-one"), 1000);
-    manager.queueSuccess(url, QByteArray("timeout-attempt-two"), 1000);
+    manager.queueSuccess(url, QByteArray(), 1000);
+    manager.queueSuccess(url, QByteArray(), 1000);
 
     DownloadTask task(url.toString(), downloadDir, userData);
     task.setTimeoutMs(20);
@@ -982,6 +1082,197 @@ void CoreRegressionTests::downloadEngine_retrySettings_propagateToTask()
     QFile outputFile(expectedFilePath);
     QVERIFY(outputFile.open(QIODevice::ReadOnly));
     QCOMPARE(outputFile.readAll(), expectedBody);
+}
+
+void CoreRegressionTests::downloadDialog_recoveryPhase_rescuesFailedShardSerially()
+{
+    FakeNetworkAccessManager manager;
+    const QString videoName = QStringLiteral("dialog-recovery-video");
+    const QString savePath = m_tempDir->path();
+    const QString shardUrl = QStringLiteral("https://fake.test/dialog/segment-0001.ts");
+    const QStringList urls{ shardUrl };
+    const QByteArray shardBody("dialog-recovered-segment");
+
+    manager.queueError(QUrl(shardUrl), QNetworkReply::ConnectionRefusedError, QStringLiteral("initial recovery trigger error 1"));
+    manager.queueError(QUrl(shardUrl), QNetworkReply::ConnectionRefusedError, QStringLiteral("initial recovery trigger error 2"));
+    manager.queueSuccess(QUrl(shardUrl), shardBody);
+
+    Download dialog(nullptr);
+    DownloadDialogTestAdapter::setTestReplyFactory(dialog, [&manager](const QNetworkRequest& request) {
+        return manager.createReplyForRequest(QNetworkAccessManager::GetOperation, request);
+    });
+    DownloadDialogTestAdapter::setTestDownloadPolicies(dialog,
+        200,
+        2,
+        5,
+        400,
+        2,
+        5);
+
+    QSignalSpy finishedSpy(&dialog, &Download::DownloadFinished);
+    dialog.transferDwonloadParams(videoName, urls, savePath, 2);
+
+    QVERIFY2(finishedSpy.wait(3000), "dialog recovery should emit DownloadFinished after serial fallback succeeds");
+    QCOMPARE(finishedSpy.count(), 1);
+    const auto arguments = finishedSpy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+
+    const QString downloadDir = QDir(savePath).filePath(QString(QCryptographicHash::hash(videoName.toUtf8(), QCryptographicHash::Sha256).toHex()));
+    QFile recoveredFile(QDir(downloadDir).filePath(QStringLiteral("segment-0001.ts")));
+    QVERIFY(recoveredFile.open(QIODevice::ReadOnly));
+    QCOMPARE(recoveredFile.readAll(), shardBody);
+    QCOMPARE(manager.requestCount(), 3);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+
+    DownloadDialogTestAdapter::clearTestReplyFactory(dialog);
+}
+
+void CoreRegressionTests::downloadDialog_persistedPendingShards_resumeOnlyMissingPieces()
+{
+    FakeNetworkAccessManager manager;
+    const QString videoName = QStringLiteral("dialog-resume-video");
+    const QString savePath = m_tempDir->path();
+    const QStringList urls{
+        QStringLiteral("https://fake.test/dialog/segment-0001.ts"),
+        QStringLiteral("https://fake.test/dialog/segment-0002.ts")
+    };
+    const QByteArray firstBody("already-downloaded-segment");
+    const QByteArray secondBody("resumed-segment-body");
+    const QString taskDir = QDir(savePath).filePath(QString(QCryptographicHash::hash(videoName.toUtf8(), QCryptographicHash::Sha256).toHex()));
+
+    QVERIFY(QDir().mkpath(taskDir));
+
+    QFile existingShard(QDir(taskDir).filePath(QStringLiteral("segment-0001.ts")));
+    QVERIFY(existingShard.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QCOMPARE(existingShard.write(firstBody), qint64(firstBody.size()));
+    existingShard.close();
+
+    QJsonObject stateRoot;
+    stateRoot.insert("version", 1);
+    stateRoot.insert("phase", "initial");
+    QJsonArray urlsArray;
+    urlsArray.append(urls.at(0));
+    urlsArray.append(urls.at(1));
+    stateRoot.insert("urls", urlsArray);
+    QJsonArray pendingArray;
+    pendingArray.append(2);
+    stateRoot.insert("pending_indexes", pendingArray);
+    QJsonArray completedArray;
+    completedArray.append(1);
+    stateRoot.insert("completed_indexes", completedArray);
+
+    QFile stateFile(QDir(taskDir).filePath(QStringLiteral(".download_state.json")));
+    QVERIFY(stateFile.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    stateFile.write(QJsonDocument(stateRoot).toJson(QJsonDocument::Indented));
+    stateFile.close();
+
+    manager.queueSuccess(QUrl(urls.at(1)), secondBody);
+
+    Download dialog(nullptr);
+    DownloadDialogTestAdapter::setTestReplyFactory(dialog, [&manager](const QNetworkRequest& request) {
+        return manager.createReplyForRequest(QNetworkAccessManager::GetOperation, request);
+    });
+    DownloadDialogTestAdapter::setTestDownloadPolicies(dialog,
+        200,
+        2,
+        5,
+        400,
+        2,
+        5);
+
+    QSignalSpy finishedSpy(&dialog, &Download::DownloadFinished);
+    dialog.transferDwonloadParams(videoName, urls, savePath, 2);
+
+    QVERIFY2(finishedSpy.wait(3000), "dialog resume should finish after downloading only pending shards");
+    QCOMPARE(finishedSpy.count(), 1);
+    QCOMPARE(finishedSpy.takeFirst().at(0).toBool(), true);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.requestedUrls().constFirst(), QUrl(urls.at(1)));
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+
+    QFile firstShard(QDir(taskDir).filePath(QStringLiteral("segment-0001.ts")));
+    QFile secondShard(QDir(taskDir).filePath(QStringLiteral("segment-0002.ts")));
+    QVERIFY(firstShard.open(QIODevice::ReadOnly));
+    QVERIFY(secondShard.open(QIODevice::ReadOnly));
+    QCOMPARE(firstShard.readAll(), firstBody);
+    QCOMPARE(secondShard.readAll(), secondBody);
+    QVERIFY(!QFileInfo::exists(QDir(taskDir).filePath(QStringLiteral(".download_state.json"))));
+
+    DownloadDialogTestAdapter::clearTestReplyFactory(dialog);
+}
+
+void CoreRegressionTests::downloadDialog_withoutStateFile_redownloadsExistingShard()
+{
+    FakeNetworkAccessManager manager;
+    const QString videoName = QStringLiteral("dialog-redownload-video");
+    const QString savePath = m_tempDir->path();
+    const QString shardUrl = QStringLiteral("https://fake.test/dialog/segment-0001.ts");
+    const QStringList urls{ shardUrl };
+    const QByteArray staleBody("partial-old-body");
+    const QByteArray freshBody("fully-redownloaded-body");
+    const QString taskDir = QDir(savePath).filePath(QString(QCryptographicHash::hash(videoName.toUtf8(), QCryptographicHash::Sha256).toHex()));
+
+    QVERIFY(QDir().mkpath(taskDir));
+
+    QFile existingShard(QDir(taskDir).filePath(QStringLiteral("segment-0001.ts")));
+    QVERIFY(existingShard.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QCOMPARE(existingShard.write(staleBody), qint64(staleBody.size()));
+    existingShard.close();
+    QVERIFY(!QFileInfo::exists(QDir(taskDir).filePath(QStringLiteral(".download_state.json"))));
+
+    manager.queueSuccess(QUrl(shardUrl), freshBody);
+
+    Download dialog(nullptr);
+    DownloadDialogTestAdapter::setTestReplyFactory(dialog, [&manager](const QNetworkRequest& request) {
+        return manager.createReplyForRequest(QNetworkAccessManager::GetOperation, request);
+    });
+    DownloadDialogTestAdapter::setTestDownloadPolicies(dialog,
+        200,
+        2,
+        5,
+        400,
+        2,
+        5);
+
+    QSignalSpy finishedSpy(&dialog, &Download::DownloadFinished);
+    dialog.transferDwonloadParams(videoName, urls, savePath, 1);
+
+    QVERIFY2(finishedSpy.wait(3000), "dialog should redownload shard when no persisted completion state exists");
+    QCOMPARE(finishedSpy.count(), 1);
+    QCOMPARE(finishedSpy.takeFirst().at(0).toBool(), true);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.requestedUrls().constFirst(), QUrl(shardUrl));
+
+    QFile shardFile(QDir(taskDir).filePath(QStringLiteral("segment-0001.ts")));
+    QVERIFY(shardFile.open(QIODevice::ReadOnly));
+    QCOMPARE(shardFile.readAll(), freshBody);
+    QVERIFY(!QFileInfo::exists(QDir(taskDir).filePath(QStringLiteral(".download_state.json"))));
+
+    DownloadDialogTestAdapter::clearTestReplyFactory(dialog);
+}
+
+void CoreRegressionTests::tsMerger_mergeCreatesOutputInTaskDirectory()
+{
+    const QString taskDir = QDir(m_tempDir->path()).filePath(QStringLiteral("ts_merger_task"));
+    QVERIFY(QDir().mkpath(taskDir));
+
+    const QString firstTsPath = QDir(taskDir).filePath(QStringLiteral("1.ts"));
+    const QString secondTsPath = QDir(taskDir).filePath(QStringLiteral("2.ts"));
+    const QString outputPath = QDir(taskDir).filePath(QStringLiteral("result.mp4"));
+
+    QVERIFY(createFakeTsFile(firstTsPath, 2, 0));
+    QVERIFY(createFakeTsFile(secondTsPath, 2, 256));
+
+    TSMerger merger;
+    merger.reset();
+
+    const std::vector<QString> inputFiles{ firstTsPath, secondTsPath };
+    QVERIFY(merger.merge(inputFiles, outputPath));
+
+    QFileInfo outputInfo(outputPath);
+    QVERIFY(outputInfo.exists());
+    QVERIFY(outputInfo.isFile());
+    QVERIFY(outputInfo.size() > 0);
 }
 
 void CoreRegressionTests::decryptWorker_renameFailure_emitsRenameError()
