@@ -1,4 +1,4 @@
-﻿#include "../head/downloadtask.h"
+#include "../head/downloadtask.h"
 #include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QNetworkReply>
 #include <QtNetwork/QNetworkRequest>
@@ -278,6 +278,8 @@ void DownloadTask::run()
         const QString timeoutMessage = QStringLiteral("Timed out after %1 ms").arg(timeoutMs);
         bool writeFailed = false;
         QString writeFailureMessage;
+        qint64 lastBytesReceived = 0;
+        qint64 lastBytesTotal = -1;
 
         QObject::connect(reply, &QNetworkReply::errorOccurred,
             [reply](QNetworkReply::NetworkError error) {
@@ -289,9 +291,26 @@ void DownloadTask::run()
 
         QTimer inactivityTimer;
         inactivityTimer.setSingleShot(true);
+        auto hasFullyReceivedPayload = [&]() {
+            if (lastBytesTotal > 0 && lastBytesReceived >= lastBytesTotal) {
+                return true;
+            }
+
+            if (lastBytesTotal > 0 && writtenBytes >= lastBytesTotal) {
+                return true;
+            }
+
+            return false;
+        };
         auto resetInactivityTimer = [&]() {
-            if (timeoutMs > 0 && !timedOut && !m_cancelled.load(std::memory_order_relaxed) && !reply->isFinished()) {
+            if (timeoutMs > 0
+                && !timedOut
+                && !m_cancelled.load(std::memory_order_relaxed)
+                && !reply->isFinished()
+                && !hasFullyReceivedPayload()) {
                 inactivityTimer.start(timeoutMs);
+            } else {
+                inactivityTimer.stop();
             }
         };
 
@@ -306,6 +325,8 @@ void DownloadTask::run()
         });
 
         QObject::connect(reply, &QNetworkReply::downloadProgress, [&](qint64 rec, qint64 total) {
+            lastBytesReceived = rec;
+            lastBytesTotal = total;
             resetInactivityTimer();
             if (total > 0) {
                 expectedBytes = total;
@@ -317,7 +338,6 @@ void DownloadTask::run()
         });
 
         QObject::connect(reply, &QNetworkReply::readyRead, [&]() {
-            resetInactivityTimer();
             if (!m_cancelled.load(std::memory_order_relaxed)) {
                 const QByteArray data = reply->readAll();
                 qint64 written = writeDownloadTaskData(file, data);
@@ -338,6 +358,11 @@ void DownloadTask::run()
                 }
                 writtenBytes += written;
                 qDebug() << "写入" << data.size() << "字节数据到临时文件，实际写入:" << written;
+                const auto contentLength = reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
+                if (contentLength > 0 && lastBytesTotal <= 0) {
+                    lastBytesTotal = contentLength;
+                }
+                resetInactivityTimer();
             }
         });
 

@@ -1,7 +1,15 @@
-﻿#include "../head/downloaddialog.h"
+#include "../head/downloaddialog.h"
 #include <QMessageBox>
 #include <QCloseEvent>
 #include <QtGlobal>
+#include <algorithm>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSaveFile>
+#include <QTimer>
 
 Download::Download(QWidget* parent)
 	: QDialog(parent)
@@ -27,6 +35,7 @@ Download::Download(QWidget* parent)
 
 Download::~Download()
 {
+	persistShardState();
 	disconnect(m_engine, nullptr, this, nullptr);
 	if (m_engine) {
 		if (m_engine->activeDownloads() > 0) {
@@ -54,7 +63,13 @@ void Download::transferDwonloadParams(
 	);
 	m_savePath = QDir::cleanPath(savePath + "/" + nameHash);
 	m_urls = urls;
-	m_engine->setMaxThreadCount(threadNum);
+	m_initialThreadCount = std::max(1, threadNum);
+	m_infoList.clear();
+	m_failedIndexes.clear();
+	m_downloadSuccessful = true;
+	m_userCancelled = false;
+	m_completionSignalScheduled = false;
+	applyInitialDownloadPolicy();
 
 	// 初始化表格行
 	m_model->setRowCount(urls.size());
@@ -66,6 +81,21 @@ void Download::transferDwonloadParams(
 		m_infoList.insert(index, { index, DownloadStatus::Waiting, url, 0 });
 		m_model->updateInfo({ index, DownloadStatus::Waiting, url, 0 });
 		++index;
+	}
+
+	restorePersistedShardState();
+	persistShardState();
+
+	if (urls.isEmpty()) {
+		m_downloadSuccessful = false;
+		scheduleCompletionSignal(false);
+		return;
+	}
+
+	if (pendingIndexesFromState().isEmpty()) {
+		clearPersistedShardState();
+		scheduleCompletionSignal(true);
+		return;
 	}
 
 	// 启动下载
@@ -87,6 +117,9 @@ void Download::onDownloadProgress(
 	{
 		auto info = m_infoList[index];
 		info.progress = static_cast<int>(progress);
+		if (m_phase == DownloadPhase::Recovery) {
+			info.url = QStringLiteral("补拉中: %1").arg(originalUrlForIndex(index));
+		}
 		if (progress >= 100)
 		{
 			info.status = DownloadStatus::Finished;
@@ -107,10 +140,216 @@ void Download::stratDownload()
 	connect(m_engine, &DownloadEngine::downloadFinished, this, &Download::onDownloadFinished);
 	connect(m_engine, &DownloadEngine::allDownloadFinished, this, &Download::onAllDownloadFinished);
 
-	for (const auto& info : m_infoList)
+	for (int index : pendingIndexesFromState())
 	{
-		m_engine->download(info.url, m_savePath, info.index);
+		m_engine->download(originalUrlForIndex(index), m_savePath, index);
 	}
+}
+
+void Download::applyInitialDownloadPolicy()
+{
+	m_phase = DownloadPhase::Initial;
+	m_engine->setMaxThreadCount(m_initialThreadCount);
+	m_engine->setDefaultTimeoutMs(m_initialTimeoutMs);
+	m_engine->setDefaultMaxAttempts(m_initialMaxAttempts);
+	m_engine->setDefaultRetryDelayMs(m_initialRetryDelayMs);
+}
+
+QString Download::originalUrlForIndex(int index) const
+{
+	const int urlIndex = index - 1;
+	if (urlIndex < 0 || urlIndex >= m_urls.size()) {
+		return QString();
+	}
+
+	return m_urls.at(urlIndex);
+}
+
+QString Download::shardStateFilePath() const
+{
+	return QDir(m_savePath).filePath(".download_state.json");
+}
+
+bool Download::hasPersistedShardState() const
+{
+	return QFileInfo::exists(shardStateFilePath());
+}
+
+QString Download::shardFilePathForIndex(int index) const
+{
+	const QString shardUrl = originalUrlForIndex(index);
+	if (shardUrl.isEmpty()) {
+		return QString();
+	}
+
+	QUrl url(shardUrl);
+	const QString fileName = QFileInfo(url.path()).fileName();
+	if (fileName.isEmpty()) {
+		return QString();
+	}
+
+	return QDir(m_savePath).filePath(fileName);
+}
+
+QList<int> Download::pendingIndexesFromState() const
+{
+	QList<int> pendingIndexes;
+	for (auto it = m_infoList.cbegin(); it != m_infoList.cend(); ++it) {
+		if (it.value().status != DownloadStatus::Finished) {
+			pendingIndexes.append(it.key());
+		}
+	}
+
+	std::sort(pendingIndexes.begin(), pendingIndexes.end());
+	return pendingIndexes;
+}
+
+void Download::restorePersistedShardState()
+{
+	QSet<int> persistedPendingIndexes;
+	QSet<int> persistedCompletedIndexes;
+	const bool stateExists = hasPersistedShardState();
+	QFile stateFile(shardStateFilePath());
+	if (stateFile.open(QIODevice::ReadOnly)) {
+		const QJsonDocument document = QJsonDocument::fromJson(stateFile.readAll());
+		const QJsonObject root = document.object();
+		const QJsonArray pendingArray = root.value("pending_indexes").toArray();
+		const QJsonArray completedArray = root.value("completed_indexes").toArray();
+		for (const QJsonValue& value : pendingArray) {
+			persistedPendingIndexes.insert(value.toInt());
+		}
+		for (const QJsonValue& value : completedArray) {
+			persistedCompletedIndexes.insert(value.toInt());
+		}
+	}
+
+	for (auto it = m_infoList.begin(); it != m_infoList.end(); ++it) {
+		const int index = it.key();
+		auto info = it.value();
+		const QString filePath = shardFilePathForIndex(index);
+		const QFileInfo fileInfo(filePath);
+		const bool isPersistedComplete = stateExists
+			&& persistedCompletedIndexes.contains(index)
+			&& !persistedPendingIndexes.contains(index)
+			&& fileInfo.exists()
+			&& fileInfo.isFile()
+			&& fileInfo.size() > 0;
+
+		if (!isPersistedComplete) {
+			info.status = DownloadStatus::Waiting;
+			info.progress = 0;
+			info.url = originalUrlForIndex(index);
+		} else {
+			info.status = DownloadStatus::Finished;
+			info.progress = 100;
+			info.url = originalUrlForIndex(index);
+		}
+
+		it.value() = info;
+		m_model->updateInfo(info);
+	}
+}
+
+void Download::persistShardState() const
+{
+	if (m_savePath.isEmpty()) {
+		return;
+	}
+
+	QDir().mkpath(m_savePath);
+
+	const QList<int> pendingIndexes = pendingIndexesFromState();
+	if (pendingIndexes.isEmpty()) {
+		clearPersistedShardState();
+		return;
+	}
+
+	QJsonObject root;
+	root.insert("version", 1);
+	root.insert("phase", m_phase == DownloadPhase::Recovery ? "recovery" : "initial");
+
+	QJsonArray urlsArray;
+	for (const QString& url : m_urls) {
+		urlsArray.append(url);
+	}
+	root.insert("urls", urlsArray);
+
+	QJsonArray pendingArray;
+	for (int index : pendingIndexes) {
+		pendingArray.append(index);
+	}
+	root.insert("pending_indexes", pendingArray);
+
+	QJsonArray completedArray;
+	for (auto it = m_infoList.cbegin(); it != m_infoList.cend(); ++it) {
+		if (it.value().status == DownloadStatus::Finished) {
+			completedArray.append(it.key());
+		}
+	}
+	root.insert("completed_indexes", completedArray);
+
+	QSaveFile stateFile(shardStateFilePath());
+	if (!stateFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+		return;
+	}
+
+	stateFile.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+	stateFile.commit();
+}
+
+void Download::clearPersistedShardState() const
+{
+	const QString stateFilePath = shardStateFilePath();
+	if (QFileInfo::exists(stateFilePath)) {
+		QFile::remove(stateFilePath);
+	}
+}
+
+void Download::scheduleCompletionSignal(bool success)
+{
+	if (m_completionSignalScheduled) {
+		return;
+	}
+
+	m_completionSignalScheduled = true;
+	QTimer::singleShot(0, this, [this, success]() {
+		m_completionSignalScheduled = false;
+		emit DownloadFinished(success);
+	});
+}
+
+void Download::startRecoveryDownloads()
+{
+	QList<int> recoveryIndexes = m_failedIndexes.values();
+	if (recoveryIndexes.isEmpty()) {
+		return;
+	}
+
+	std::sort(recoveryIndexes.begin(), recoveryIndexes.end());
+	m_failedIndexes.clear();
+	m_phase = DownloadPhase::Recovery;
+
+	m_engine->setMaxThreadCount(1);
+	m_engine->setDefaultTimeoutMs(m_recoveryTimeoutMs);
+	m_engine->setDefaultMaxAttempts(m_recoveryMaxAttempts);
+	m_engine->setDefaultRetryDelayMs(m_recoveryRetryDelayMs);
+
+	for (int index : recoveryIndexes) {
+		if (!m_infoList.contains(index)) {
+			continue;
+		}
+
+		auto info = m_infoList[index];
+		info.status = DownloadStatus::Waiting;
+		info.progress = 0;
+		info.url = QStringLiteral("补拉排队: %1").arg(originalUrlForIndex(index));
+		m_infoList[index] = info;
+		m_model->updateInfo(info);
+
+		m_engine->download(originalUrlForIndex(index), m_savePath, index);
+	}
+
+	persistShardState();
 }
 
 void Download::closeEvent(QCloseEvent *event)
@@ -128,6 +367,7 @@ void Download::closeEvent(QCloseEvent *event)
 		{
 			m_userCancelled = true;
 			m_downloadSuccessful = false;
+			persistShardState();
 			m_engine->cancelAll();
 			setResult(QDialog::Rejected);
 			event->accept();
@@ -145,8 +385,23 @@ void Download::closeEvent(QCloseEvent *event)
 
 void Download::onAllDownloadFinished()
 {
-	//qDebug() << "下载完成";
-	emit DownloadFinished(!m_userCancelled && m_downloadSuccessful);
+	if (m_userCancelled) {
+		persistShardState();
+		emit DownloadFinished(false);
+		return;
+	}
+
+	if (m_phase == DownloadPhase::Initial && !m_failedIndexes.isEmpty()) {
+		persistShardState();
+		startRecoveryDownloads();
+		return;
+	}
+
+	persistShardState();
+	if (m_downloadSuccessful && m_failedIndexes.isEmpty()) {
+		clearPersistedShardState();
+	}
+	emit DownloadFinished(m_downloadSuccessful && m_failedIndexes.isEmpty());
 }
 
 void Download::onDownloadFinished(
@@ -156,15 +411,63 @@ void Download::onDownloadFinished(
 {
 	if (!success)
 	{
-		m_downloadSuccessful = false;
 		auto index = userData.toInt();
 		if (m_infoList.contains(index))
 		{
 			auto info = m_infoList[index];
 			info.status = DownloadStatus::Error;
-			info.url = errorString;
+			m_failedIndexes.insert(index);
+			if (m_phase == DownloadPhase::Recovery) {
+				m_downloadSuccessful = false;
+				info.url = QStringLiteral("补拉失败: %1").arg(errorString);
+			}
+			else {
+				info.url = QStringLiteral("首轮失败: %1").arg(errorString);
+			}
 			m_infoList[index] = info;
 			m_model->updateInfo(info);
 		}
+		persistShardState();
+		return;
 	}
+
+	const auto index = userData.toInt();
+	if (m_infoList.contains(index))
+	{
+		m_failedIndexes.remove(index);
+		auto info = m_infoList[index];
+		info.status = DownloadStatus::Finished;
+		info.progress = 100;
+		info.url = originalUrlForIndex(index);
+		m_infoList[index] = info;
+		m_model->updateInfo(info);
+	}
+	persistShardState();
 }
+
+#ifdef CORE_REGRESSION_TESTS
+void Download::setTestReplyFactory(const std::function<QNetworkReply*(const QNetworkRequest&)>& replyFactory)
+{
+	m_engine->setTestReplyFactory(replyFactory);
+}
+
+void Download::clearTestReplyFactory()
+{
+	m_engine->clearTestReplyFactory();
+}
+
+void Download::setTestDownloadPolicies(int initialTimeoutMs,
+	int initialMaxAttempts,
+	int initialRetryDelayMs,
+	int recoveryTimeoutMs,
+	int recoveryMaxAttempts,
+	int recoveryRetryDelayMs)
+{
+	m_initialTimeoutMs = initialTimeoutMs;
+	m_initialMaxAttempts = initialMaxAttempts;
+	m_initialRetryDelayMs = initialRetryDelayMs;
+	m_recoveryTimeoutMs = recoveryTimeoutMs;
+	m_recoveryMaxAttempts = recoveryMaxAttempts;
+	m_recoveryRetryDelayMs = recoveryRetryDelayMs;
+}
+#endif
