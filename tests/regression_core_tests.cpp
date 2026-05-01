@@ -26,6 +26,8 @@
 #include "downloadengine.h"
 #include "downloadtask.h"
 #include "decryptworker.h"
+#include "concatworker.h"
+#include "tsmerger.h"
 #include "fakes/fake_networkaccessmanager.h"
 #include "fakes/fake_networkreply.h"
 
@@ -57,6 +59,11 @@ void createDecryptAssets(const QString& assetsDirPath, bool includeCboxExe = tru
 }
 
 }
+
+void setDownloadTaskTestFileWriteHook(const std::function<qint64(QFile&, const QByteArray&)>& hook);
+void clearDownloadTaskTestFileWriteHook();
+void setDownloadTaskTestRenameHook(const std::function<bool(const QString&, const QString&)>& hook);
+void clearDownloadTaskTestRenameHook();
 
 class APIServiceTestAdapter {
 public:
@@ -225,6 +232,14 @@ private slots:
     void downloadTask_retryOnNetworkError_exhausted_emitsStructuredFailure();
     void downloadTask_retryOnTimeout_exhausted_emitsStructuredTimeoutFailure();
     void downloadTask_cancelDuringRetryDelay_doesNotIssueSecondRequest();
+    void downloadTask_integrity_success_publishesFinalTs();
+    void downloadTask_integrity_publishFailure_preservesExistingFinalTs();
+    void downloadTask_integrity_emptyNoError_failsWithNoFiles();
+    void downloadTask_integrity_sizeMismatch_failsWithNoFiles();
+    void downloadTask_integrity_shortWrite_failsImmediately();
+    void downloadTask_integrity_retryAfterPartial_hasOnlyFinalContent();
+    void downloadTask_integrity_unknownLengthNonEmpty_succeeds();
+    void downloadTask_integrity_cancelBeforeAndDuring_leavesNoFiles();
     void downloadEngine_idleConstructionDestruction_isSafe();
     void downloadEngine_fakeNetwork_success_emitsDownloadAndAllFinished();
     void downloadEngine_fakeNetwork_error_emitsFailureAndAllFinished();
@@ -251,6 +266,13 @@ private slots:
     void decryptWorker_processFailed_preservesPreExistingLicense();
     void decryptWorker_success_preservesPreExistingLicense();
     void decryptWorker_crashExitWithZeroExitCode_emitsProcessFailure();
+
+    void concatWorker_zeroByteFile_emitsFailure();
+
+    void tsMerger_validMinimalPacket_succeeds();
+    void tsMerger_zeroByteFile_returnsFalse();
+    void tsMerger_malformedNonZeroFile_returnsFalse();
+    void tsMerger_failedMerge_preservesExistingOutputFile();
 
     void apiservice_parseJsonObject_returnsEmptyOnInvalidJson();
     void apiservice_parseJsonArray_missingObjectOrArrayKey_returnsEmptyArray();
@@ -794,6 +816,315 @@ void CoreRegressionTests::downloadTask_cancelDuringRetryDelay_doesNotIssueSecond
     QCOMPARE(arguments.at(2).toString(), userData);
     QCOMPARE(manager.requestCount(), 1);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::downloadTask_integrity_success_publishesFinalTs()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("integrity_success");
+    const QString userData = QStringLiteral("integrity-success-user");
+    const QUrl url(QStringLiteral("https://fake.test/integrity/success.bin"));
+    const QByteArray expectedBody("sample ts content for integrity test");
+    const QString expectedFilePath = QDir(downloadDir).filePath("success.bin");
+    const QString partPath = expectedFilePath + QStringLiteral(".part");
+
+    manager.queueSuccess(url, expectedBody);
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(arguments.at(1).toString(), expectedFilePath);
+    QCOMPARE(arguments.at(2).toString(), userData);
+
+    QVERIFY(QFileInfo::exists(expectedFilePath));
+    QFile outputFile(expectedFilePath);
+    QVERIFY(outputFile.open(QIODevice::ReadOnly));
+    QCOMPARE(outputFile.readAll(), expectedBody);
+    QVERIFY(!QFileInfo::exists(partPath));
+
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::downloadTask_integrity_publishFailure_preservesExistingFinalTs()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("integrity_publish_failure");
+    const QString userData = QStringLiteral("integrity-publish-failure-user");
+    const QUrl url(QStringLiteral("https://fake.test/integrity/publish-failure.bin"));
+    const QString expectedFilePath = QDir(downloadDir).filePath("publish-failure.bin");
+    const QString partPath = expectedFilePath + QStringLiteral(".part");
+    const QByteArray preExistingBody("previous good ts payload");
+    const QByteArray newBody("new payload that should fail to publish");
+
+    QVERIFY(QDir().mkpath(downloadDir));
+    QFile existingFile(expectedFilePath);
+    QVERIFY(existingFile.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QCOMPARE(existingFile.write(preExistingBody), qint64(preExistingBody.size()));
+    existingFile.close();
+
+    manager.queueSuccess(url, newBody);
+
+    setDownloadTaskTestRenameHook([expectedFilePath, partPath](const QString& from, const QString& to) {
+        if (from == partPath && to == expectedFilePath) {
+            return false;
+        }
+        return QFile::rename(from, to);
+    });
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    task.run();
+    clearDownloadTaskTestRenameHook();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QVERIFY(arguments.at(1).toString().contains(QStringLiteral("rename_failed")));
+    QVERIFY(arguments.at(1).toString().contains(expectedFilePath));
+    QVERIFY(arguments.at(1).toString().contains(partPath));
+    QCOMPARE(arguments.at(2).toString(), userData);
+
+    QFile outputFile(expectedFilePath);
+    QVERIFY(outputFile.open(QIODevice::ReadOnly));
+    QCOMPARE(outputFile.readAll(), preExistingBody);
+    QVERIFY(!QFileInfo::exists(partPath));
+
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::downloadTask_integrity_emptyNoError_failsWithNoFiles()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("integrity_empty");
+    const QString userData = QStringLiteral("integrity-empty-user");
+    const QUrl url(QStringLiteral("https://fake.test/integrity/empty.bin"));
+    const QString expectedFilePath = QDir(downloadDir).filePath("empty.bin");
+    const QString partPath = expectedFilePath + QStringLiteral(".part");
+
+    manager.queueSuccess(url, QByteArray());
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QVERIFY(arguments.at(1).toString().contains(QStringLiteral("integrity")));
+    QVERIFY(arguments.at(1).toString().contains(QStringLiteral("zero bytes")));
+    QVERIFY(arguments.at(1).toString().contains(partPath));
+    QCOMPARE(arguments.at(2).toString(), userData);
+
+    QVERIFY(!QFileInfo::exists(expectedFilePath));
+    QVERIFY(!QFileInfo::exists(partPath));
+}
+
+void CoreRegressionTests::downloadTask_integrity_shortWrite_failsImmediately()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("integrity_short_write");
+    const QString userData = QStringLiteral("integrity-short-write-user");
+    const QUrl url(QStringLiteral("https://fake.test/integrity/short-write.bin"));
+    const QString expectedFilePath = QDir(downloadDir).filePath("short-write.bin");
+    const QString partPath = expectedFilePath + QStringLiteral(".part");
+    const QByteArray body("short write payload");
+
+    manager.queueSuccess(url, body);
+
+    setDownloadTaskTestFileWriteHook([](QFile& file, const QByteArray& data) {
+        const qint64 partialBytes = qMax<qint64>(0, data.size() - 1);
+        return file.write(data.constData(), partialBytes);
+    });
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    task.run();
+    clearDownloadTaskTestFileWriteHook();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QVERIFY(arguments.at(1).toString().contains(QStringLiteral("write_failed")));
+    QCOMPARE(arguments.at(2).toString(), userData);
+
+    QVERIFY(!QFileInfo::exists(expectedFilePath));
+    QVERIFY(!QFileInfo::exists(partPath));
+
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::downloadTask_integrity_sizeMismatch_failsWithNoFiles()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("integrity_mismatch");
+    const QString userData = QStringLiteral("integrity-mismatch-user");
+    const QUrl url(QStringLiteral("https://fake.test/integrity/mismatch.bin"));
+    const QString expectedFilePath = QDir(downloadDir).filePath("mismatch.bin");
+    const QString partPath = expectedFilePath + QStringLiteral(".part");
+    const QByteArray body("abc");
+
+    manager.queueSuccess(url, body, 0, 100);
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QVERIFY(arguments.at(1).toString().contains(QStringLiteral("integrity")));
+    QVERIFY(arguments.at(1).toString().contains(QStringLiteral("Wrote 3 bytes")));
+    QVERIFY(arguments.at(1).toString().contains(QStringLiteral("expected")));
+    QVERIFY(arguments.at(1).toString().contains(partPath));
+    QCOMPARE(arguments.at(2).toString(), userData);
+
+    QVERIFY(!QFileInfo::exists(expectedFilePath));
+    QVERIFY(!QFileInfo::exists(partPath));
+}
+
+void CoreRegressionTests::downloadTask_integrity_retryAfterPartial_hasOnlyFinalContent()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("integrity_retry_partial");
+    const QString userData = QStringLiteral("integrity-retry-partial-user");
+    const QUrl url(QStringLiteral("https://fake.test/integrity/retry-partial.bin"));
+    const QString expectedFilePath = QDir(downloadDir).filePath("retry-partial.bin");
+    const QString partPath = expectedFilePath + QStringLiteral(".part");
+
+    manager.queueSuccess(url, QByteArray("par"), 0, 100);
+    const QByteArray finalBody("real complete content from second attempt");
+    manager.queueSuccess(url, finalBody);
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    task.setMaxAttempts(2);
+    task.setRetryDelayMs(5);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(arguments.at(1).toString(), expectedFilePath);
+    QCOMPARE(arguments.at(2).toString(), userData);
+
+    QVERIFY2(!QFileInfo::exists(partPath), "retry must not leave .part behind");
+    QVERIFY(QFileInfo::exists(expectedFilePath));
+    QFile outputFile(expectedFilePath);
+    QVERIFY(outputFile.open(QIODevice::ReadOnly));
+    QCOMPARE(outputFile.readAll(), finalBody);
+
+    QCOMPARE(manager.requestCount(), 2);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::downloadTask_integrity_unknownLengthNonEmpty_succeeds()
+{
+    FakeNetworkAccessManager manager;
+    const QString downloadDir = QDir(m_tempDir->path()).filePath("integrity_unknown_length_success");
+    const QString userData = QStringLiteral("integrity-unknown-length-user");
+    const QUrl url(QStringLiteral("https://fake.test/integrity/unknown-length.bin"));
+    const QByteArray expectedBody("non-empty payload with unknown total size");
+    const QString expectedFilePath = QDir(downloadDir).filePath("unknown-length.bin");
+    const QString partPath = expectedFilePath + QStringLiteral(".part");
+
+    manager.queueSuccess(url, expectedBody, 0, -1);
+
+    DownloadTask task(url.toString(), downloadDir, userData);
+    DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+    QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+    task.run();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(arguments.at(1).toString(), expectedFilePath);
+    QCOMPARE(arguments.at(2).toString(), userData);
+
+    QVERIFY(QFileInfo::exists(expectedFilePath));
+    QFile outputFile(expectedFilePath);
+    QVERIFY(outputFile.open(QIODevice::ReadOnly));
+    QCOMPARE(outputFile.readAll(), expectedBody);
+    QVERIFY(!QFileInfo::exists(partPath));
+
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::downloadTask_integrity_cancelBeforeAndDuring_leavesNoFiles()
+{
+    {
+        const QString downloadDir = QDir(m_tempDir->path()).filePath("integrity_cancel_before");
+        const QString expectedFilePath = QDir(downloadDir).filePath("cancel-before.bin");
+        const QString partPath = expectedFilePath + QStringLiteral(".part");
+
+        DownloadTask task(QStringLiteral("https://fake.test/integrity/cancel-before.bin"),
+                          downloadDir, QStringLiteral("cancel-before-user"));
+        task.cancel();
+
+        QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+        task.run();
+
+        QCOMPARE(spy.count(), 1);
+        const auto arguments = spy.takeFirst();
+        QCOMPARE(arguments.at(0).toBool(), false);
+        QCOMPARE(arguments.at(1).toString(), QStringLiteral("Cancelled"));
+        QCOMPARE(arguments.at(2).toString(), QStringLiteral("cancel-before-user"));
+
+        QVERIFY(!QFileInfo::exists(partPath));
+        QVERIFY(!QFileInfo::exists(expectedFilePath));
+    }
+
+    {
+        FakeNetworkAccessManager manager;
+        const QString downloadDir = QDir(m_tempDir->path()).filePath("integrity_cancel_during");
+        const QString userData = QStringLiteral("cancel-during-user");
+        const QUrl url(QStringLiteral("https://fake.test/integrity/cancel-during.bin"));
+        const QString expectedFilePath = QDir(downloadDir).filePath("cancel-during.bin");
+        const QString partPath = expectedFilePath + QStringLiteral(".part");
+
+        manager.queueSuccess(url, QByteArray("content that will be aborted"), 80);
+
+        DownloadTask task(url.toString(), downloadDir, userData);
+        DownloadTaskTestAdapter::setTestNetworkAccessManager(task, &manager);
+
+        QSignalSpy spy(&task, &DownloadTask::downloadFinished);
+        QTimer::singleShot(10, &task, &DownloadTask::cancel);
+        QElapsedTimer elapsed;
+        elapsed.start();
+        task.run();
+
+        QCOMPARE(spy.count(), 1);
+        QVERIFY2(elapsed.elapsed() < 300, "Cancel during reply must unblock promptly");
+        const auto arguments = spy.takeFirst();
+        QCOMPARE(arguments.at(0).toBool(), false);
+        QCOMPARE(arguments.at(2).toString(), userData);
+
+        QVERIFY2(!QFileInfo::exists(partPath), "cancel during reply must not leave .part");
+        QVERIFY2(!QFileInfo::exists(expectedFilePath), "cancel during reply must not leave final .ts");
+
+        QCOMPARE(manager.requestCount(), 1);
+        QCOMPARE(manager.unexpectedRequestCount(), 0);
+    }
 }
 
 void CoreRegressionTests::downloadEngine_idleConstructionDestruction_isSafe()
@@ -2102,6 +2433,125 @@ void CoreRegressionTests::fakeNetworkAccessManager_delayedFinish_waitsUntilQueue
     QVERIFY(finishedSpy.wait(1000));
     QVERIFY(elapsed.elapsed() >= 30);
     QCOMPARE(reply->error(), QNetworkReply::NoError);
+}
+
+void CoreRegressionTests::concatWorker_zeroByteFile_emitsFailure()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString zeroFile = QDir(tempDir.path()).filePath("0000.ts");
+    QVERIFY(createEmptyFile(zeroFile));
+
+    ConcatWorker worker;
+    QSignalSpy spy(&worker, &ConcatWorker::concatFinished);
+
+    worker.setFilePath(tempDir.path());
+    worker.doConcat();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QVERIFY(arguments.at(1).toString().contains(QStringLiteral("空文件")));
+}
+
+void CoreRegressionTests::tsMerger_zeroByteFile_returnsFalse()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString zeroFile = QDir(tempDir.path()).filePath("0000.ts");
+    QVERIFY(createEmptyFile(zeroFile));
+
+    const QString outputPath = QDir(tempDir.path()).filePath("result.mp4");
+
+    TSMerger merger;
+    merger.reset();
+
+    const std::vector<QString> files = {zeroFile};
+    QVERIFY(!merger.merge(files, outputPath));
+}
+
+void CoreRegressionTests::tsMerger_malformedNonZeroFile_returnsFalse()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString malformedFile = QDir(tempDir.path()).filePath("bad-sync.ts");
+    {
+        QFile file(malformedFile);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QByteArray packet(188, '\0');
+        packet[0] = static_cast<char>(0x00);
+        QCOMPARE(file.write(packet), 188);
+    }
+
+    const QString outputPath = QDir(tempDir.path()).filePath("result.mp4");
+
+    TSMerger merger;
+    merger.reset();
+
+    const std::vector<QString> files = {malformedFile};
+    QVERIFY(!merger.merge(files, outputPath));
+    QVERIFY(!QFileInfo::exists(outputPath));
+}
+
+void CoreRegressionTests::tsMerger_failedMerge_preservesExistingOutputFile()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString malformedFile = QDir(tempDir.path()).filePath("bad-sync.ts");
+    {
+        QFile file(malformedFile);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QByteArray packet(188, '\0');
+        packet[0] = static_cast<char>(0x00);
+        QCOMPARE(file.write(packet), 188);
+    }
+
+    const QString outputPath = QDir(tempDir.path()).filePath("result.mp4");
+    const QByteArray existingBody("previous merged output");
+    {
+        QFile file(outputPath);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QCOMPARE(file.write(existingBody), qint64(existingBody.size()));
+    }
+
+    TSMerger merger;
+    merger.reset();
+
+    const std::vector<QString> files = {malformedFile};
+    QVERIFY(!merger.merge(files, outputPath));
+
+    QFile outputFile(outputPath);
+    QVERIFY(outputFile.open(QIODevice::ReadOnly));
+    QCOMPARE(outputFile.readAll(), existingBody);
+}
+
+void CoreRegressionTests::tsMerger_validMinimalPacket_succeeds()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString validFile = QDir(tempDir.path()).filePath("0000.ts");
+    {
+        QFile file(validFile);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QByteArray packet(188, '\0');
+        packet[0] = static_cast<char>(0x47); // TS sync byte
+        QCOMPARE(file.write(packet), 188);
+    }
+
+    const QString outputPath = QDir(tempDir.path()).filePath("result.mp4");
+
+    TSMerger merger;
+    merger.reset();
+
+    const std::vector<QString> files = {validFile};
+    QVERIFY(merger.merge(files, outputPath));
+    QVERIFY(QFileInfo::exists(outputPath));
+    QVERIFY(QFileInfo(outputPath).size() > 0);
 }
 
 QTEST_MAIN(CoreRegressionTests)
