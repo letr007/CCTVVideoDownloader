@@ -15,5 +15,6 @@ extern QString readQuality();
 extern QString readSavePath();
 extern int readThreadNum();
 extern int readLogLevel();
+extern bool readShowHighlights();
 
 extern void initGlobalSettings();
