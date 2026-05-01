@@ -3,6 +3,7 @@ qt6_wrap_cpp(core_regression_tests_moc
     ${PROJECT_SOURCE_DIR}/src/head/downloadtask.h
     ${PROJECT_SOURCE_DIR}/src/head/downloadengine.h
     ${PROJECT_SOURCE_DIR}/src/head/decryptworker.h
+    ${PROJECT_SOURCE_DIR}/src/head/concatworker.h
     ${CMAKE_CURRENT_SOURCE_DIR}/fakes/fake_networkreply.h
     ${CMAKE_CURRENT_SOURCE_DIR}/fakes/fake_networkaccessmanager.h
 )
@@ -17,12 +18,16 @@ qt_add_executable(core_regression_tests
     ${PROJECT_SOURCE_DIR}/src/source/downloadtask.cpp
     ${PROJECT_SOURCE_DIR}/src/source/downloadengine.cpp
     ${PROJECT_SOURCE_DIR}/src/source/decryptworker.cpp
+    ${PROJECT_SOURCE_DIR}/src/source/concatworker.cpp
+    ${PROJECT_SOURCE_DIR}/src/source/tsmerger.cpp
     ${core_regression_tests_moc}
     ${PROJECT_SOURCE_DIR}/src/head/config.h
     ${PROJECT_SOURCE_DIR}/src/head/setting.h
     ${PROJECT_SOURCE_DIR}/src/head/downloadtask.h
     ${PROJECT_SOURCE_DIR}/src/head/downloadengine.h
     ${PROJECT_SOURCE_DIR}/src/head/decryptworker.h
+    ${PROJECT_SOURCE_DIR}/src/head/concatworker.h
+    ${PROJECT_SOURCE_DIR}/src/head/tsmerger.h
 )
 
 target_include_directories(core_regression_tests

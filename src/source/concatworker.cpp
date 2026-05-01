@@ -43,6 +43,11 @@ void ConcatWorker::doConcat()
 
 	std::vector<QString> tsFilePaths;
     for (const QFileInfo& fi : fileList) {
+        if (fi.size() == 0) {
+            qCritical() << "拼接失败: 存在空文件 -" << fi.absoluteFilePath();
+            emit concatFinished(false, QString("存在空文件: %1").arg(fi.fileName()));
+            return;
+        }
         tsFilePaths.push_back(fi.absoluteFilePath());
         qDebug() << "TS文件:" << fi.fileName() << "大小:" << fi.size() << "字节";
     }

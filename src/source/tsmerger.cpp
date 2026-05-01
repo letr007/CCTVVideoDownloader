@@ -1,5 +1,7 @@
 ﻿#include "../head/tsmerger.h"
 
+#include <QFile>
+
 #include <fstream>
 
 bool TSMerger::merge(const std::vector<QString>& inputFiles, const QString& outputFile) {
@@ -9,12 +11,21 @@ bool TSMerger::merge(const std::vector<QString>& inputFiles, const QString& outp
         qWarning() << "没有输入文件可合并";
         return false;
     }
-    std::ofstream outfile(outputFile.toStdString(), std::ios::binary);
-    if (!outfile) {
-        qCritical() << "无法打开输出文件:" << outputFile;
+
+    const QString tempOutputFile = outputFile + QStringLiteral(".merge_tmp");
+    const QString backupOutputFile = outputFile + QStringLiteral(".merge_backup");
+
+    if (QFile::exists(tempOutputFile) && !QFile::remove(tempOutputFile)) {
+        qCritical() << "无法清理旧的临时合并输出文件:" << tempOutputFile;
         return false;
     }
-    qInfo() << "输出文件已打开";
+
+    std::ofstream outfile(tempOutputFile.toStdString(), std::ios::binary);
+    if (!outfile) {
+        qCritical() << "无法打开临时输出文件:" << tempOutputFile;
+        return false;
+    }
+    qInfo() << "临时输出文件已打开:" << tempOutputFile;
 
     size_t totalPackets = 0;
     for (size_t i=0; i < inputFiles.size(); ++i) {
@@ -22,12 +33,54 @@ bool TSMerger::merge(const std::vector<QString>& inputFiles, const QString& outp
         if (!processFile(inputFiles[i], outfile, i == 0)) {
             qCritical() << "处理文件失败:" << inputFiles[i];
             outfile.close();
+            if (QFile::exists(tempOutputFile) && !QFile::remove(tempOutputFile)) {
+                qWarning() << "清理失败的临时合并输出文件失败:" << tempOutputFile;
+            }
             return false;
         }
         qInfo() << "第" << (i+1) << "个文件处理完成";
     }
 
     outfile.close();
+
+    const bool hadExistingOutput = QFile::exists(outputFile);
+    bool movedExistingOutputToBackup = false;
+
+    if (hadExistingOutput) {
+        if (QFile::exists(backupOutputFile) && !QFile::remove(backupOutputFile)) {
+            qCritical() << "无法清理旧的合并备份文件:" << backupOutputFile;
+            if (QFile::exists(tempOutputFile) && !QFile::remove(tempOutputFile)) {
+                qWarning() << "清理临时合并输出文件失败:" << tempOutputFile;
+            }
+            return false;
+        }
+
+        if (!QFile::rename(outputFile, backupOutputFile)) {
+            qCritical() << "无法备份现有输出文件:" << outputFile << "->" << backupOutputFile;
+            if (QFile::exists(tempOutputFile) && !QFile::remove(tempOutputFile)) {
+                qWarning() << "清理临时合并输出文件失败:" << tempOutputFile;
+            }
+            return false;
+        }
+
+        movedExistingOutputToBackup = true;
+    }
+
+    if (!QFile::rename(tempOutputFile, outputFile)) {
+        qCritical() << "无法发布合并输出文件:" << tempOutputFile << "->" << outputFile;
+        if (movedExistingOutputToBackup && !QFile::rename(backupOutputFile, outputFile)) {
+            qCritical() << "恢复原始输出文件失败:" << backupOutputFile << "->" << outputFile;
+        }
+        if (QFile::exists(tempOutputFile) && !QFile::remove(tempOutputFile)) {
+            qWarning() << "清理未发布的临时合并输出文件失败:" << tempOutputFile;
+        }
+        return false;
+    }
+
+    if (movedExistingOutputToBackup && QFile::exists(backupOutputFile) && !QFile::remove(backupOutputFile)) {
+        qWarning() << "清理合并备份文件失败:" << backupOutputFile;
+    }
+
     qInfo() << "所有文件合并完成，输出文件:" << outputFile;
 
     if (!pmtIdentified) {
@@ -55,6 +108,11 @@ bool TSMerger::processFile(const QString& filename, std::ofstream& outfile, bool
 
     qDebug() << "文件大小:" << fileSize << "字节";
 
+    if (fileSize == 0) {
+        qCritical() << "文件大小为0，无法处理:" << filename;
+        return false;
+    }
+
     if (fileSize % TS_PACKET_SIZE != 0) {
         qWarning() << "文件大小不是TS包的整数倍:" << filename << "大小:" << fileSize;
         //return false;
@@ -72,12 +130,15 @@ bool TSMerger::processFile(const QString& filename, std::ofstream& outfile, bool
     size_t packetCount = 0;
     size_t skippedCount = 0;
     size_t invalidCount = 0;
+    size_t validPacketCount = 0;
 
     for (size_t i = 0; i + TS_PACKET_SIZE <= data.size(); i += TS_PACKET_SIZE) {
         if (!validatePacket(data, i)) {
             invalidCount++;
             continue; // 跳过无效包
         }
+
+        validPacketCount++;
 
         uint16_t pid = (data[i + 1] & 0x1F) << 8 | data[i + 2];
 
@@ -103,6 +164,11 @@ bool TSMerger::processFile(const QString& filename, std::ofstream& outfile, bool
     }
     if (skippedCount > 0) {
         qDebug() << "跳过" << skippedCount << "个PAT/PMT包";
+    }
+
+    if (validPacketCount == 0) {
+        qCritical() << "文件未产生任何有效TS包，无法继续合并:" << filename << "文件大小:" << fileSize << "无效包数:" << invalidCount;
+        return false;
     }
     
     qDebug() << "文件处理完成:" << filename << "有效包数:" << packetCount;
