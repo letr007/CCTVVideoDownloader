@@ -139,7 +139,6 @@ void Download::closeEvent(QCloseEvent *event)
 	}
 	else
 	{
-		setResult(QDialog::Rejected);
 		event->accept();
 	}
 }
