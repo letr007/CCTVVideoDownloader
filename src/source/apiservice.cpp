@@ -735,14 +735,30 @@ QStringList APIService::buildTsUrlsFromPlaylistData(const QByteArray& videoM3u8D
 {
     qDebug() << "视频M3U8文件大小:" << videoM3u8Data.size() << "字节";
 
-    QStringList videoLines = QString::fromUtf8(videoM3u8Data).split("\n");
+    QString normalizedData = QString::fromUtf8(videoM3u8Data).replace("\r\n", "\n").replace("\r", "\n");
+    QStringList videoLines = normalizedData.split("\n");
     QStringList tsList;
-    QString basePath = fullM3u8Url.left(fullM3u8Url.lastIndexOf("/") + 1);
+    QUrl baseUrl(fullM3u8Url);
+    baseUrl.setQuery(QString());
+    QString basePath = baseUrl.path();
+    basePath = basePath.left(basePath.lastIndexOf("/") + 1);
+    baseUrl.setPath(basePath);
 
     for (const QString& line : videoLines) {
-        if (line.endsWith(".ts")) {
-            QString tsUrl = basePath + line;
-            tsList << tsUrl;
+        QString trimmedLine = line.trimmed();
+        if (trimmedLine.isEmpty() || trimmedLine.startsWith("#")) {
+            continue;
+        }
+
+        QUrl segmentUrl(trimmedLine);
+        if (segmentUrl.scheme().isEmpty() && trimmedLine.startsWith("//")) {
+            segmentUrl = QUrl(QUrl(fullM3u8Url).scheme() + ":" + trimmedLine);
+        } else if (segmentUrl.isRelative()) {
+            segmentUrl = baseUrl.resolved(segmentUrl);
+        }
+
+        if (segmentUrl.path().endsWith(".ts", Qt::CaseInsensitive)) {
+            tsList << segmentUrl.toString();
         }
     }
 

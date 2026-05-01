@@ -2297,21 +2297,15 @@ void CoreRegressionTests::apiservice_getEncryptM3U8Urls_cctv4kUses4000Playlist()
     manager.queueSuccess(infoUrl, QByteArray(R"({"play_channel":"CCTV-4K","hls_url":"https://4k.example/live/main/index.m3u8"})"));
 
     const QUrl playlistUrl(QStringLiteral("https://4k.example/live/4000/index.m3u8"));
-    manager.queueSuccess(playlistUrl, QByteArray(R"(
-#EXTM3U
-#EXTINF:2.0,
-segment-0001.ts
-#EXTINF:2.0,
-segment-0002.ts
-)"));
+    manager.queueSuccess(playlistUrl, QByteArray("#EXTM3U\r\n#EXTINF:2.0,\r\n0.ts?maxbr=2048\r\n#EXTINF:2.0,\r\n1.ts?maxbr=2048\r\n"));
 
     APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
 
     const auto tsUrls = apiService.getEncryptM3U8Urls(guid, QStringLiteral("0"));
 
     QCOMPARE(tsUrls.size(), 2);
-    QCOMPARE(tsUrls.at(0), QString("https://4k.example/live/4000/segment-0001.ts"));
-    QCOMPARE(tsUrls.at(1), QString("https://4k.example/live/4000/segment-0002.ts"));
+    QCOMPARE(tsUrls.at(0), QString("https://4k.example/live/4000/0.ts?maxbr=2048"));
+    QCOMPARE(tsUrls.at(1), QString("https://4k.example/live/4000/1.ts?maxbr=2048"));
     QVERIFY(apiService.lastM3U8ResultWas4K());
     QCOMPARE(manager.requestCount(), 2);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
@@ -2347,19 +2341,13 @@ void CoreRegressionTests::apiservice_buildVideoApiUrl_buildsExpectedQuery()
 void CoreRegressionTests::apiservice_buildTsUrlsFromPlaylistData_returnsExpectedAbsoluteUrls()
 {
     APIService& apiService = APIService::instance();
-    const QByteArray playlistData = R"(
-#EXTM3U
-#EXTINF:2.0,
-segment-0001.ts
-#EXTINF:2.0,
-segment-0002.ts
-)";
+    const QByteArray playlistData("#EXTM3U\r\n#EXTINF:2.0,\r\nsegment-0001.ts?maxbr=2048\r\n#EXTINF:2.0,\r\nsegment-0002.ts?maxbr=2048\r\n");
 
-    const auto tsUrls = APIServiceTestAdapter::buildTsUrlsFromPlaylistData(apiService, playlistData, QString("https://example.com/path/video/index.m3u8"));
+    const auto tsUrls = APIServiceTestAdapter::buildTsUrlsFromPlaylistData(apiService, playlistData, QString("https://example.com/path/video/index.m3u8?maxbr=2048"));
 
     QCOMPARE(tsUrls.size(), 2);
-    QCOMPARE(tsUrls.at(0), QString("https://example.com/path/video/segment-0001.ts"));
-    QCOMPARE(tsUrls.at(1), QString("https://example.com/path/video/segment-0002.ts"));
+    QCOMPARE(tsUrls.at(0), QString("https://example.com/path/video/segment-0001.ts?maxbr=2048"));
+    QCOMPARE(tsUrls.at(1), QString("https://example.com/path/video/segment-0002.ts?maxbr=2048"));
 }
 
 void CoreRegressionTests::apiservice_sendNetworkRequest_fakeSuccess_returnsDeterministicBody()

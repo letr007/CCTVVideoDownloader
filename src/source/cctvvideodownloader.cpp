@@ -324,6 +324,11 @@ void CCTVVideoDownloader::openDownloadDialog()
         DOWNLOAD_META_INFO.emplace(title, GUID, APIService::instance().lastM3U8ResultWas4K());
 
         qInfo() << "获取到" << URLS.size() << "个TS文件URL";
+        if (URLS.isEmpty()) {
+            qWarning() << "下载失败: 未解析到TS文件URL";
+            QMessageBox::warning(this, "Warning", "未解析到可下载的视频分片，请检查视频链接或清晰度设置。");
+            return;
+        }
 
         Download dialog(this);
         // 先关闭下载窗口再进行完成后操作
@@ -364,6 +369,11 @@ void CCTVVideoDownloader::openDownloadDialog()
         DOWNLOAD_META_INFO.emplace(title, GUID, APIService::instance().lastM3U8ResultWas4K());
 
         qInfo() << "获取到" << URLS.size() << "个TS文件URL";
+        if (URLS.isEmpty()) {
+            qWarning() << "批量下载失败: 未解析到TS文件URL，停止后续任务";
+            QMessageBox::warning(this, "Warning", "未解析到可下载的视频分片，请检查视频链接或清晰度设置。");
+            break;
+        }
 
         Download dialog(this);
         connect(&dialog, &Download::DownloadFinished, this, [&dialog](bool success) {
