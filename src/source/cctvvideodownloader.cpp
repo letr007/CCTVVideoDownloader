@@ -7,6 +7,8 @@
 #include "../head/decrypt.h"
 #include "../head/apiservice.h"
 #include "../head/logger.h"
+#include <algorithm>
+#include <QResizeEvent>
 
 //std::tuple<int, int> CCTVVideoDownloader::SELECTED_ID;
 
@@ -14,6 +16,9 @@ CCTVVideoDownloader::CCTVVideoDownloader(QWidget* parent)
     : QMainWindow(parent)
 {
     ui.setupUi(this);
+    setMinimumSize(640, 480);
+    setMaximumSize(960, 720);
+    resize(800, 600);
     // 设置标题和图标
     setWindowTitle(QString("央视视频下载器"));
     setWindowIcon(QIcon(QPixmap(":/cctvvideodownload.png")));
@@ -26,6 +31,7 @@ CCTVVideoDownloader::CCTVVideoDownloader(QWidget* parent)
     Logger::instance()->setLogLevel(logLevel);
     // 连接槽函数
     signalConnect();
+    layoutMainWindow();
 
     flashProgrammeList();
 }
@@ -47,6 +53,82 @@ void CCTVVideoDownloader::signalConnect()
     connect(ui.tableWidget_List, &QTableWidget::cellClicked, this, &CCTVVideoDownloader::isVideoSelected); // 刷新信息
     connect(ui.pushButton, &QPushButton::clicked, this, &CCTVVideoDownloader::openDownloadDialog); // 下载
     connect(ui.btn_select_all, &QPushButton::clicked, this, &CCTVVideoDownloader::toggleSelectAllVideos); // 全选视频
+}
+
+void CCTVVideoDownloader::resizeEvent(QResizeEvent* event)
+{
+    QMainWindow::resizeEvent(event);
+    layoutMainWindow();
+}
+
+void CCTVVideoDownloader::layoutMainWindow()
+{
+    if (!ui.centralwidget) {
+        return;
+    }
+
+    const int w = ui.centralwidget->width();
+    const int h = ui.centralwidget->height();
+    const int margin = 12;
+    const int gap = 16;
+    const int buttonSize = 26;
+    const int labelHeight = 20;
+
+    const int availableW = std::max(0, w - margin * 2 - gap);
+    const int leftW = std::clamp(availableW * 45 / 100, 270, 390);
+    const int rightX = margin + leftW + gap;
+    const int rightW = std::max(220, w - rightX - margin);
+    const int contentH = std::max(360, h - margin * 2);
+    const int sectionGap = 12;
+    const int leftSectionH = (contentH - sectionGap) / 2;
+    const int topY = margin;
+    const int programTableY = topY + labelHeight + 6;
+    const int programTableH = std::max(90, leftSectionH - labelHeight - 6);
+    const int separatorY = topY + leftSectionH;
+    const int videoLabelY = separatorY + sectionGap;
+    const int videoTableY = videoLabelY + labelHeight + 6;
+    const int videoTableH = std::max(90, h - videoTableY - margin);
+
+    ui.label->setGeometry(margin, topY, 90, labelHeight);
+    ui.flash_program->setGeometry(margin + leftW - buttonSize, topY - 2, buttonSize, buttonSize);
+    ui.tableWidget_Config->setGeometry(margin, programTableY, leftW, programTableH);
+    ui.line->setGeometry(margin, separatorY + sectionGap / 2, leftW, 2);
+    ui.label_2->setGeometry(margin, videoLabelY, 90, labelHeight);
+    ui.flash_list->setGeometry(margin + leftW - buttonSize, videoLabelY - 2, buttonSize, buttonSize);
+    ui.btn_select_all->setGeometry(margin + leftW - buttonSize - 64, videoLabelY - 2, 58, buttonSize);
+    ui.tableWidget_List->setGeometry(margin, videoTableY, leftW, videoTableH);
+    if (ui.tableWidget_List->columnCount() > 0) {
+        const int listWidth = ui.tableWidget_List->viewport()->width();
+        ui.tableWidget_List->setColumnWidth(0, 30);
+        if (ui.tableWidget_List->columnCount() >= 3) {
+            ui.tableWidget_List->setColumnWidth(2, 56);
+            ui.tableWidget_List->setColumnWidth(1, std::max(120, listWidth - 92));
+        }
+        else if (ui.tableWidget_List->columnCount() >= 2) {
+            ui.tableWidget_List->setColumnWidth(1, std::max(160, listWidth - 36));
+        }
+    }
+    ui.line_2->setGeometry(margin + leftW + gap / 2, margin, 2, h - margin * 2);
+
+    const int imageH = std::max(150, rightW * 9 / 16);
+    const int titleY = topY + imageH + 10;
+    const int titleH = 28;
+    const int actionH = 42;
+    const int timeH = 52;
+    const int bottomY = h - margin - actionH;
+    const int timeY = bottomY - 10 - timeH;
+    const int introY = titleY + titleH + 10;
+    const int introH = std::max(100, timeY - introY - 10);
+    const int settingsW = 46;
+
+    ui.label_img->setGeometry(rightX, topY, rightW, imageH);
+    ui.label_title->setGeometry(rightX, titleY, rightW, titleH);
+    ui.scrollArea->setGeometry(rightX, introY, rightW, introH);
+    ui.scrollAreaWidgetContents->setGeometry(0, 0, std::max(0, rightW - 2), std::max(0, introH - 2));
+    ui.label_introduce->setGeometry(6, 0, std::max(0, rightW - 18), std::max(0, introH - 2));
+    ui.label_time->setGeometry(rightX, timeY, rightW, timeH);
+    ui.pushButton->setGeometry(rightX, bottomY, std::max(120, rightW - settingsW - 8), actionH);
+    ui.settings->setGeometry(rightX + rightW - settingsW, bottomY, settingsW, actionH);
 }
 
 void CCTVVideoDownloader::flashProgrammeList()
@@ -109,23 +191,53 @@ void CCTVVideoDownloader::flashVideoList()
         displayMin,
         displayMax
     );
+
+    const bool showHighlights = readShowHighlights();
+    int highlightCount = 0;
+    if (showHighlights) {
+        QMap<int, VideoItem> highlights = APIService::instance().getHighlightList(itemId);
+        int nextIndex = VIDEOS.isEmpty() ? 0 : (VIDEOS.lastKey() + 1);
+        for (const VideoItem& item : std::as_const(highlights)) {
+            bool alreadyListed = false;
+            for (const VideoItem& existing : std::as_const(VIDEOS)) {
+                if (!item.guid.isEmpty() && item.guid == existing.guid) {
+                    alreadyListed = true;
+                    break;
+                }
+            }
+            if (alreadyListed) {
+                continue;
+            }
+            VIDEOS.insert(nextIndex++, item);
+            ++highlightCount;
+        }
+    }
     
-    qInfo() << "获取到" << VIDEOS.size() << "个视频";
+    qInfo() << "获取到" << VIDEOS.size() << "个视频，其中看点" << highlightCount << "个";
     
     // 显示结果
     ui.tableWidget_List->clearContents();
     ui.tableWidget_List->setRowCount(VIDEOS.size());
-    ui.tableWidget_List->setColumnCount(2); // 设置为2列：复选框和标题
+    ui.tableWidget_List->setColumnCount(showHighlights ? 3 : 2);
 
     // 设置列宽
+    const int listWidth = ui.tableWidget_List->viewport()->width();
     ui.tableWidget_List->setColumnWidth(0, 30);
-    ui.tableWidget_List->setColumnWidth(1, 170);
+    if (showHighlights) {
+        ui.tableWidget_List->setColumnWidth(2, 56);
+        ui.tableWidget_List->setColumnWidth(1, std::max(120, listWidth - 92));
+    }
+    else {
+        ui.tableWidget_List->setColumnWidth(1, std::max(160, listWidth - 36));
+    }
 
     // 隐藏行头
     ui.tableWidget_List->verticalHeader()->setVisible(false);
 
     // 设置列标题
-    ui.tableWidget_List->setHorizontalHeaderLabels({ "", "视频标题" });
+    ui.tableWidget_List->setHorizontalHeaderLabels(showHighlights
+        ? QStringList{ "", "视频标题", "看点" }
+        : QStringList{ "", "视频标题" });
 
     int row = 0;
     for (auto&& [index, item] : std::as_const(VIDEOS).asKeyValueRange()) {
@@ -140,6 +252,13 @@ void CCTVVideoDownloader::flashVideoList()
         QTableWidgetItem* titleItem = new QTableWidgetItem(item.title);
         titleItem->setFlags(titleItem->flags() ^ Qt::ItemIsEditable); // 设为不可编辑
         ui.tableWidget_List->setItem(row, 1, titleItem);
+
+        if (showHighlights) {
+            QTableWidgetItem* highlightItem = new QTableWidgetItem(item.isHighlight ? QStringLiteral("看点") : QStringLiteral("完整"));
+            highlightItem->setFlags(highlightItem->flags() ^ Qt::ItemIsEditable);
+            highlightItem->setTextAlignment(Qt::AlignCenter);
+            ui.tableWidget_List->setItem(row, 2, highlightItem);
+        }
 
         row++;
     }

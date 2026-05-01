@@ -37,6 +37,7 @@ void Setting::setDefault()
 	ui.dateEdit_2->setDate(QDateTime::fromString(g_settings->value("date_end", "202501").toString(), "yyyyMM").date());
 	ui.comboBox_quality->setCurrentIndex(g_settings->value("quality", 1).toInt());
 	ui.comboBox_log->setCurrentIndex(g_settings->value("log_level", 1).toInt());
+	ui.checkBox_highlights->setChecked(g_settings->value("show_highlights", false).toBool());
 	g_settings->endGroup();
 }
 
@@ -67,6 +68,7 @@ void Setting::saveSettings()
 	g_settings->setValue("date_end", ui.dateEdit_2->date().toString("yyyyMM"));
 	g_settings->setValue("quality", ui.comboBox_quality->currentIndex());
 	g_settings->setValue("log_level", ui.comboBox_log->currentIndex());
+	g_settings->setValue("show_highlights", ui.checkBox_highlights->isChecked());
 	g_settings->endGroup();
 	g_settings->sync();
 }

@@ -13,6 +13,8 @@
 #include <QMessageBox>
 #include <QCheckBox>
 
+class QResizeEvent;
+
 class CCTVVideoDownloader : public QMainWindow
 {
     Q_OBJECT
@@ -48,7 +50,12 @@ public:
 
     void toggleSelectAllVideos();
 
+protected:
+    void resizeEvent(QResizeEvent* event) override;
+
 private:
+    void layoutMainWindow();
+
     Ui::MainWindow ui;
     inline static std::optional<std::tuple<QString, QString>> SELECTED_ID;
     inline static std::optional<std::tuple<QString, QString>> DOWNLOAD_META_INFO;

@@ -25,6 +25,7 @@ extern void initGlobalSettings()
 		g_settings->setValue("date_end", QDate::currentDate().addMonths(-1).toString("yyyyMM"));
 		g_settings->setValue("quality", 1);
 		g_settings->setValue("log_level", 1); // 默认日志级别为INFO
+		g_settings->setValue("show_highlights", false);
 		g_settings->endGroup();
 		g_settings->beginGroup("programme");
 		g_settings->endGroup();
@@ -133,6 +134,20 @@ extern int readThreadNum()
 	qInfo() << "下载线程数:" << threadNum;
 	
 	return threadNum;
+}
+
+extern bool readShowHighlights()
+{
+	qInfo() << "读取看点列表显示配置";
+
+	g_settings->sync();
+	g_settings->beginGroup("settings");
+	bool showHighlights = g_settings->value("show_highlights", false).toBool();
+	g_settings->endGroup();
+
+	qInfo() << "显示看点列表:" << showHighlights;
+
+	return showHighlights;
 }
 
 extern int readLogLevel()

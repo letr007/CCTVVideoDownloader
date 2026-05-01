@@ -21,10 +21,11 @@ struct VideoItem {
     QString title;
     QString image;
     QString brief;
+    bool isHighlight = false;
 
-    VideoItem(QString g, QString t, QString ti, QString i, QString b)
+    VideoItem(QString g, QString t, QString ti, QString i, QString b, bool h = false)
         : guid(std::move(g)), time(std::move(t)), title(std::move(ti)),
-        image(std::move(i)), brief(std::move(b)) {
+        image(std::move(i)), brief(std::move(b)), isHighlight(h) {
     }
 
     VideoItem() = default;
@@ -64,6 +65,7 @@ public:
     // API接口
     QSharedPointer<QStringList> getPlayColumnInfo(const QString& url);
     QMap<int, VideoItem> getVideoList(const QString& column_id, const QString& item_id, const QString& start_date, const QString& end_date);
+    QMap<int, VideoItem> getHighlightList(const QString& item_id);
     //QMap<int, VideoItem> getVideoList(const QString& column_id, const QString& item_id, int start_index, int end_index);
     QImage getImage(const QString& url);
     QStringList getEncryptM3U8Urls(const QString& GUID, const QString& quality);
@@ -87,9 +89,10 @@ private:
 
     // URL构建方法
     QUrl buildVideoApiUrl(FetchType fetch_type, const QString& id, const QString& date, int page, int page_size);
+    QUrl buildAlbumVideoListUrl(const QString& album_id, int mode, int page, int page_size);
 
     // 数据处理方法
-    void processMonthData(const QJsonArray& items, const QString& month, QMap<int, VideoItem>& result, int& result_index);
+    void processMonthData(const QJsonArray& items, const QString& month, QMap<int, VideoItem>& result, int& result_index, bool isHighlight = false);
 
     // M3U8相关方法
     QHash<QString, QString> parseM3U8QualityUrls(const QByteArray& m3u8Data, const QString& baseUrl);
