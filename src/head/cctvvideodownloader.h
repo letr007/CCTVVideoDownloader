@@ -12,6 +12,7 @@
 #include <QDesktopServices>
 #include <QMessageBox>
 #include <QCheckBox>
+#include <QPixmap>
 
 class CCTVVideoDownloader : public QMainWindow
 {
@@ -48,8 +49,14 @@ public:
 
     void toggleSelectAllVideos();
 
+protected:
+    void resizeEvent(QResizeEvent* event) override;
+
 private:
+    void updatePreviewImage();
+
     Ui::MainWindow ui;
+    QPixmap m_previewPixmap;
     inline static std::optional<std::tuple<QString, QString>> SELECTED_ID;
     inline static std::optional<std::tuple<QString, QString, bool>> DOWNLOAD_META_INFO;
     inline static QMap<int, VideoItem> VIDEOS;

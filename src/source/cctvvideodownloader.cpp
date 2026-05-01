@@ -8,12 +8,25 @@
 #include "../head/apiservice.h"
 #include "../head/logger.h"
 
+#include <QSizePolicy>
+
 //std::tuple<int, int> CCTVVideoDownloader::SELECTED_ID;
 
 CCTVVideoDownloader::CCTVVideoDownloader(QWidget* parent)
     : QMainWindow(parent)
 {
     ui.setupUi(this);
+    ui.leftPane->setMinimumWidth(180);
+    ui.rightPane->setMinimumWidth(180);
+    ui.mainSplitter->setStretchFactor(0, 1);
+    ui.mainSplitter->setStretchFactor(1, 1);
+    ui.mainSplitter->setSizes({ 240, 240 });
+    ui.label_img->setScaledContents(false);
+    ui.label_img->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    ui.label_title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    ui.label_title->setWordWrap(true);
+    ui.label_introduce->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    ui.label_time->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     // 设置标题和图标
     setWindowTitle(QString("央视视频下载器"));
     setWindowIcon(QIcon(QPixmap(":/cctvvideodownload.png")));
@@ -42,6 +55,7 @@ void CCTVVideoDownloader::signalConnect()
     connect(ui.actionimport, &QAction::triggered, this, &CCTVVideoDownloader::openImportDialog); // 导入
     connect(ui.actionfile, &QAction::triggered, this, &CCTVVideoDownloader::openSaveDir); // 打开视频保存位置
     connect(ui.flash_program, &QPushButton::clicked, this, &CCTVVideoDownloader::flashProgrammeList); // 刷新节目
+    connect(ui.mainSplitter, &QSplitter::splitterMoved, this, &CCTVVideoDownloader::updatePreviewImage);
     connect(ui.tableWidget_Config, &QTableWidget::cellClicked, this, &CCTVVideoDownloader::isProgrammeSelected); // 栏目表格点击
     connect(ui.flash_list, &QPushButton::clicked, this, &CCTVVideoDownloader::flashVideoList); // 刷新视频
     connect(ui.tableWidget_List, &QTableWidget::cellClicked, this, &CCTVVideoDownloader::isVideoSelected); // 刷新信息
@@ -117,9 +131,9 @@ void CCTVVideoDownloader::flashVideoList()
     ui.tableWidget_List->setRowCount(VIDEOS.size());
     ui.tableWidget_List->setColumnCount(2); // 设置为2列：复选框和标题
 
-    // 设置列宽
     ui.tableWidget_List->setColumnWidth(0, 30);
-    ui.tableWidget_List->setColumnWidth(1, 170);
+    ui.tableWidget_List->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
+    ui.tableWidget_List->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
 
     // 隐藏行头
     ui.tableWidget_List->verticalHeader()->setVisible(false);
@@ -203,10 +217,12 @@ void CCTVVideoDownloader::isVideoSelected(int r, int c)
     auto image = APIService::instance().getImage(imageUrl);
     if (!image.isNull())
     {
-        ui.label_img->setPixmap(QPixmap::fromImage(image));
+        m_previewPixmap = QPixmap::fromImage(image);
+        updatePreviewImage();
     }
     else
     {
+        m_previewPixmap = QPixmap();
         ui.label_img->setText("图片加载失败");
     }
     ui.label_title->setText(title);
@@ -475,4 +491,24 @@ void CCTVVideoDownloader::decryptVideo()
     decryptDialog.exec();
     
     qInfo() << "视频解密对话框已关闭";
+}
+
+void CCTVVideoDownloader::updatePreviewImage()
+{
+    if (m_previewPixmap.isNull())
+        return;
+
+    int desiredHeight = ui.rightPane->width() * 9 / 16;
+    desiredHeight = qBound(120, desiredHeight, 220);
+
+    ui.label_img->setFixedHeight(desiredHeight);
+
+    QPixmap scaled = m_previewPixmap.scaled(ui.label_img->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    ui.label_img->setPixmap(scaled);
+}
+
+void CCTVVideoDownloader::resizeEvent(QResizeEvent* event)
+{
+    QMainWindow::resizeEvent(event);
+    updatePreviewImage();
 }
