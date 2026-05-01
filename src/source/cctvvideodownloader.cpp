@@ -7,6 +7,8 @@
 #include "../head/decrypt.h"
 #include "../head/apiservice.h"
 #include "../head/logger.h"
+#include <algorithm>
+#include <QResizeEvent>
 
 #include <QSizePolicy>
 
@@ -16,6 +18,9 @@ CCTVVideoDownloader::CCTVVideoDownloader(QWidget* parent)
     : QMainWindow(parent)
 {
     ui.setupUi(this);
+    setMinimumSize(640, 480);
+    setMaximumSize(960, 720);
+    resize(800, 600);
     ui.leftPane->setMinimumWidth(180);
     ui.rightPane->setMinimumWidth(180);
     ui.mainSplitter->setStretchFactor(0, 1);
@@ -123,23 +128,50 @@ void CCTVVideoDownloader::flashVideoList()
         displayMin,
         displayMax
     );
+
+    const bool showHighlights = readShowHighlights();
+    int highlightCount = 0;
+    if (showHighlights) {
+        QMap<int, VideoItem> highlights = APIService::instance().getHighlightList(itemId);
+        int nextIndex = VIDEOS.isEmpty() ? 0 : (VIDEOS.lastKey() + 1);
+        for (const VideoItem& item : std::as_const(highlights)) {
+            bool alreadyListed = false;
+            for (const VideoItem& existing : std::as_const(VIDEOS)) {
+                if (!item.guid.isEmpty() && item.guid == existing.guid) {
+                    alreadyListed = true;
+                    break;
+                }
+            }
+            if (alreadyListed) {
+                continue;
+            }
+            VIDEOS.insert(nextIndex++, item);
+            ++highlightCount;
+        }
+    }
     
-    qInfo() << "获取到" << VIDEOS.size() << "个视频";
+    qInfo() << "获取到" << VIDEOS.size() << "个视频，其中看点" << highlightCount << "个";
     
     // 显示结果
     ui.tableWidget_List->clearContents();
     ui.tableWidget_List->setRowCount(VIDEOS.size());
-    ui.tableWidget_List->setColumnCount(2); // 设置为2列：复选框和标题
+    ui.tableWidget_List->setColumnCount(showHighlights ? 3 : 2);
 
     ui.tableWidget_List->setColumnWidth(0, 30);
     ui.tableWidget_List->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
     ui.tableWidget_List->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    if (showHighlights) {
+        ui.tableWidget_List->setColumnWidth(2, 56);
+        ui.tableWidget_List->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    }
 
     // 隐藏行头
     ui.tableWidget_List->verticalHeader()->setVisible(false);
 
     // 设置列标题
-    ui.tableWidget_List->setHorizontalHeaderLabels({ "", "视频标题" });
+    ui.tableWidget_List->setHorizontalHeaderLabels(showHighlights
+        ? QStringList{ "", "视频标题", "看点" }
+        : QStringList{ "", "视频标题" });
 
     int row = 0;
     for (auto&& [index, item] : std::as_const(VIDEOS).asKeyValueRange()) {
@@ -154,6 +186,13 @@ void CCTVVideoDownloader::flashVideoList()
         QTableWidgetItem* titleItem = new QTableWidgetItem(item.title);
         titleItem->setFlags(titleItem->flags() ^ Qt::ItemIsEditable); // 设为不可编辑
         ui.tableWidget_List->setItem(row, 1, titleItem);
+
+        if (showHighlights) {
+            QTableWidgetItem* highlightItem = new QTableWidgetItem(item.isHighlight ? QStringLiteral("看点") : QStringLiteral("完整"));
+            highlightItem->setFlags(highlightItem->flags() ^ Qt::ItemIsEditable);
+            highlightItem->setTextAlignment(Qt::AlignCenter);
+            ui.tableWidget_List->setItem(row, 2, highlightItem);
+        }
 
         row++;
     }

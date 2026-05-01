@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>230</width>
-    <height>270</height>
+    <height>300</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -17,7 +17,7 @@
    <property name="geometry">
     <rect>
      <x>35</x>
-     <y>240</y>
+     <y>270</y>
      <width>150</width>
      <height>20</height>
     </rect>
@@ -241,6 +241,19 @@
      <string>WARNING</string>
     </property>
    </item>
+  </widget>
+  <widget class="QCheckBox" name="checkBox_highlights">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>235</y>
+     <width>210</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>刷新时显示节目看点</string>
+   </property>
   </widget>
   <widget class="QDateEdit" name="dateEdit_1">
    <property name="geometry">

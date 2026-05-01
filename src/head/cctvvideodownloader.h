@@ -14,6 +14,8 @@
 #include <QCheckBox>
 #include <QPixmap>
 
+class QResizeEvent;
+
 class CCTVVideoDownloader : public QMainWindow
 {
     Q_OBJECT

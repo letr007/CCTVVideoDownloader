@@ -11,6 +11,7 @@
 #include <QDateEdit>
 #include <QDate>
 #include <QSpinBox>
+#include <QCheckBox>
 #include <QCryptographicHash>
 #include <QCoreApplication>
 #include <QFile>
@@ -113,6 +114,11 @@ public:
         apiService.processMonthData(items, month, result, resultIndex);
     }
 
+    static void processMonthData(APIService& apiService, const QJsonArray& items, const QString& month, QMap<int, VideoItem>& result, int& resultIndex, bool isHighlight)
+    {
+        apiService.processMonthData(items, month, result, resultIndex, isHighlight);
+    }
+
     static QHash<QString, QString> parseM3U8QualityUrls(APIService& apiService, const QByteArray& m3u8Data, const QString& baseUrl)
     {
         return apiService.parseM3U8QualityUrls(m3u8Data, baseUrl);
@@ -126,6 +132,11 @@ public:
     static QUrl buildVideoApiUrl(APIService& apiService, FetchType fetchType, const QString& id, const QString& date, int page, int pageSize)
     {
         return apiService.buildVideoApiUrl(fetchType, id, date, page, pageSize);
+    }
+
+    static QUrl buildAlbumVideoListUrl(APIService& apiService, const QString& albumId, int mode, int page, int pageSize)
+    {
+        return apiService.buildAlbumVideoListUrl(albumId, mode, page, pageSize);
     }
 
     static QStringList buildTsUrlsFromPlaylistData(APIService& apiService, const QByteArray& playlistData, const QString& fullM3u8Url)
@@ -337,11 +348,13 @@ private slots:
     void apiservice_parseJsonObject_returnsEmptyOnInvalidJson();
     void apiservice_parseJsonArray_missingObjectOrArrayKey_returnsEmptyArray();
     void apiservice_processMonthData_skipsItemsWithoutGuidOrTitle();
+    void apiservice_processMonthData_marksHighlightItems();
     void apiservice_parseM3U8QualityUrls_and_selectQuality_chooseHighestForZero();
     void apiservice_getPlayColumnInfo_usesGuidFallbackForCctv4k();
     void apiservice_getVideoList_usesCctv4kGuidFallback();
     void apiservice_getEncryptM3U8Urls_cctv4kUses4000Playlist();
     void apiservice_buildVideoApiUrl_buildsExpectedQuery();
+    void apiservice_buildAlbumVideoListUrl_buildsHighlightQuery();
     void apiservice_buildTsUrlsFromPlaylistData_returnsExpectedAbsoluteUrls();
     void apiservice_sendNetworkRequest_fakeSuccess_returnsDeterministicBody();
     void apiservice_sendNetworkRequest_fakeError_returnsEmptyData();
@@ -393,6 +406,7 @@ void CoreRegressionTests::initGlobalSettings_createsDefaults()
     QCOMPARE(readThreadNum(), 10);
     QCOMPARE(readQuality(), QString("1"));
     QCOMPARE(readLogLevel(), 1);
+    QCOMPARE(readShowHighlights(), false);
     QCOMPARE(dateBeg, QDate::currentDate().toString("yyyyMM"));
     QCOMPARE(dateEnd, QDate::currentDate().addMonths(-1).toString("yyyyMM"));
 }
@@ -409,6 +423,7 @@ void CoreRegressionTests::setting_saveSettings_roundTripsValuesFromWidgetsToDisk
     auto* dateEndEdit = setting.findChild<QDateEdit*>("dateEdit_2");
     auto* qualityCombo = setting.findChild<QComboBox*>("comboBox_quality");
     auto* logCombo = setting.findChild<QComboBox*>("comboBox_log");
+    auto* highlightsCheck = setting.findChild<QCheckBox*>("checkBox_highlights");
 
     QVERIFY(savePathEdit != nullptr);
     QVERIFY(threadSpin != nullptr);
@@ -416,6 +431,7 @@ void CoreRegressionTests::setting_saveSettings_roundTripsValuesFromWidgetsToDisk
     QVERIFY(dateEndEdit != nullptr);
     QVERIFY(qualityCombo != nullptr);
     QVERIFY(logCombo != nullptr);
+    QVERIFY(highlightsCheck != nullptr);
 
     const QString expectedSavePath = QDir(m_tempDir->path()).filePath("custom_path");
     const int expectedThreadNum = 6;
@@ -430,6 +446,7 @@ void CoreRegressionTests::setting_saveSettings_roundTripsValuesFromWidgetsToDisk
     dateEndEdit->setDate(expectedDateEnd);
     qualityCombo->setCurrentIndex(expectedQuality);
     logCombo->setCurrentIndex(expectedLogLevel);
+    highlightsCheck->setChecked(true);
 
     setting.saveSettings();
 
@@ -439,6 +456,7 @@ void CoreRegressionTests::setting_saveSettings_roundTripsValuesFromWidgetsToDisk
     QCOMPARE(readThreadNum(), expectedThreadNum);
     QCOMPARE(readQuality(), QString::number(expectedQuality));
     QCOMPARE(readLogLevel(), expectedLogLevel);
+    QCOMPARE(readShowHighlights(), true);
     QCOMPARE(dateBeg, expectedDateBeg.toString("yyyyMM"));
     QCOMPARE(dateEnd, expectedDateEnd.toString("yyyyMM"));
 }
@@ -463,6 +481,7 @@ void CoreRegressionTests::setting_smoke_persistsSettingsAcrossFreshSession()
         auto* dateEndEdit = setting.findChild<QDateEdit*>("dateEdit_2");
         auto* qualityCombo = setting.findChild<QComboBox*>("comboBox_quality");
         auto* logCombo = setting.findChild<QComboBox*>("comboBox_log");
+        auto* highlightsCheck = setting.findChild<QCheckBox*>("checkBox_highlights");
 
         QVERIFY(savePathEdit != nullptr);
         QVERIFY(threadSpin != nullptr);
@@ -470,6 +489,7 @@ void CoreRegressionTests::setting_smoke_persistsSettingsAcrossFreshSession()
         QVERIFY(dateEndEdit != nullptr);
         QVERIFY(qualityCombo != nullptr);
         QVERIFY(logCombo != nullptr);
+        QVERIFY(highlightsCheck != nullptr);
 
         savePathEdit->setText(expectedSavePath);
         threadSpin->setValue(expectedThreadNum);
@@ -477,6 +497,7 @@ void CoreRegressionTests::setting_smoke_persistsSettingsAcrossFreshSession()
         dateEndEdit->setDate(expectedDateEnd);
         qualityCombo->setCurrentIndex(expectedQuality);
         logCombo->setCurrentIndex(expectedLogLevel);
+        highlightsCheck->setChecked(true);
 
         setting.saveSettings();
     }
@@ -490,6 +511,7 @@ void CoreRegressionTests::setting_smoke_persistsSettingsAcrossFreshSession()
     QCOMPARE(readThreadNum(), expectedThreadNum);
     QCOMPARE(readQuality(), QString::number(expectedQuality));
     QCOMPARE(readLogLevel(), expectedLogLevel);
+    QCOMPARE(readShowHighlights(), true);
     QCOMPARE(dateBeg, expectedDateBeg.toString("yyyyMM"));
     QCOMPARE(dateEnd, expectedDateEnd.toString("yyyyMM"));
 }
@@ -2482,6 +2504,35 @@ void CoreRegressionTests::apiservice_processMonthData_skipsItemsWithoutGuidOrTit
     QCOMPARE(result.value(1).guid, QString("valid-2"));
 }
 
+void CoreRegressionTests::apiservice_processMonthData_marksHighlightItems()
+{
+    APIService& apiService = APIService::instance();
+
+    QJsonArray items{
+        QJsonObject{
+            {"guid", "highlight-guid"},
+            {"title", "highlight-title"},
+            {"time", "2025-09-28 19:57:04"},
+            {"image", "https://example.test/highlight.jpg"},
+            {"brief", "highlight brief"}
+        }
+    };
+
+    QMap<int, VideoItem> result;
+    int index = 0;
+
+    APIServiceTestAdapter::processMonthData(apiService, items, QString("highlight"), result, index);
+    QVERIFY(!result.value(0).isHighlight);
+
+    result.clear();
+    index = 0;
+    APIServiceTestAdapter::processMonthData(apiService, items, QString("highlight"), result, index, true);
+
+    QCOMPARE(result.size(), 1);
+    QVERIFY(result.value(0).isHighlight);
+    QCOMPARE(result.value(0).guid, QString("highlight-guid"));
+}
+
 void CoreRegressionTests::apiservice_parseM3U8QualityUrls_and_selectQuality_chooseHighestForZero()
 {
     APIService& apiService = APIService::instance();
@@ -2626,6 +2677,24 @@ void CoreRegressionTests::apiservice_buildVideoApiUrl_buildsExpectedQuery()
     const auto pagedQuery = QUrlQuery(pagedUrl);
     QCOMPARE(pagedQuery.queryItemValue(QString("p")), QString("4"));
     QCOMPARE(pagedQuery.queryItemValue(QString("n")), QString("100"));
+}
+
+void CoreRegressionTests::apiservice_buildAlbumVideoListUrl_buildsHighlightQuery()
+{
+    APIService& apiService = APIService::instance();
+
+    const auto url = APIServiceTestAdapter::buildAlbumVideoListUrl(apiService, QString("album-id"), 1, 3, 25);
+    QCOMPARE(url.host(), QString("api.cntv.cn"));
+    QCOMPARE(url.path(), QString("/NewVideo/getVideoListByAlbumIdNew"));
+
+    const auto query = QUrlQuery(url);
+    QCOMPARE(query.queryItemValue(QString("id")), QString("album-id"));
+    QCOMPARE(query.queryItemValue(QString("serviceId")), QString("tvcctv"));
+    QCOMPARE(query.queryItemValue(QString("pub")), QString("1"));
+    QCOMPARE(query.queryItemValue(QString("sort")), QString("asc"));
+    QCOMPARE(query.queryItemValue(QString("mode")), QString("1"));
+    QCOMPARE(query.queryItemValue(QString("p")), QString("3"));
+    QCOMPARE(query.queryItemValue(QString("n")), QString("25"));
 }
 
 void CoreRegressionTests::apiservice_buildTsUrlsFromPlaylistData_returnsExpectedAbsoluteUrls()

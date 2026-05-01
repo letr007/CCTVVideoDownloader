@@ -276,6 +276,52 @@ QMap<int, VideoItem> APIService::getVideoList(
     return result;
 }
 
+QMap<int, VideoItem> APIService::getHighlightList(const QString& item_id)
+{
+    qInfo() << "获取节目看点列表，item_id:" << item_id;
+
+    QMap<int, VideoItem> result;
+    QString real_album_id = getRealAlbumId(item_id);
+    if (real_album_id.isEmpty()) {
+        qWarning() << "获取节目看点失败: 无法获取真实专辑ID";
+        return result;
+    }
+
+    constexpr int pageSize = 100;
+    int page = 1;
+    int totalPages = 1;
+    int resultIndex = 0;
+
+    do {
+        QUrl url = buildAlbumVideoListUrl(real_album_id, 1, page, pageSize);
+        QByteArray responseData = sendNetworkRequest(url);
+        if (responseData.isEmpty()) {
+            qWarning() << "获取节目看点失败: 第" << page << "页响应为空";
+            break;
+        }
+
+        QJsonObject dataObj = parseJsonObject(responseData, "data");
+        QJsonArray items = dataObj.value("list").toArray();
+        if (items.isEmpty()) {
+            qWarning() << "获取节目看点失败: 第" << page << "页数据为空";
+            break;
+        }
+
+        if (page == 1) {
+            const int total = dataObj.value("total").toInt(items.size());
+            totalPages = std::max(1, (total + pageSize - 1) / pageSize);
+            qInfo() << "节目看点总数:" << total << "总页数:" << totalPages;
+        }
+
+        processMonthData(items, QStringLiteral("highlight"), result, resultIndex, true);
+        QCoreApplication::processEvents();
+        ++page;
+    } while (page <= totalPages);
+
+    qInfo() << "节目看点获取完成，共获取" << result.size() << "个视频";
+    return result;
+}
+
 QString APIService::getRealAlbumId(const QString& item_id)
 {
     qInfo() << "获取真实专辑ID，item_id:" << item_id;
@@ -394,6 +440,22 @@ QUrl APIService::buildVideoApiUrl(FetchType fetch_type, const QString& id, const
     
     return url;
 }
+
+QUrl APIService::buildAlbumVideoListUrl(const QString& album_id, int mode, int page, int page_size)
+{
+    QUrl url("https://api.cntv.cn/NewVideo/getVideoListByAlbumIdNew");
+    QUrlQuery query;
+    query.addQueryItem("id", album_id);
+    query.addQueryItem("serviceId", "tvcctv");
+    query.addQueryItem("pub", "1");
+    query.addQueryItem("sort", "asc");
+    query.addQueryItem("mode", QString::number(mode));
+    query.addQueryItem("p", QString::number(page));
+    query.addQueryItem("n", QString::number(page_size));
+    url.setQuery(query);
+    return url;
+}
+
 QJsonObject APIService::parseJsonObject(const QByteArray& data, const QString& key)
 {
     QJsonParseError parseError;
@@ -432,7 +494,8 @@ void APIService::processMonthData(
     const QJsonArray& items,
     const QString& month,
     QMap<int, VideoItem>& result,
-    int& result_index)
+    int& result_index,
+    bool isHighlight)
 {
     int processedCount = 0;
     int skippedCount = 0;
@@ -456,6 +519,7 @@ void APIService::processMonthData(
         videoItem.title = item["title"].toString();
         videoItem.image = item["image"].toString();
         videoItem.brief = item["brief"].toString();
+        videoItem.isHighlight = isHighlight;
 
         // 添加到结果集
         result[result_index++] = videoItem;
