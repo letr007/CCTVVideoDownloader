@@ -67,6 +67,7 @@ public:
     //QMap<int, VideoItem> getVideoList(const QString& column_id, const QString& item_id, int start_index, int end_index);
     QImage getImage(const QString& url);
     QStringList getEncryptM3U8Urls(const QString& GUID, const QString& quality);
+    bool lastM3U8ResultWas4K() const;
 
 signals:
     void PlayColumnInfoCallback(const QStringList& data);
@@ -111,6 +112,7 @@ private:
     static QMutex m_instanceMutex;
 
     QMutex m_mutex;
+    bool m_lastM3U8ResultWas4K = false;
 
 #ifdef CORE_REGRESSION_TESTS
     QPointer<QNetworkAccessManager> m_testNetworkAccessManager;

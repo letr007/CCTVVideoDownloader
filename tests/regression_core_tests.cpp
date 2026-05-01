@@ -278,6 +278,9 @@ private slots:
     void apiservice_parseJsonArray_missingObjectOrArrayKey_returnsEmptyArray();
     void apiservice_processMonthData_skipsItemsWithoutGuidOrTitle();
     void apiservice_parseM3U8QualityUrls_and_selectQuality_chooseHighestForZero();
+    void apiservice_getPlayColumnInfo_usesGuidFallbackForCctv4k();
+    void apiservice_getVideoList_usesCctv4kGuidFallback();
+    void apiservice_getEncryptM3U8Urls_cctv4kUses4000Playlist();
     void apiservice_buildVideoApiUrl_buildsExpectedQuery();
     void apiservice_buildTsUrlsFromPlaylistData_returnsExpectedAbsoluteUrls();
     void apiservice_sendNetworkRequest_fakeSuccess_returnsDeterministicBody();
@@ -2201,17 +2204,117 @@ low.m3u8
 mid.m3u8
 #EXT-X-STREAM-INF:BANDWIDTH=2048000,RESOLUTION=1920x1080
 high.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=4000000,RESOLUTION=3840x2160
+uhd.m3u8
 )";
 
     const auto qualityUrls = APIServiceTestAdapter::parseM3U8QualityUrls(apiService, m3u8Payload, QString("https://dh5.example/asp/enc2/index.m3u8"));
 
-    QCOMPARE(qualityUrls.size(), 3);
+    QCOMPARE(qualityUrls.size(), 4);
     QCOMPARE(qualityUrls.value(QString("4")), QString("low.m3u8"));
     QCOMPARE(qualityUrls.value(QString("2")), QString("mid.m3u8"));
     QCOMPARE(qualityUrls.value(QString("1")), QString("high.m3u8"));
+    QCOMPARE(qualityUrls.value(QString("5")), QString("uhd.m3u8"));
 
     const auto selected = APIServiceTestAdapter::selectQuality(apiService, QString("0"), qualityUrls);
-    QCOMPARE(selected, QString("1"));
+    QCOMPARE(selected, QString("5"));
+}
+
+void CoreRegressionTests::apiservice_getPlayColumnInfo_usesGuidFallbackForCctv4k()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl url(QStringLiteral("https://tv.cctv.com/cctv4k/example.shtml"));
+    const QByteArray html = R"(
+<html><head><script>
+var guid = '4k-guid-001';
+</script></head></html>
+)";
+
+    manager.queueSuccess(url, html);
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    auto result = apiService.getPlayColumnInfo(url.toString());
+
+    QVERIFY(!result.isNull());
+    QCOMPARE(result->size(), 3);
+    QCOMPARE(result->at(0), QString("CCTV-4K"));
+    QCOMPARE(result->at(1), QString("4k-guid-001"));
+    QCOMPARE(result->at(2), QString("4k-guid-001"));
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::apiservice_getVideoList_usesCctv4kGuidFallback()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QString guid = QStringLiteral("4k-guid-002");
+    const QString itemId = QStringLiteral("4k-item-002");
+    const QString date = QStringLiteral("202604");
+
+    manager.queueSuccess(APIServiceTestAdapter::buildVideoApiUrl(apiService, FetchType::Column, guid, date, 1, 100),
+                         QByteArray(R"({"data":{"list":[],"total":0}})"));
+
+    QUrl albumUrl(QStringLiteral("https://api.cntv.cn/NewVideoset/getVideoAlbumInfoByVideoId"));
+    QUrlQuery albumQuery;
+    albumQuery.addQueryItem(QStringLiteral("id"), itemId);
+    albumQuery.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("tvcctv"));
+    albumUrl.setQuery(albumQuery);
+    manager.queueSuccess(albumUrl, QByteArray(R"({"data":{}})"));
+
+    QUrl videoInfoUrl(QStringLiteral("https://zy.api.cntv.cn/video/videoinfoByGuid"));
+    QUrlQuery videoInfoQuery;
+    videoInfoQuery.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("cctv4k"));
+    videoInfoQuery.addQueryItem(QStringLiteral("guid"), guid);
+    videoInfoUrl.setQuery(videoInfoQuery);
+    manager.queueSuccess(videoInfoUrl, QByteArray(R"({"vid":"4k-video-002","title":"CCTV-4K Sample","brief":"brief","img":"image.jpg","time":"2026-04-23"})"));
+
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const auto videos = apiService.getVideoList(guid, itemId, date, date);
+
+    QCOMPARE(videos.size(), 1);
+    QCOMPARE(videos.value(0).guid, QString("4k-video-002"));
+    QCOMPARE(videos.value(0).title, QString("CCTV-4K Sample"));
+    QCOMPARE(videos.value(0).brief, QString("brief"));
+    QCOMPARE(videos.value(0).image, QString("image.jpg"));
+    QCOMPARE(videos.value(0).time, QString("2026-04-23"));
+    QCOMPARE(manager.requestCount(), 3);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::apiservice_getEncryptM3U8Urls_cctv4kUses4000Playlist()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QString guid = QStringLiteral("4k-guid-003");
+
+    QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do"));
+    QUrlQuery infoQuery;
+    infoQuery.addQueryItem(QStringLiteral("pid"), guid);
+    infoUrl.setQuery(infoQuery);
+    manager.queueSuccess(infoUrl, QByteArray(R"({"play_channel":"CCTV-4K","hls_url":"https://4k.example/live/main/index.m3u8"})"));
+
+    const QUrl playlistUrl(QStringLiteral("https://4k.example/live/4000/index.m3u8"));
+    manager.queueSuccess(playlistUrl, QByteArray(R"(
+#EXTM3U
+#EXTINF:2.0,
+segment-0001.ts
+#EXTINF:2.0,
+segment-0002.ts
+)"));
+
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const auto tsUrls = apiService.getEncryptM3U8Urls(guid, QStringLiteral("0"));
+
+    QCOMPARE(tsUrls.size(), 2);
+    QCOMPARE(tsUrls.at(0), QString("https://4k.example/live/4000/segment-0001.ts"));
+    QCOMPARE(tsUrls.at(1), QString("https://4k.example/live/4000/segment-0002.ts"));
+    QVERIFY(apiService.lastM3U8ResultWas4K());
+    QCOMPARE(manager.requestCount(), 2);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
 }
 
 void CoreRegressionTests::apiservice_buildVideoApiUrl_buildsExpectedQuery()

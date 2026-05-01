@@ -125,7 +125,8 @@ QSharedPointer<QStringList> APIService::getPlayColumnInfo(const QString& url) {
     static const QRegularExpression regexPatterns[] = {
         QRegularExpression(R"(var commentTitle\s*=\s*["'](.*?)["'];)"),
         QRegularExpression(R"(var itemid1\s*=\s*["'](.*?)["'];)"),
-        QRegularExpression(R"(var column_id\s*=\s*["'](.*?)["'];)")
+        QRegularExpression(R"(var column_id\s*=\s*["'](.*?)["'];)"),
+        QRegularExpression(R"(var guid\s*=\s*["'](.*?)["'];)")
     };
 
     // 安全匹配函数
@@ -138,6 +139,7 @@ QSharedPointer<QStringList> APIService::getPlayColumnInfo(const QString& url) {
     QString title = safeMatch(regexPatterns[0], html).split(" ").value(0);
     QString itemId = safeMatch(regexPatterns[1], html);
     QString columnId = safeMatch(regexPatterns[2], html);
+    QString guid = safeMatch(regexPatterns[3], html);
 
     if (title.isEmpty() || itemId.isEmpty() || columnId.isEmpty()) {
         QRegularExpression lmUrlRegex(R"(tv\.cctv\.com/lm/([^/?#]+))");
@@ -165,6 +167,13 @@ QSharedPointer<QStringList> APIService::getPlayColumnInfo(const QString& url) {
                 columnId = lmColumnId;
             }
         }
+    }
+
+    if (columnId.isEmpty() && !guid.isEmpty()) {
+        qInfo() << "未获取到columnId，使用guid作为CCTV-4K兜底:" << guid;
+        title = title.isEmpty() ? QStringLiteral("CCTV-4K") : title;
+        itemId = itemId.isEmpty() ? guid : itemId;
+        columnId = guid;
     }
 
     // 验证数据完整性
@@ -228,6 +237,36 @@ QMap<int, VideoItem> APIService::getVideoList(
         }
     } else {
         qWarning() << "无法获取真实专辑ID";
+    }
+
+    if (result.isEmpty()) {
+        QUrl videoInfoUrl("https://zy.api.cntv.cn/video/videoinfoByGuid");
+        QUrlQuery query;
+        query.addQueryItem("serviceId", "cctv4k");
+        query.addQueryItem("guid", column_id);
+        videoInfoUrl.setQuery(query);
+
+        qInfo() << "尝试通过CCTV-4K接口获取单视频信息:" << videoInfoUrl.toString();
+        QByteArray responseData = sendNetworkRequest(videoInfoUrl);
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(responseData, &parseError);
+        if (parseError.error == QJsonParseError::NoError && doc.isObject()) {
+            QJsonObject videoObj = doc.object();
+            QString title = videoObj["title"].toString();
+            if (!title.isEmpty()) {
+                VideoItem videoItem;
+                videoItem.guid = videoObj["vid"].toString();
+                videoItem.title = title;
+                videoItem.brief = videoObj["brief"].toString();
+                videoItem.image = videoObj["img"].toString();
+                videoItem.time = videoObj["time"].toString();
+                if (videoItem.guid.isEmpty()) {
+                    videoItem.guid = column_id;
+                }
+                result.insert(0, videoItem);
+                qInfo() << "通过CCTV-4K接口获取到视频信息 - 标题:" << videoItem.title << "GUID:" << videoItem.guid;
+            }
+        }
     }
 
     if (result.isEmpty()) {
@@ -465,6 +504,7 @@ QImage APIService::getImage(const QString& url)
 QStringList APIService::getEncryptM3U8Urls(const QString& GUID, const QString& quality)
 {
     qInfo() << "获取加密M3U8 URL，GUID:" << GUID << "质量:" << quality;
+    m_lastM3U8ResultWas4K = false;
     
     // 获取视频信息
     QUrl infoUrl("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do");
@@ -476,6 +516,34 @@ QStringList APIService::getEncryptM3U8Urls(const QString& GUID, const QString& q
     if (infoData.isEmpty()) {
         qWarning() << "获取视频信息失败: 响应数据为空";
         return QStringList();
+    }
+
+    QJsonParseError infoParseError;
+    QJsonDocument infoDoc = QJsonDocument::fromJson(infoData, &infoParseError);
+    if (infoParseError.error == QJsonParseError::NoError && infoDoc.isObject()) {
+        QJsonObject rootObj = infoDoc.object();
+        QString playChannel = rootObj["play_channel"].toString();
+        if (playChannel.contains(QStringLiteral("CCTV-4K"), Qt::CaseInsensitive)) {
+            QString hlsUrl = rootObj["hls_url"].toString();
+            if (hlsUrl.isEmpty()) {
+                qWarning() << "CCTV-4K视频hls_url为空";
+                return QStringList();
+            }
+
+            hlsUrl.replace(QStringLiteral("main"), QStringLiteral("4000"));
+            qInfo() << "检测到CCTV-4K频道视频，使用4K M3U8 URL:" << hlsUrl;
+
+            QByteArray m3u8Data = sendNetworkRequest(QUrl(hlsUrl));
+            if (m3u8Data.isEmpty()) {
+                qWarning() << "获取CCTV-4K M3U8文件失败";
+                return QStringList();
+            }
+
+            QStringList tsList = buildTsUrlsFromPlaylistData(m3u8Data, hlsUrl);
+            m_lastM3U8ResultWas4K = !tsList.isEmpty();
+            qInfo() << "获取到" << tsList.size() << "个CCTV-4K TS文件";
+            return tsList;
+        }
     }
 
     QJsonObject manifestObj = parseJsonObject(infoData, "manifest");
@@ -545,6 +613,7 @@ QHash<QString, QString> APIService::parseM3U8QualityUrls(const QByteArray& m3u8D
     
     QStringList m3u8Lines = QString::fromUtf8(m3u8Data).split("\n");
     QHash<QString, QualityInfo> qualityMap = {
+        {"5", {4000000, "3840x2160"}},
         {"4", {460800, "480x270"}},
         {"3", {870400, "640x360"}},
         {"2", {1228800, "1280x720"}},
@@ -585,6 +654,9 @@ QString APIService::findQualityByBandwidth(const QHash<QString, QualityInfo>& qu
             return it.key();
         }
     }
+    if (bandwidth >= 4000000) {
+        return QStringLiteral("5");
+    }
     return QString();
 }
 
@@ -600,6 +672,7 @@ QString APIService::selectQuality(const QString& requestedQuality, const QHash<Q
         }
 
         static const QHash<QString, int> qualityBandwidths = {
+            {"5", 4000000},
             {"1", 2048000},
             {"2", 1228800},
             {"3", 870400},
@@ -634,6 +707,11 @@ QString APIService::selectQuality(const QString& requestedQuality, const QHash<Q
     qWarning() << "请求的质量不可用:" << requestedQuality
         << "可用的质量:" << availableQualities.keys().join(", ");
     return QString();
+}
+
+bool APIService::lastM3U8ResultWas4K() const
+{
+    return m_lastM3U8ResultWas4K;
 }
 
 QStringList APIService::getTsFileList(const QString& qualityPath, const QString& baseUrl)
