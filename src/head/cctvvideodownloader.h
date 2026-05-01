@@ -51,6 +51,6 @@ public:
 private:
     Ui::MainWindow ui;
     inline static std::optional<std::tuple<QString, QString>> SELECTED_ID;
-    inline static std::optional<std::tuple<QString, QString>> DOWNLOAD_META_INFO;
+    inline static std::optional<std::tuple<QString, QString, bool>> DOWNLOAD_META_INFO;
     inline static QMap<int, VideoItem> VIDEOS;
 };

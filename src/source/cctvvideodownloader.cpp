@@ -193,7 +193,7 @@ void CCTVVideoDownloader::isVideoSelected(int r, int c)
     auto imageUrl = it->image;
 
     //qDebug() << title << GUID;
-    DOWNLOAD_META_INFO.emplace(title, GUID);
+    DOWNLOAD_META_INFO.emplace(title, GUID, false);
     // 文本处理
     brief.replace(' ', '\n').replace('\r', '\n');
     brief.replace(QRegularExpression("\n+"), "\n");
@@ -314,13 +314,14 @@ void CCTVVideoDownloader::openDownloadDialog()
             QMessageBox::warning(this, "Warning", "请先选择要下载的视频！");
             return;
         }
-        auto [title, GUID] = *DOWNLOAD_META_INFO;
+        auto [title, GUID, is4K] = *DOWNLOAD_META_INFO;
         qInfo() << "单个视频下载 - 标题:" << title << "GUID:" << GUID;
 
         QStringList URLS = APIService::instance().getEncryptM3U8Urls(
             GUID,
             readQuality()
         );
+        DOWNLOAD_META_INFO.emplace(title, GUID, APIService::instance().lastM3U8ResultWas4K());
 
         qInfo() << "获取到" << URLS.size() << "个TS文件URL";
 
@@ -354,12 +355,13 @@ void CCTVVideoDownloader::openDownloadDialog()
         qInfo() << "批量下载第" << idx << "个视频 - 标题:" << title << "GUID:" << GUID;
 
         // 设置当前下载元信息，便于后续 concat/decrypt 使用
-        DOWNLOAD_META_INFO.emplace(title, GUID);
+        DOWNLOAD_META_INFO.emplace(title, GUID, false);
 
         QStringList URLS = APIService::instance().getEncryptM3U8Urls(
             GUID,
             readQuality()
         );
+        DOWNLOAD_META_INFO.emplace(title, GUID, APIService::instance().lastM3U8ResultWas4K());
 
         qInfo() << "获取到" << URLS.size() << "个TS文件URL";
 
@@ -389,7 +391,7 @@ void CCTVVideoDownloader::concatVideo()
         return;
     }
     
-    auto [title, GUID] = *DOWNLOAD_META_INFO;
+    auto [title, GUID, is4K] = *DOWNLOAD_META_INFO;
     QString savePath = readSavePath();
     
     qInfo() << "开始视频拼接 - 标题:" << title << "GUID:" << GUID << "保存路径:" << savePath;
@@ -409,7 +411,11 @@ void CCTVVideoDownloader::decryptVideo()
         return;
     }
     
-    auto [title, GUID] = *DOWNLOAD_META_INFO;
+    auto [title, GUID, is4K] = *DOWNLOAD_META_INFO;
+    if (is4K) {
+        qInfo() << "当前视频为CCTV-4K，跳过解密步骤";
+        return;
+    }
     QString savePath = readSavePath();
     
     qInfo() << "开始视频解密 - 标题:" << title << "GUID:" << GUID << "保存路径:" << savePath;
