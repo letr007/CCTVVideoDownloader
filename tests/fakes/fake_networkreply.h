@@ -13,7 +13,7 @@ public:
         QNetworkReply::NetworkError error = QNetworkReply::NoError;
         QString errorString;
         int finishDelayMs = 0;
-        qint64 bytesTotal = -1;
+        qint64 bytesTotal = -2;
     };
 
     FakeNetworkReply(const QNetworkRequest& request,
@@ -48,7 +48,7 @@ private:
     QNetworkReply::NetworkError m_configuredError = QNetworkReply::NoError;
     QString m_configuredErrorString;
     int m_finishDelayMs = 0;
-    qint64 m_bytesTotal = -1;
+    qint64 m_bytesTotal = -2;
     bool m_aborted = false;
     bool m_started = false;
     bool m_finished = false;

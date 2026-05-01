@@ -22,7 +22,7 @@ public:
 
     explicit FakeNetworkAccessManager(QObject* parent = nullptr);
 
-    void queueSuccess(const QUrl& url, const QByteArray& body, int finishDelayMs = 0, qint64 bytesTotal = -1);
+    void queueSuccess(const QUrl& url, const QByteArray& body, int finishDelayMs = 0, qint64 bytesTotal = -2);
     void queueError(const QUrl& url,
                     QNetworkReply::NetworkError error,
                     const QString& errorString,

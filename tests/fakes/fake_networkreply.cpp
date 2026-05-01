@@ -19,7 +19,9 @@ FakeNetworkReply::FakeNetworkReply(const QNetworkRequest& request,
     setUrl(request.url());
     setOperation(operation);
     open(QIODevice::ReadOnly | QIODevice::Unbuffered);
-    setHeader(QNetworkRequest::ContentLengthHeader, totalBytes());
+    if (totalBytes() >= 0) {
+        setHeader(QNetworkRequest::ContentLengthHeader, totalBytes());
+    }
 }
 
 void FakeNetworkReply::abort()
@@ -108,7 +110,7 @@ void FakeNetworkReply::finishReply()
 
 qint64 FakeNetworkReply::totalBytes() const
 {
-    return m_bytesTotal >= 0 ? m_bytesTotal : m_body.size();
+    return m_bytesTotal == -2 ? m_body.size() : m_bytesTotal;
 }
 
 void FakeNetworkReply::emitReadyReadAndProgress()

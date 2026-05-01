@@ -37,6 +37,67 @@ static int normalizeRetryDelayMs(int retryDelayMs)
     return retryDelayMs >= 0 ? retryDelayMs : 0;
 }
 
+#ifdef CORE_REGRESSION_TESTS
+namespace {
+using DownloadTaskTestFileWriteHook = std::function<qint64(QFile&, const QByteArray&)>;
+using DownloadTaskTestRenameHook = std::function<bool(const QString&, const QString&)>;
+
+DownloadTaskTestFileWriteHook& downloadTaskTestFileWriteHook()
+{
+    static DownloadTaskTestFileWriteHook hook;
+    return hook;
+}
+
+DownloadTaskTestRenameHook& downloadTaskTestRenameHook()
+{
+    static DownloadTaskTestRenameHook hook;
+    return hook;
+}
+}
+
+void setDownloadTaskTestFileWriteHook(const std::function<qint64(QFile&, const QByteArray&)>& hook)
+{
+    downloadTaskTestFileWriteHook() = hook;
+}
+
+void clearDownloadTaskTestFileWriteHook()
+{
+    downloadTaskTestFileWriteHook() = {};
+}
+
+void setDownloadTaskTestRenameHook(const std::function<bool(const QString&, const QString&)>& hook)
+{
+    downloadTaskTestRenameHook() = hook;
+}
+
+void clearDownloadTaskTestRenameHook()
+{
+    downloadTaskTestRenameHook() = {};
+}
+
+static qint64 writeDownloadTaskData(QFile& file, const QByteArray& data)
+{
+    auto& hook = downloadTaskTestFileWriteHook();
+    return hook ? hook(file, data) : file.write(data);
+}
+
+static bool renameDownloadTaskPath(const QString& from, const QString& to)
+{
+    auto& hook = downloadTaskTestRenameHook();
+    return hook ? hook(from, to) : QFile::rename(from, to);
+}
+#else
+static qint64 writeDownloadTaskData(QFile& file, const QByteArray& data)
+{
+    return file.write(data);
+}
+
+static bool renameDownloadTaskPath(const QString& from, const QString& to)
+{
+    return QFile::rename(from, to);
+}
+#endif
+
 DownloadTask::DownloadTask(const QString& url, const QString& saveDir, const QVariant& userData)
     : QObject(nullptr), QRunnable(),
     m_url(url), m_saveDir(saveDir), m_userData(userData), m_cancelled(false),
@@ -72,9 +133,17 @@ void DownloadTask::run()
         return;
     }
 
-    QFile file(m_filePath);
+    const QString partPath = m_filePath + QStringLiteral(".part");
+    if (QFile::exists(partPath)) {
+        if (!QFile::remove(partPath)) {
+            qWarning() << "移除旧的临时文件失败:" << partPath;
+        } else {
+            qInfo() << "已移除旧的临时文件，准备开始第一次下载尝试:" << partPath;
+        }
+    }
+    QFile file(partPath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        qCritical() << "无法打开文件进行写入:" << m_filePath;
+        qCritical() << "无法打开临时文件进行写入:" << partPath;
         emit downloadFinished(false, "Cannot open file", m_userData);
         finishRun();
         return;
@@ -127,19 +196,23 @@ void DownloadTask::run()
 
     bool finalSuccess = false;
     QString finalMessage;
+    qint64 writtenBytes = 0;
+    qint64 expectedBytes = 0;
 
     for (int attempt = 1; attempt <= maxAttempts; ++attempt) {
+        writtenBytes = 0;
+        expectedBytes = 0;
+
         if (attempt > 1) {
-            if (!file.resize(0)) {
+            if (file.isOpen()) {
                 file.close();
-                qCritical() << "重试前无法重置文件:" << m_filePath;
-                emit downloadFinished(false, "Cannot open file", m_userData);
-                finishRun();
-                return;
+            }
+
+            if (QFile::exists(partPath) && !QFile::remove(partPath)) {
+                qWarning() << "重试前无法移除旧临时文件:" << partPath;
             }
 
             if (!waitForRetryDelay(retryDelayMs)) {
-                file.close();
                 emit downloadFinished(false, "Cancelled", m_userData);
                 finishRun();
                 return;
@@ -148,27 +221,25 @@ void DownloadTask::run()
 
         if (m_cancelled.load(std::memory_order_relaxed)) {
             file.close();
+            if (QFile::exists(partPath) && !QFile::remove(partPath)) {
+                qWarning() << "移除临时文件失败:" << partPath;
+            }
             emit downloadFinished(false, "Cancelled", m_userData);
             finishRun();
             return;
         }
 
         if (!file.isOpen() && !file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-            qCritical() << "无法打开文件进行写入:" << m_filePath;
+            qCritical() << "重试时无法打开临时文件进行写入:" << partPath;
+            if (QFile::exists(partPath) && !QFile::remove(partPath)) {
+                qWarning() << "移除临时文件失败:" << partPath;
+            }
             emit downloadFinished(false, "Cannot open file", m_userData);
             finishRun();
             return;
         }
 
-        if (attempt > 1 && !file.seek(0)) {
-            file.close();
-            qCritical() << "重试前无法定位文件开头:" << m_filePath;
-            emit downloadFinished(false, "Cannot open file", m_userData);
-            finishRun();
-            return;
-        }
-
-        qInfo() << "文件已打开，开始下载到:" << m_filePath << "尝试:" << attempt << "/" << maxAttempts;
+        qInfo() << "临时文件已打开，开始下载到:" << partPath << "尝试:" << attempt << "/" << maxAttempts;
 
 #ifdef CORE_REGRESSION_TESTS
         if (m_testReplyFactory) {
@@ -185,9 +256,19 @@ void DownloadTask::run()
         if (reply == nullptr) {
             qCritical() << "无法创建网络回复对象 - 用户数据:" << m_userData;
             file.close();
+            if (QFile::exists(partPath) && !QFile::remove(partPath)) {
+                qWarning() << "移除临时文件失败:" << partPath;
+            }
             emit downloadFinished(false, "Cannot create network reply", m_userData);
             finishRun();
             return;
+        }
+
+        {
+            qint64 contentLength = reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
+            if (contentLength > 0) {
+                expectedBytes = contentLength;
+            }
         }
 
         bool timedOut = false;
@@ -195,6 +276,8 @@ void DownloadTask::run()
         QString attemptMessage;
         QNetworkReply::NetworkError attemptError = QNetworkReply::NoError;
         const QString timeoutMessage = QStringLiteral("Timed out after %1 ms").arg(timeoutMs);
+        bool writeFailed = false;
+        QString writeFailureMessage;
 
         QObject::connect(reply, &QNetworkReply::errorOccurred,
             [reply](QNetworkReply::NetworkError error) {
@@ -225,6 +308,7 @@ void DownloadTask::run()
         QObject::connect(reply, &QNetworkReply::downloadProgress, [&](qint64 rec, qint64 total) {
             resetInactivityTimer();
             if (total > 0) {
+                expectedBytes = total;
                 double progress = (static_cast<double>(rec) / total) * 100.0;
                 qDebug() << "下载进度 - 用户数据:" << m_userData << "已下载:" << rec << "/" << total
                          << "字节 (" << QString::number(progress, 'f', 1) << "%)";
@@ -236,8 +320,24 @@ void DownloadTask::run()
             resetInactivityTimer();
             if (!m_cancelled.load(std::memory_order_relaxed)) {
                 const QByteArray data = reply->readAll();
-                file.write(data);
-                qDebug() << "写入" << data.size() << "字节数据到文件";
+                qint64 written = writeDownloadTaskData(file, data);
+                if (written < 0 || written != data.size()) {
+                    writeFailed = true;
+                    if (maxAttempts > 1) {
+                        writeFailureMessage = QStringLiteral("Download failed [code=write_failed; attempts=%1/%2]: Wrote %3 of %4 bytes to temp file %5")
+                            .arg(attempt).arg(maxAttempts).arg(written).arg(data.size()).arg(partPath);
+                    } else {
+                        writeFailureMessage = QStringLiteral("Download failed [code=write_failed; attempts=1/1]: Wrote %1 of %2 bytes to temp file %3")
+                            .arg(written).arg(data.size()).arg(partPath);
+                    }
+                    qCritical() << "写入临时文件失败或短写:" << partPath << "期望写入:" << data.size() << "实际写入:" << written;
+                    if (!reply->isFinished()) {
+                        reply->abort();
+                    }
+                    return;
+                }
+                writtenBytes += written;
+                qDebug() << "写入" << data.size() << "字节数据到临时文件，实际写入:" << written;
             }
         });
 
@@ -245,13 +345,15 @@ void DownloadTask::run()
             inactivityTimer.stop();
             const bool cancelled = m_cancelled.load(std::memory_order_relaxed);
             attemptError = reply->error();
-            attemptSuccess = (reply->error() == QNetworkReply::NoError && !cancelled && !timedOut);
+            attemptSuccess = (reply->error() == QNetworkReply::NoError && !cancelled && !timedOut && !writeFailed);
             attemptMessage = attemptSuccess ? m_filePath : reply->errorString();
 
             if (timedOut) {
                 attemptMessage = maxAttempts > 1
                     ? QStringLiteral("Download failed [code=timeout; attempts=%1/%2]: %3").arg(attempt).arg(maxAttempts).arg(timeoutMessage)
                     : QStringLiteral("Download failed [code=timeout; attempts=1/1]: %1").arg(timeoutMessage);
+            } else if (!cancelled && writeFailed) {
+                attemptMessage = writeFailureMessage;
             } else if (!attemptSuccess && !cancelled && attemptError != QNetworkReply::OperationCanceledError && maxAttempts > 1) {
                 attemptMessage = QStringLiteral("Download failed [code=network_error; attempts=%1/%2]: %3")
                     .arg(attempt)
@@ -284,6 +386,75 @@ void DownloadTask::run()
             delete reply;
         }
 
+        file.close();
+
+        if (attemptSuccess) {
+            if (writtenBytes <= 0) {
+                attemptSuccess = false;
+                if (maxAttempts > 1) {
+                    attemptMessage = QStringLiteral("Download failed [code=integrity; attempts=%1/%2]: Downloaded zero bytes to %3")
+                        .arg(attempt).arg(maxAttempts).arg(partPath);
+                } else {
+                    attemptMessage = QStringLiteral("Download failed [code=integrity; attempts=1/1]: Downloaded zero bytes to %1")
+                        .arg(partPath);
+                }
+            } else if (expectedBytes > 0 && writtenBytes != expectedBytes) {
+                attemptSuccess = false;
+                if (maxAttempts > 1) {
+                    attemptMessage = QStringLiteral("Download failed [code=integrity; attempts=%1/%2]: Wrote %3 bytes to %4, expected %5 bytes")
+                        .arg(attempt).arg(maxAttempts).arg(writtenBytes).arg(partPath).arg(expectedBytes);
+                } else {
+                    attemptMessage = QStringLiteral("Download failed [code=integrity; attempts=1/1]: Wrote %1 bytes to %2, expected %3 bytes")
+                        .arg(writtenBytes).arg(partPath).arg(expectedBytes);
+                }
+            }
+        }
+
+        if (attemptSuccess) {
+            const QString backupPath = m_filePath + QStringLiteral(".publish_backup");
+            const bool hadExistingFinal = QFile::exists(m_filePath);
+            bool originalMovedToBackup = false;
+
+            if (hadExistingFinal) {
+                if (QFile::exists(backupPath) && !QFile::remove(backupPath)) {
+                    attemptSuccess = false;
+                    qCritical() << "清理发布备份文件失败，无法发布最终文件:" << backupPath;
+                } else if (!renameDownloadTaskPath(m_filePath, backupPath)) {
+                    attemptSuccess = false;
+                    qCritical() << "备份现有最终文件失败，无法发布新文件:" << m_filePath << "->" << backupPath;
+                } else {
+                    originalMovedToBackup = true;
+                }
+            }
+
+            if (!attemptSuccess) {
+                if (maxAttempts > 1) {
+                    attemptMessage = QStringLiteral("Download failed [code=rename_failed; attempts=%1/%2]: Could not publish %3 via backup %4")
+                        .arg(attempt).arg(maxAttempts).arg(m_filePath).arg(backupPath);
+                } else {
+                    attemptMessage = QStringLiteral("Download failed [code=rename_failed; attempts=1/1]: Could not publish %1 via backup %2")
+                        .arg(m_filePath).arg(backupPath);
+                }
+            } else if (!renameDownloadTaskPath(partPath, m_filePath)) {
+                attemptSuccess = false;
+                if (maxAttempts > 1) {
+                    attemptMessage = QStringLiteral("Download failed [code=rename_failed; attempts=%1/%2]: Could not publish %3 from %4")
+                        .arg(attempt).arg(maxAttempts).arg(m_filePath).arg(partPath);
+                } else {
+                    attemptMessage = QStringLiteral("Download failed [code=rename_failed; attempts=1/1]: Could not publish %1 from %2")
+                        .arg(m_filePath).arg(partPath);
+                }
+
+                qCritical() << "发布最终文件失败:" << partPath << "->" << m_filePath;
+
+                if (originalMovedToBackup && !renameDownloadTaskPath(backupPath, m_filePath)) {
+                    qCritical() << "恢复原始最终文件失败:" << backupPath << "->" << m_filePath;
+                }
+            } else if (originalMovedToBackup && QFile::exists(backupPath) && !QFile::remove(backupPath)) {
+                qWarning() << "清理发布备份文件失败:" << backupPath;
+            }
+        }
+
         finalSuccess = attemptSuccess;
         finalMessage = attemptMessage;
 
@@ -294,7 +465,7 @@ void DownloadTask::run()
         const bool cancelled = m_cancelled.load(std::memory_order_relaxed);
         const bool canRetry = !cancelled
             && attempt < maxAttempts
-            && (timedOut || attemptError != QNetworkReply::OperationCanceledError);
+            && (timedOut || writeFailed || attemptError != QNetworkReply::OperationCanceledError);
 
         if (!canRetry) {
             break;
@@ -307,6 +478,9 @@ void DownloadTask::run()
         qInfo() << "下载任务成功完成 - 用户数据:" << m_userData << "文件大小:" << QFileInfo(m_filePath).size() << "字节";
     } else {
         qWarning() << "下载任务失败 - 用户数据:" << m_userData << "错误:" << finalMessage;
+        if (QFile::exists(partPath) && !QFile::remove(partPath)) {
+            qWarning() << "下载失败后清理临时文件失败:" << partPath;
+        }
     }
 
     emit downloadFinished(finalSuccess, finalMessage, m_userData);
