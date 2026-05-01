@@ -419,14 +419,54 @@ void CCTVVideoDownloader::decryptVideo()
     if (!DOWNLOAD_META_INFO.has_value()) {
         qWarning() << "视频解密失败: 下载元信息为空";
         return;
-    }
+	}
     
     auto [title, GUID, is4K] = *DOWNLOAD_META_INFO;
+    QString savePath = readSavePath();
     if (is4K) {
-        qInfo() << "当前视频为CCTV-4K，跳过解密步骤";
+        qInfo() << "当前视频为CCTV-4K，跳过解密步骤，发布合并结果";
+        auto nameHash = QString(
+            QCryptographicHash::hash(title.toUtf8(), QCryptographicHash::Sha256)
+            .toHex()
+        );
+        QString tempDirPath = QDir::cleanPath(savePath + "/" + nameHash);
+        QString outputFilePath = QDir(tempDirPath).filePath("result.mp4");
+
+        QString sanitizedTitle = title;
+        sanitizedTitle.replace(QRegularExpression(R"([\\/:*?"<>|])"), "_");
+
+        QString finalPath = QDir(savePath).filePath(QString("%1.mp4").arg(sanitizedTitle));
+        QFileInfo fileInfo(finalPath);
+        QString baseName = fileInfo.completeBaseName();
+        QString suffix = fileInfo.suffix();
+        QString path = fileInfo.path();
+
+        int counter = 1;
+        QString uniqueFinalPath = finalPath;
+        while (QFile::exists(uniqueFinalPath)) {
+            uniqueFinalPath = QDir(path).filePath(QString("%1(%2).%3").arg(baseName).arg(counter).arg(suffix));
+            counter++;
+            if (counter > 1000) {
+                qCritical() << "无法生成唯一最终文件路径，达到尝试次数上限";
+                return;
+            }
+        }
+
+        if (!QFile::rename(outputFilePath, uniqueFinalPath)) {
+            qCritical() << "发布CCTV-4K视频文件失败，从" << outputFilePath << "到" << uniqueFinalPath;
+            return;
+        }
+
+        if (!QDir(tempDirPath).removeRecursively()) {
+            qWarning() << "移除临时文件夹失败，请手动清理:" << tempDirPath;
+        } else {
+            qInfo() << "临时文件夹清理成功";
+        }
+
+        QFile::remove(QDir(savePath).filePath("output.txt"));
+        qInfo() << "CCTV-4K视频处理完成，输出文件:" << uniqueFinalPath;
         return;
     }
-    QString savePath = readSavePath();
     
     qInfo() << "开始视频解密 - 标题:" << title << "GUID:" << GUID << "保存路径:" << savePath;
     
