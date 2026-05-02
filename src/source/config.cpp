@@ -19,8 +19,8 @@ extern void initGlobalSettings()
 		qInfo() << "创建默认配置";
 		g_settings->beginGroup("settings");
 		g_settings->setValue("save_dir", "C:\\Video");
-		g_settings->setValue("thread_num", 10);
-		g_settings->setValue("transcode", false);
+		g_settings->setValue("thread_num", 1);
+		g_settings->setValue("transcode", true);
 		g_settings->setValue("date_beg", QDate::currentDate().toString("yyyyMM"));
 		g_settings->setValue("date_end", QDate::currentDate().addMonths(-1).toString("yyyyMM"));
 		g_settings->setValue("quality", 1);
@@ -134,6 +134,20 @@ extern int readThreadNum()
 	qInfo() << "下载线程数:" << threadNum;
 	
 	return threadNum;
+}
+
+extern bool readTranscode()
+{
+	qInfo() << "读取转码配置";
+
+	g_settings->sync();
+	g_settings->beginGroup("settings");
+	bool transcode = g_settings->value("transcode", true).toBool();
+	g_settings->endGroup();
+
+	qInfo() << "转码为MP4:" << transcode;
+
+	return transcode;
 }
 
 extern bool readShowHighlights()

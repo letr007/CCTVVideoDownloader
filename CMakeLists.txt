@@ -89,6 +89,10 @@ target_link_libraries(CCTVVideoDownloader
         Qt6::Network
 )
 
+if (MSVC)
+    target_compile_options(CCTVVideoDownloader PRIVATE /utf-8)
+endif()
+
 if (WIN32)
     get_target_property(QT_QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
     get_filename_component(QT_BIN_DIR "${QT_QMAKE_EXECUTABLE}" DIRECTORY)

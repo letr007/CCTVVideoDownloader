@@ -39,6 +39,7 @@ public:
 	explicit DecryptWorker(QObject* parent = nullptr);
 
 	void setParams(const QString& name, const QString& savePath) { m_name = name; m_savePath = savePath; }
+	void setTranscodeToMp4(bool transcodeToMp4) { m_transcodeToMp4 = transcodeToMp4; }
 	void setProcessTimeoutMs(int timeoutMs);
 
 public slots:
@@ -59,6 +60,7 @@ private:
 
 	QString m_name;
 	QString m_savePath;
+	bool m_transcodeToMp4 = true;
 	int m_processTimeoutMs{30000};
 
 	#ifdef CORE_REGRESSION_TESTS

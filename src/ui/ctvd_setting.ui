@@ -252,7 +252,7 @@
     </rect>
    </property>
    <property name="text">
-    <string>刷新时显示节目看点</string>
+    <string>刷新时显示节目看点/片段</string>
    </property>
   </widget>
   <widget class="QDateEdit" name="dateEdit_1">

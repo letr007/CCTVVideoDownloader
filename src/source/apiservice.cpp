@@ -274,12 +274,42 @@ QMap<int, VideoItem> APIService::getHighlightList(const QString& item_id)
             qInfo() << "节目看点总数:" << total << "总页数:" << totalPages;
         }
 
-        processMonthData(items, QStringLiteral("highlight"), result, resultIndex, true);
+        processMonthData(items, QStringLiteral("highlight"), result, resultIndex, true, QStringLiteral("看点"));
         QCoreApplication::processEvents();
         ++page;
     } while (page <= totalPages);
 
     qInfo() << "节目看点获取完成，共获取" << result.size() << "个视频";
+    return result;
+}
+
+QMap<int, VideoItem> APIService::getFragmentList(const QString& column_id, const QString& item_id)
+{
+    qInfo() << "获取片段列表，column_id:" << column_id << "item_id:" << item_id;
+
+    QMap<int, VideoItem> result;
+    QUrl url = buildTopicVideoListUrl(column_id, item_id, 1);
+    QByteArray responseData = sendNetworkRequest(url);
+    if (responseData.isEmpty()) {
+        qWarning() << "获取片段列表失败: 响应为空";
+        return result;
+    }
+
+    QJsonObject rootObj = parseJsonObject(responseData);
+    if (rootObj.isEmpty()) {
+        qWarning() << "获取片段列表失败: 数据格式不正确";
+        return result;
+    }
+
+    QJsonArray items = rootObj.value("data").toArray();
+    if (items.isEmpty()) {
+        qWarning() << "获取片段列表为空";
+        return result;
+    }
+
+    int resultIndex = 0;
+    processTopicVideoData(items, result, resultIndex);
+    qInfo() << "片段列表获取完成，共获取" << result.size() << "个视频";
     return result;
 }
 
@@ -417,6 +447,18 @@ QUrl APIService::buildAlbumVideoListUrl(const QString& album_id, int mode, int p
     return url;
 }
 
+QUrl APIService::buildTopicVideoListUrl(const QString& column_id, const QString& item_id, int type)
+{
+    QUrl url("https://api.cntv.cn/video/getVideoListByTopicIdInfo");
+    QUrlQuery query;
+    query.addQueryItem("videoid", item_id);
+    query.addQueryItem("topicid", column_id);
+    query.addQueryItem("serviceId", "tvcctv");
+    query.addQueryItem("type", QString::number(type));
+    url.setQuery(query);
+    return url;
+}
+
 QJsonObject APIService::parseJsonObject(const QByteArray& data, const QString& key)
 {
     QJsonParseError parseError;
@@ -428,7 +470,9 @@ QJsonObject APIService::parseJsonObject(const QByteArray& data, const QString& k
     }
 
     QJsonObject rootObj = doc.object();
-    QJsonObject result = rootObj.contains(key) ? rootObj[key].toObject() : QJsonObject();
+    QJsonObject result = key.isEmpty()
+        ? rootObj
+        : (rootObj.contains(key) ? rootObj[key].toObject() : QJsonObject());
     
     if (result.isEmpty()) {
         qDebug() << "JSON对象中未找到键:" << key;
@@ -456,7 +500,8 @@ void APIService::processMonthData(
     const QString& month,
     QMap<int, VideoItem>& result,
     int& result_index,
-    bool isHighlight)
+    bool isHighlight,
+    const QString& listType)
 {
     int processedCount = 0;
     int skippedCount = 0;
@@ -481,6 +526,7 @@ void APIService::processMonthData(
         videoItem.image = item["image"].toString();
         videoItem.brief = item["brief"].toString();
         videoItem.isHighlight = isHighlight;
+        videoItem.listType = listType;
 
         // 添加到结果集
         result[result_index++] = videoItem;
@@ -493,6 +539,35 @@ void APIService::processMonthData(
     }
 
     qInfo() << "月份" << month << "数据处理完成 - 成功处理:" << processedCount
+        << "个，跳过:" << skippedCount << "个";
+}
+
+void APIService::processTopicVideoData(const QJsonArray& items, QMap<int, VideoItem>& result, int& result_index)
+{
+    int processedCount = 0;
+    int skippedCount = 0;
+
+    for (int i = 0; i < items.size(); ++i) {
+        QJsonObject item = items[i].toObject();
+        if (!item.contains("guid") || !item.contains("video_title")) {
+            skippedCount++;
+            continue;
+        }
+
+        VideoItem videoItem;
+        videoItem.guid = item["guid"].toString();
+        videoItem.time = item["video_focus_date"].toString();
+        videoItem.title = item["video_title"].toString();
+        videoItem.image = item["video_key_frame_url"].toString();
+        videoItem.brief = item["sc"].toString();
+        videoItem.isHighlight = true;
+        videoItem.listType = QStringLiteral("片段");
+
+        result[result_index++] = videoItem;
+        ++processedCount;
+    }
+
+    qInfo() << "片段数据处理完成 - 成功处理:" << processedCount
         << "个，跳过:" << skippedCount << "个";
 }
 

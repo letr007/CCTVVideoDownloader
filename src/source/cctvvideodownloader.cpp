@@ -194,10 +194,10 @@ void CCTVVideoDownloader::flashVideoList()
 
     const bool showHighlights = readShowHighlights();
     int highlightCount = 0;
-    if (showHighlights) {
-        QMap<int, VideoItem> highlights = APIService::instance().getHighlightList(itemId);
+    int fragmentCount = 0;
+    auto appendExtraVideos = [this](const QMap<int, VideoItem>& extras, int& appendedCount) {
         int nextIndex = VIDEOS.isEmpty() ? 0 : (VIDEOS.lastKey() + 1);
-        for (const VideoItem& item : std::as_const(highlights)) {
+        for (const VideoItem& item : std::as_const(extras)) {
             bool alreadyListed = false;
             for (const VideoItem& existing : std::as_const(VIDEOS)) {
                 if (!item.guid.isEmpty() && item.guid == existing.guid) {
@@ -209,8 +209,17 @@ void CCTVVideoDownloader::flashVideoList()
                 continue;
             }
             VIDEOS.insert(nextIndex++, item);
-            ++highlightCount;
+            ++appendedCount;
         }
+    };
+
+    if (showHighlights) {
+        QMap<int, VideoItem> highlights = APIService::instance().getHighlightList(itemId);
+        appendExtraVideos(highlights, highlightCount);
+
+        QMap<int, VideoItem> fragments = APIService::instance().getFragmentList(columnId, itemId);
+        appendExtraVideos(fragments, fragmentCount);
+        qInfo() << "Extra video counts - highlights:" << highlightCount << "fragments:" << fragmentCount;
     }
     
     qInfo() << "获取到" << VIDEOS.size() << "个视频，其中看点" << highlightCount << "个";
@@ -255,6 +264,7 @@ void CCTVVideoDownloader::flashVideoList()
 
         if (showHighlights) {
             QTableWidgetItem* highlightItem = new QTableWidgetItem(item.isHighlight ? QStringLiteral("看点") : QStringLiteral("完整"));
+            highlightItem->setText(item.isHighlight ? item.listType : QStringLiteral("完整"));
             highlightItem->setFlags(highlightItem->flags() ^ Qt::ItemIsEditable);
             highlightItem->setTextAlignment(Qt::AlignCenter);
             ui.tableWidget_List->setItem(row, 2, highlightItem);
@@ -544,7 +554,7 @@ void CCTVVideoDownloader::decryptVideo()
     qInfo() << "开始视频解密 - 标题:" << title << "GUID:" << GUID << "保存路径:" << savePath;
     
     Decrypt decryptDialog(this);
-    decryptDialog.transferDecryptParams(title, savePath);
+    decryptDialog.transferDecryptParams(title, savePath, readTranscode());
     decryptDialog.exec();
     
     qInfo() << "视频解密对话框已关闭";

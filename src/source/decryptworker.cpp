@@ -245,7 +245,8 @@ void DecryptWorker::doDecrypt()
 		return;
 	}
 
-	QString outputFilePath = QDir(trimmedSavePath).filePath("result.mp4");
+	const QString outputSuffix = m_transcodeToMp4 ? QStringLiteral("mp4") : QStringLiteral("ts");
+	QString outputFilePath = QDir(trimmedSavePath).filePath(QStringLiteral("result.%1").arg(outputSuffix));
 	const QString assetsDir = decryptAssetsDir();
 	QString cboxExe = QDir(assetsDir).filePath("cbox.exe");
     qInfo() << "输出文件路径:" << outputFilePath << "CBOX执行文件:" << cboxExe;
@@ -371,7 +372,7 @@ void DecryptWorker::doDecrypt()
 	m_name.replace(QRegularExpression(R"([\\/:*?"<>|])"), "_");
 	qInfo() << "清理后的视频名称:" << m_name;
 
-	QString finalPath = QDir(trimmedSavePath).filePath("%1.mp4").arg(m_name);
+	QString finalPath = QDir(trimmedSavePath).filePath("%1.%2").arg(m_name, outputSuffix);
 	qInfo() << "初始文件路径:" << finalPath;
 
 	// 生成不重复的最终文件路径
