@@ -40,9 +40,12 @@ jobs:
             throw "Missing build/Release/CCTVVideoDownloader.exe"
           }
 
-          if (-not (Test-Path "build/Release/decrypt")) {
+          $decryptDir = "build/Release/decrypt"
+          if (-not (Test-Path $decryptDir)) {
             throw "Missing build/Release/decrypt"
           }
+
+          Write-Output "Build outputs verified."
 
       - name: Create artifact zip
         shell: pwsh
