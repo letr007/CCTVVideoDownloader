@@ -6,6 +6,7 @@
 #include "../head/concat.h"
 #include "../head/decrypt.h"
 #include "../head/apiservice.h"
+#include "../head/directmediafinalizer.h"
 #include "../head/logger.h"
 #include <algorithm>
 #include <QResizeEvent>
@@ -489,47 +490,19 @@ void CCTVVideoDownloader::decryptVideo()
     auto [title, GUID, is4K] = *DOWNLOAD_META_INFO;
     QString savePath = readSavePath();
     if (is4K) {
-        qInfo() << "当前视频为CCTV-4K，跳过解密步骤，发布合并结果";
-        auto nameHash = QString(
-            QCryptographicHash::hash(title.toUtf8(), QCryptographicHash::Sha256)
-            .toHex()
-        );
-        QString tempDirPath = QDir::cleanPath(savePath + "/" + nameHash);
-        QString outputFilePath = QDir(tempDirPath).filePath("result.mp4");
-
-        QString sanitizedTitle = title;
-        sanitizedTitle.replace(QRegularExpression(R"([\\/:*?"<>|])"), "_");
-
-        QString finalPath = QDir(savePath).filePath(QString("%1.mp4").arg(sanitizedTitle));
-        QFileInfo fileInfo(finalPath);
-        QString baseName = fileInfo.completeBaseName();
-        QString suffix = fileInfo.suffix();
-        QString path = fileInfo.path();
-
-        int counter = 1;
-        QString uniqueFinalPath = finalPath;
-        while (QFile::exists(uniqueFinalPath)) {
-            uniqueFinalPath = QDir(path).filePath(QString("%1(%2).%3").arg(baseName).arg(counter).arg(suffix));
-            counter++;
-            if (counter > 1000) {
-                qCritical() << "无法生成唯一最终文件路径，达到尝试次数上限";
-                return;
-            }
-        }
-
-        if (!QFile::rename(outputFilePath, uniqueFinalPath)) {
-            qCritical() << "发布CCTV-4K视频文件失败，从" << outputFilePath << "到" << uniqueFinalPath;
+        qInfo() << "当前视频为CCTV-4K，跳过解密步骤，发布已验证的 TS 阶段文件";
+        const DirectMediaFinalizeResult finalizeResult = finalizeDirectTsTask(title,
+            savePath,
+            readTranscode());
+        if (!finalizeResult.ok) {
+            qCritical() << "CCTV-4K 最终发布失败:" << finalizeResult.code << finalizeResult.message;
+            QMessageBox::warning(this,
+                "Warning",
+                QString::fromUtf8("CCTV-4K 视频最终发布失败 [%1]: %2")
+                    .arg(finalizeResult.code, finalizeResult.message));
             return;
         }
-
-        if (!QDir(tempDirPath).removeRecursively()) {
-            qWarning() << "移除临时文件夹失败，请手动清理:" << tempDirPath;
-        } else {
-            qInfo() << "临时文件夹清理成功";
-        }
-
-        QFile::remove(QDir(savePath).filePath("output.txt"));
-        qInfo() << "CCTV-4K视频处理完成，输出文件:" << uniqueFinalPath;
+        qInfo() << "CCTV-4K视频处理完成，输出文件:" << finalizeResult.finalPath;
         return;
     }
     
