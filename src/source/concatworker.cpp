@@ -52,16 +52,16 @@ void ConcatWorker::doConcat()
         qDebug() << "TS文件:" << fi.fileName() << "大小:" << fi.size() << "字节";
     }
 
-    QString outPath = QDir(m_filePath).filePath("result.mp4");
-    qInfo() << "输出文件路径:" << outPath;
+    QString outPath = QDir(m_filePath).filePath("result.ts");
+    qInfo() << "TS暂存输出文件路径:" << outPath;
 
 	TSMerger merger;
 	merger.reset();
     qInfo() << "开始合并TS文件...";
     
     if (merger.merge(tsFilePaths, outPath)) {
-        qInfo() << "视频拼接成功完成，输出文件:" << outPath;
-        emit concatFinished(true, "拼接完成，输出 result.mp4");
+        qInfo() << "视频拼接成功完成，TS暂存文件:" << outPath;
+        emit concatFinished(true, "TS暂存完成，输出 result.ts");
     }
     else {
         qCritical() << "视频拼接失败";
