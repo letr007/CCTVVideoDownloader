@@ -9,7 +9,9 @@
 #include "../head/directmediafinalizer.h"
 #include "../head/logger.h"
 #include <algorithm>
+#include <QEventLoop>
 #include <QResizeEvent>
+#include <QThread>
 
 #include <QSizePolicy>
 
@@ -50,7 +52,12 @@ CCTVVideoDownloader::CCTVVideoDownloader(QWidget* parent)
 }
 
 CCTVVideoDownloader::~CCTVVideoDownloader()
-{}
+{
+	if (m_directFinalizeThread && m_directFinalizeThread->isRunning()) {
+		m_directFinalizeThread->quit();
+		m_directFinalizeThread->wait();
+	}
+}
 
 void CCTVVideoDownloader::signalConnect()
 {
@@ -489,22 +496,61 @@ void CCTVVideoDownloader::decryptVideo()
     
     auto [title, GUID, is4K] = *DOWNLOAD_META_INFO;
     QString savePath = readSavePath();
-    if (is4K) {
-        qInfo() << "当前视频为CCTV-4K，跳过解密步骤，发布已验证的 TS 阶段文件";
-        const DirectMediaFinalizeResult finalizeResult = finalizeDirectTsTask(title,
-            savePath,
-            readTranscode());
-        if (!finalizeResult.ok) {
-            qCritical() << "CCTV-4K 最终发布失败:" << finalizeResult.code << finalizeResult.message;
-            QMessageBox::warning(this,
-                "Warning",
-                QString::fromUtf8("CCTV-4K 视频最终发布失败 [%1]: %2")
-                    .arg(finalizeResult.code, finalizeResult.message));
-            return;
-        }
-        qInfo() << "CCTV-4K视频处理完成，输出文件:" << finalizeResult.finalPath;
-        return;
-    }
+	if (is4K) {
+		if (m_directFinalizeThread && m_directFinalizeThread->isRunning()) {
+			qWarning() << "CCTV-4K 最终发布已在处理中，等待当前任务完成";
+			QEventLoop pendingLoop;
+			connect(m_directFinalizeThread, &QThread::finished, &pendingLoop, &QEventLoop::quit);
+			pendingLoop.exec();
+		}
+
+		qInfo() << "当前视频为CCTV-4K，在后台线程中发布已验证的 TS 阶段文件";
+
+		const bool transcode = readTranscode();
+		auto* worker = new DirectFinalizeWorker();
+		auto* thread = new QThread(this);
+
+		m_directFinalizeWorker = worker;
+		m_directFinalizeThread = thread;
+
+		worker->moveToThread(thread);
+
+		connect(thread, &QThread::started, worker, [worker, title, savePath, transcode]() {
+			worker->doWork(title, savePath, transcode);
+		});
+
+		connect(worker, &DirectFinalizeWorker::finished, this,
+			[this](bool ok, const QString& code, const QString& message, const QString& finalPath) {
+				if (!ok) {
+					qCritical() << "CCTV-4K 最终发布失败:" << code << message;
+					QMessageBox::warning(this,
+						"Warning",
+						QString::fromUtf8("CCTV-4K 视频最终发布失败 [%1]: %2")
+							.arg(code, message));
+				} else {
+					qInfo() << "CCTV-4K视频处理完成，输出文件:" << finalPath;
+				}
+			});
+
+		connect(worker, &DirectFinalizeWorker::finished, thread, &QThread::quit);
+		connect(worker, &DirectFinalizeWorker::finished, worker, &QObject::deleteLater);
+
+		connect(thread, &QThread::finished, this, [this, thread, worker]() {
+			if (m_directFinalizeWorker == worker) {
+				m_directFinalizeWorker = nullptr;
+			}
+			if (m_directFinalizeThread == thread) {
+				m_directFinalizeThread = nullptr;
+			}
+			thread->deleteLater();
+		});
+
+		QEventLoop finalizeLoop;
+		connect(thread, &QThread::finished, &finalizeLoop, &QEventLoop::quit);
+		thread->start();
+		finalizeLoop.exec();
+		return;
+	}
     
     qInfo() << "开始视频解密 - 标题:" << title << "GUID:" << GUID << "保存路径:" << savePath;
     

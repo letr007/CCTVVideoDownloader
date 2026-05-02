@@ -15,6 +15,8 @@
 #include <QPixmap>
 
 class QResizeEvent;
+class QThread;
+class DirectFinalizeWorker;
 
 class CCTVVideoDownloader : public QMainWindow
 {
@@ -62,4 +64,7 @@ private:
     inline static std::optional<std::tuple<QString, QString>> SELECTED_ID;
     inline static std::optional<std::tuple<QString, QString, bool>> DOWNLOAD_META_INFO;
     inline static QMap<int, VideoItem> VIDEOS;
+
+    QThread* m_directFinalizeThread = nullptr;
+    DirectFinalizeWorker* m_directFinalizeWorker = nullptr;
 };
