@@ -1,6 +1,7 @@
 #include "../head/ffmpegcliremuxer.h"
 
 #include <QCoreApplication>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -150,6 +151,7 @@ FfmpegCliRemuxResult FfmpegCliRemuxer::remuxTsToMp4(const QString& inputTsPath, 
 	};
 	request.workingDirectory = outputInfo.absolutePath();
 	request.timeoutMs = m_processTimeoutMs;
+	qInfo() << "启动FFmpeg封装进程，参数:" << request.arguments;
 
 	FfmpegCliProcessResult processResult;
 #ifdef CORE_REGRESSION_TESTS
@@ -162,6 +164,8 @@ FfmpegCliRemuxResult FfmpegCliRemuxer::remuxTsToMp4(const QString& inputTsPath, 
 #else
 	processResult = runFfmpegProcess(request);
 #endif
+	qInfo() << "FFmpeg stdout:" << cappedDiagnosticText(processResult.stdoutText);
+	qInfo() << "FFmpeg stderr:" << cappedDiagnosticText(processResult.stderrText);
 
 	if (!processResult.started) {
 		FfmpegCliRemuxResult result = failureResult(QStringLiteral("start_failed"),
@@ -192,6 +196,7 @@ FfmpegCliRemuxResult FfmpegCliRemuxer::remuxTsToMp4(const QString& inputTsPath, 
 	result.message = QStringLiteral("FFmpeg CLI remux completed");
 	result.outputPath = trimmedOutputPath;
 	result.processResult = processResult;
+	qInfo() << "FFmpeg封装成功完成，退出码:" << processResult.exitCode;
 	return result;
 }
 

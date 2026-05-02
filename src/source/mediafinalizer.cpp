@@ -1,5 +1,6 @@
 #include "../head/mediafinalizer.h"
 
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -89,6 +90,7 @@ MediaFinalizeResult MediaFinalizer::finalize(const QString& stagingTsPath,
 
 	const QString finalMp4Path = uniqueOutputPath(trimmedSaveDir, baseName, QStringLiteral("mp4"));
 	const QString tempMp4Path = finalMp4Path + QStringLiteral(".tmp");
+	qInfo() << "开始MP4封装，输入TS:" << trimmedStagingPath << "临时输出:" << tempMp4Path;
 	if (QFile::exists(tempMp4Path) && !QFile::remove(tempMp4Path)) {
 		return failureResult(QStringLiteral("temp_cleanup_failed"),
 			QStringLiteral("Unable to clear stale MP4 temp file: %1").arg(tempMp4Path),
@@ -113,6 +115,7 @@ MediaFinalizeResult MediaFinalizer::finalize(const QString& stagingTsPath,
 			validationFailureMessage(QStringLiteral("Remuxed MP4 validation failed"), mp4Validation),
 			MediaContainerType::Mp4);
 	}
+	qInfo() << "MP4封装校验通过:" << tempMp4Path;
 
 	if (!QFile::rename(tempMp4Path, finalMp4Path)) {
 		QFile::remove(tempMp4Path);
