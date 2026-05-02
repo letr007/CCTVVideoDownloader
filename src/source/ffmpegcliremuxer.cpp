@@ -85,6 +85,22 @@ FfmpegCliRemuxResult failureResult(const QString& code, const QString& message)
 	return result;
 }
 
+int computeRemuxTimeoutMs(const QString& inputPath, int baseTimeoutMs)
+{
+	const QFileInfo info(inputPath);
+	if (!info.exists())
+		return baseTimeoutMs;
+
+	constexpr qint64 bytesPerChunk = 16LL * 1024 * 1024; // 16 MiB
+	const qint64 fileSize = info.size();
+	const qint64 chunks = (fileSize + bytesPerChunk - 1) / bytesPerChunk;
+	const qint64 computedMs = chunks * 1000;
+
+	constexpr qint64 intMax = 2147483647LL;
+	const qint64 clampedMs = computedMs < intMax ? computedMs : intMax;
+	return baseTimeoutMs > static_cast<int>(clampedMs) ? baseTimeoutMs : static_cast<int>(clampedMs);
+}
+
 } // namespace
 
 void FfmpegCliRemuxer::setProcessTimeoutMs(int timeoutMs)
@@ -150,8 +166,8 @@ FfmpegCliRemuxResult FfmpegCliRemuxer::remuxTsToMp4(const QString& inputTsPath, 
 		trimmedOutputPath
 	};
 	request.workingDirectory = outputInfo.absolutePath();
-	request.timeoutMs = m_processTimeoutMs;
-	qInfo() << "启动FFmpeg封装进程，参数:" << request.arguments;
+	request.timeoutMs = computeRemuxTimeoutMs(trimmedInputPath, m_processTimeoutMs);
+	qInfo() << "启动FFmpeg封装进程，超时:" << request.timeoutMs << "ms, 参数:" << request.arguments;
 
 	FfmpegCliProcessResult processResult;
 #ifdef CORE_REGRESSION_TESTS
