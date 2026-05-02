@@ -101,7 +101,7 @@
     </rect>
    </property>
    <property name="text">
-    <string>不转码</string>
+     <string>TS</string>
    </property>
   </widget>
   <widget class="QRadioButton" name="radioButton_mp4">
@@ -114,7 +114,7 @@
     </rect>
    </property>
    <property name="text">
-    <string>转码MP4</string>
+     <string>MP4</string>
    </property>
   </widget>
   <widget class="QLabel" name="label_3">
@@ -127,7 +127,7 @@
     </rect>
    </property>
    <property name="text">
-    <string>视频下载完成后是否转码?</string>
+     <string>视频下载完成后封装格式:</string>
    </property>
   </widget>
   <widget class="QLabel" name="label_4">

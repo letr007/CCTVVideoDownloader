@@ -56,11 +56,17 @@ cmake --build build --config Release
 build/Release/CCTVVideoDownloader.exe
 ```
 
-运行所需的 `decrypt` 目录会在构建后自动复制到输出目录。
+构建后，`src/decrypt/` 目录中的运行时文件自动复制到输出目录的 `decrypt/` 子目录下，包括：
+
+- **解密组件**：`cbox.exe`、`udrmdecrypt.dll` — 视频解密
+- **封装格式转换**：`ffmpeg.exe` 及配套 DLL — 将下载的 TS 流重新封装为 MP4（仅更改容器格式，不重新编码视频/音频）
+- **无需 FFmpeg 开发 SDK**：项目不依赖 FFmpeg 头文件或导入库，也无需安装系统级 FFmpeg 或配置环境变量
+
+运行程序时，`decrypt/` 目录必须与可执行文件位于同一目录下。
 
 ## :beers:帮助与反馈
 
-如有任何疑问或建议，请提交[issues](https://github.com/letr007/CCTVVideoDownload/issues)。
+如有任何疑问或建议，请提交[issues](https://github.com/letr007/CCTVVideoDownloader/issues)。
 
 ## :rotating_light: 免责声明  
 

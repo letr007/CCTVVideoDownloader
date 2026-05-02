@@ -138,14 +138,14 @@ extern int readThreadNum()
 
 extern bool readTranscode()
 {
-	qInfo() << "读取转码配置";
+	qInfo() << "读取封装格式配置";
 
 	g_settings->sync();
 	g_settings->beginGroup("settings");
 	bool transcode = g_settings->value("transcode", true).toBool();
 	g_settings->endGroup();
 
-	qInfo() << "转码为MP4:" << transcode;
+	qInfo() << "封装为MP4:" << transcode;
 
 	return transcode;
 }
