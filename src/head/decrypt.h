@@ -11,7 +11,7 @@ class Decrypt : public QDialog
 public:
 	Decrypt(QWidget* parent);
 	~Decrypt();
-	void transferDecryptParams(const QString& name, const QString& savePath);
+	void transferDecryptParams(const QString& name, const QString& savePath, bool transcodeToMp4 = true);
 
 signals:
 	void DecryptFinished();

@@ -20,6 +20,8 @@ class QNetworkRequest;
 class DownloadDialogTestAdapter;
 #endif
 
+class QResizeEvent;
+
 class Download : public QDialog
 {
 	Q_OBJECT
@@ -51,6 +53,7 @@ private slots:
 
 protected:
 	void closeEvent(QCloseEvent* event) override;
+	void resizeEvent(QResizeEvent* event) override;
 
 	//void updateProgress();
 
@@ -71,6 +74,7 @@ private:
 	void clearPersistedShardState() const;
 	void scheduleCompletionSignal(bool success);
 	bool hasPersistedShardState() const;
+	void layoutDownloadDialog();
 
 #ifdef CORE_REGRESSION_TESTS
 	void setTestReplyFactory(const std::function<QNetworkReply*(const QNetworkRequest&)>& replyFactory);

@@ -7,10 +7,6 @@
 Setting::Setting(QWidget* parent) : QDialog(parent)
 {
 	ui.setupUi(this);
-	// 锁定转码按钮
-	ui.radioButton_ts->setChecked(true);
-	ui.radioButton_ts->setEnabled(false);
-	ui.radioButton_mp4->setEnabled(false);
 	// 锁定线程数上下限
 	ui.spinBox_thread->setMaximum(10);
 	ui.spinBox_thread->setMinimum(1);
@@ -30,7 +26,10 @@ void Setting::setDefault()
 {
 	g_settings->beginGroup("settings");
 	ui.lineEdit_file_save_path->setText(g_settings->value("save_dir", "C:\\Video").toString());
-	ui.spinBox_thread->setValue(g_settings->value("thread_num", 10).toInt());
+	ui.spinBox_thread->setValue(g_settings->value("thread_num", 1).toInt());
+	const bool transcode = g_settings->value("transcode", true).toBool();
+	ui.radioButton_mp4->setChecked(transcode);
+	ui.radioButton_ts->setChecked(!transcode);
 	//ui.spinBox_program_1->setValue(g_settings->value("display_min", 1).toInt());
 	//ui.spinBox_program_2->setValue(g_settings->value("display_max", 100).toInt());
 	ui.dateEdit_1->setDate(QDateTime::fromString(g_settings->value("date_beg", "202501").toString(), "yyyyMM").date());
@@ -64,6 +63,7 @@ void Setting::saveSettings()
 	g_settings->beginGroup("settings");
 	g_settings->setValue("save_dir", ui.lineEdit_file_save_path->text());
 	g_settings->setValue("thread_num", ui.spinBox_thread->value());
+	g_settings->setValue("transcode", ui.radioButton_mp4->isChecked());
 	g_settings->setValue("date_beg", ui.dateEdit_1->date().toString("yyyyMM"));
 	g_settings->setValue("date_end", ui.dateEdit_2->date().toString("yyyyMM"));
 	g_settings->setValue("quality", ui.comboBox_quality->currentIndex());
