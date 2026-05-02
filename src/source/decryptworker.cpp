@@ -1,10 +1,11 @@
-﻿#include "../head/decryptworker.h"
+#include "../head/decryptworker.h"
+#include "../head/mediafinalizer.h"
+#include "../head/mediacontainervalidator.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QProcess>
 #include <QStringConverter>
 #include <QCoreApplication>
-#include <QRegularExpression>
 
 namespace {
 
@@ -64,24 +65,24 @@ void logProcessDiagnostics(const DecryptProcessResult& result)
     qInfo() << "CBOX stderr:" << cappedDiagnosticText(result.stderrText);
 }
 
-bool restoreConvertedInputToMp4(const QString& cboxPath, const QString& mp4Path)
+bool restoreConvertedInputToTs(const QString& cboxPath, const QString& tsPath)
 {
-    if (QFileInfo::exists(mp4Path) || !QFileInfo::exists(cboxPath)) {
-        return true;
-    }
+	if (QFileInfo::exists(tsPath) || !QFileInfo::exists(cboxPath)) {
+		return true;
+	}
 
-    if (QFile::rename(cboxPath, mp4Path)) {
-        return true;
-    }
+	if (QFile::rename(cboxPath, tsPath)) {
+		return true;
+	}
 
-    if (!QFile::copy(cboxPath, mp4Path)) {
-        return false;
-    }
+	if (!QFile::copy(cboxPath, tsPath)) {
+		return false;
+	}
 
-    if (!QFile::remove(cboxPath)) {
-        QFile::remove(mp4Path);
-        return false;
-    }
+	if (!QFile::remove(cboxPath)) {
+		QFile::remove(tsPath);
+		return false;
+	}
 
     return true;
 }
@@ -231,25 +232,25 @@ void DecryptWorker::doDecrypt()
 
 	QFileInfo tempDirectoryInfo(filePath);
 	if (!tempDirectoryInfo.exists() || !tempDirectoryInfo.isDir()) {
-		emit decryptFinished(false, "解密失败 [code=input_missing]: result.mp4 不存在");
+		emit decryptFinished(false, "解密失败 [code=input_missing]: result.ts 不存在");
 		return;
 	}
 
-	QString mp4Path = QDir(filePath).filePath("result.mp4");
+	QString stagingInputPath = QDir(filePath).filePath("result.ts");
 	QString cboxPath = QDir(filePath).filePath("input.cbox");
-    qInfo() << "MP4文件路径:" << mp4Path << "CBOX文件路径:" << cboxPath;
+	const QString stagedDecryptedTsPath = stagingInputPath;
+	qInfo() << "TS文件路径:" << stagingInputPath << "CBOX文件路径:" << cboxPath << "解密输出路径:" << stagedDecryptedTsPath;
 
-	QFileInfo mp4Info(mp4Path);
-	if (!mp4Info.exists() || !mp4Info.isFile()) {
-		emit decryptFinished(false, "解密失败 [code=input_missing]: result.mp4 不存在");
+	QFileInfo stagingInfo(stagingInputPath);
+	if (!stagingInfo.exists() || !stagingInfo.isFile()) {
+		emit decryptFinished(false, "解密失败 [code=input_missing]: result.ts 不存在");
 		return;
 	}
 
-	const QString outputSuffix = m_transcodeToMp4 ? QStringLiteral("mp4") : QStringLiteral("ts");
-	QString outputFilePath = QDir(trimmedSavePath).filePath(QStringLiteral("result.%1").arg(outputSuffix));
+	const MediaContainerType desiredContainer = m_transcodeToMp4 ? MediaContainerType::Mp4 : MediaContainerType::MpegTs;
 	const QString assetsDir = decryptAssetsDir();
 	QString cboxExe = QDir(assetsDir).filePath("cbox.exe");
-    qInfo() << "输出文件路径:" << outputFilePath << "CBOX执行文件:" << cboxExe;
+	qInfo() << "输出文件路径:" << stagedDecryptedTsPath << "CBOX执行文件:" << cboxExe;
 
 	QFileInfo cboxExeInfo(cboxExe);
 	if (!cboxExeInfo.exists() || !cboxExeInfo.isFile()) {
@@ -277,12 +278,12 @@ void DecryptWorker::doDecrypt()
 		QFile::remove(cboxPath);
     }
 
-    qInfo() << "重命名MP4文件为CBOX文件";
-	if (!QFile::rename(mp4Path, cboxPath)) {
+    qInfo() << "重命名TS文件为CBOX文件";
+	if (!QFile::rename(stagingInputPath, cboxPath)) {
         qWarning() << "重命名失败，尝试复制方式";
-		if (!QFile::copy(mp4Path, cboxPath) || !QFile::remove(mp4Path)) {
-			qCritical() << "重命名/复制 result.mp4 -> input.cbox 失败";
-			emit decryptFinished(false, "重命名MP4->CBOX失败");
+		if (!QFile::copy(stagingInputPath, cboxPath) || !QFile::remove(stagingInputPath)) {
+			qCritical() << "重命名/复制 result.ts -> input.cbox 失败";
+			emit decryptFinished(false, "重命名TS->CBOX失败");
 			return;
 		}
         qInfo() << "通过复制方式完成文件转换";
@@ -307,7 +308,7 @@ void DecryptWorker::doDecrypt()
 
 	DecryptProcessRequest request;
 	request.program = cboxExe;
-	request.arguments = { cboxPath, outputFilePath };
+	request.arguments = { cboxPath, stagedDecryptedTsPath };
 	request.workingDirectory = trimmedSavePath;
 	request.timeoutMs = m_processTimeoutMs;
 
@@ -331,8 +332,8 @@ void DecryptWorker::doDecrypt()
 	{
 		const QString errorString = cappedDiagnosticText(processResult.errorString);
 		qCritical() << "无法启动cbox进程" << errorString;
-		if (!restoreConvertedInputToMp4(cboxPath, mp4Path)) {
-			qWarning() << "回滚 input.cbox -> result.mp4 失败:" << cboxPath << mp4Path;
+		if (!restoreConvertedInputToTs(cboxPath, stagingInputPath)) {
+			qWarning() << "回滚 input.cbox -> result.ts 失败:" << cboxPath << stagingInputPath;
 		}
 		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
 		emit decryptFinished(false, errorString.isEmpty()
@@ -344,8 +345,8 @@ void DecryptWorker::doDecrypt()
 	if (processResult.timedOut)
 	{
 		qCritical() << "CBOX解密超时，超时时间:" << request.timeoutMs << "ms";
-		if (!restoreConvertedInputToMp4(cboxPath, mp4Path)) {
-			qWarning() << "回滚 input.cbox -> result.mp4 失败:" << cboxPath << mp4Path;
+		if (!restoreConvertedInputToTs(cboxPath, stagingInputPath)) {
+			qWarning() << "回滚 input.cbox -> result.ts 失败:" << cboxPath << stagingInputPath;
 		}
 		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
 		emit decryptFinished(false, QStringLiteral("解密失败 [code=timeout]: cbox 超时 %1 ms").arg(request.timeoutMs));
@@ -356,8 +357,8 @@ void DecryptWorker::doDecrypt()
 	{
 		const QString diagnostic = preferredProcessDiagnostic(processResult);
 		qCritical() << "CBOX解密失败，退出码:" << processResult.exitCode << "错误信息:" << diagnostic;
-		if (!restoreConvertedInputToMp4(cboxPath, mp4Path)) {
-			qWarning() << "回滚 input.cbox -> result.mp4 失败:" << cboxPath << mp4Path;
+		if (!restoreConvertedInputToTs(cboxPath, stagingInputPath)) {
+			qWarning() << "回滚 input.cbox -> result.ts 失败:" << cboxPath << stagingInputPath;
 		}
 		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
 		emit decryptFinished(false, QStringLiteral("解密失败 [code=process_failed; exit_code=%1]: %2")
@@ -367,57 +368,46 @@ void DecryptWorker::doDecrypt()
 	}
 
     qInfo() << "CBOX解密成功完成，退出码:" << processResult.exitCode;
-    
-	// 清理视频名称中可能的路径非法字符
-	m_name.replace(QRegularExpression(R"([\\/:*?"<>|])"), "_");
-	qInfo() << "清理后的视频名称:" << m_name;
 
-	QString finalPath = QDir(trimmedSavePath).filePath("%1.%2").arg(m_name, outputSuffix);
-	qInfo() << "初始文件路径:" << finalPath;
-
-	// 生成不重复的最终文件路径
-	int counter = 1;
-	QString uniqueFinalPath = finalPath;
-	QFileInfo fileInfo(finalPath);
-	QString baseName = fileInfo.completeBaseName();
-	QString suffix = fileInfo.suffix();
-	QString path = fileInfo.path();
-
-	while (QFile::exists(uniqueFinalPath)) {
-		uniqueFinalPath = QDir(path).filePath(
-			QString("%1(%2).%3").arg(baseName).arg(counter).arg(suffix)
-		);
-		counter++;
-
-		// 防止无限循环
-		if (counter > 1000) {
-			qCritical() << "无法生成唯一最终文件路径，达到尝试次数上限";
-			emit decryptFinished(false, "无法生成唯一的视频文件名");
-			return;
+	const MediaContainerValidationResult validation =
+		MediaContainerValidator::validateFile(stagedDecryptedTsPath, MediaContainerType::MpegTs);
+	if (!validation.ok) {
+		qCritical() << "CBOX输出不是有效的TS文件:" << validation.code << validation.message;
+		QFile::remove(stagedDecryptedTsPath);
+		if (!restoreConvertedInputToTs(cboxPath, stagingInputPath)) {
+			qWarning() << "回滚 input.cbox -> result.ts 失败:" << cboxPath << stagingInputPath;
 		}
-	}
-
-	// 如果生成了新文件名，记录信息
-	if (uniqueFinalPath != finalPath) {
-		qInfo() << "原文件已存在，使用新文件名:" << uniqueFinalPath;
-		finalPath = uniqueFinalPath;
-	}
-
-	qInfo() << "最终文件路径:" << finalPath;
-
-	if (!QFile::rename(outputFilePath, finalPath))
-	{
-		qCritical() << "重命名视频文件失败，从" << outputFilePath << "到" << finalPath;
-		emit decryptFinished(false, "重命名视频文件失败");
+		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+		emit decryptFinished(false, QStringLiteral("解密失败 [code=invalid_cbox_output]: [%1] %2")
+			.arg(validation.code, validation.message));
 		return;
 	}
 
-	qInfo() << "重命名视频文件成功";
+	MediaFinalizer finalizer;
+	finalizer.setProcessTimeoutMs(m_processTimeoutMs);
+	const MediaFinalizeResult finalizeResult = finalizer.finalize(stagedDecryptedTsPath,
+		m_name,
+		trimmedSavePath,
+		desiredContainer);
+	if (!finalizeResult.ok) {
+		qCritical() << "MediaFinalizer 发布失败:" << finalizeResult.code << finalizeResult.message;
+		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+		emit decryptFinished(false, QStringLiteral("解密失败 [code=%1]: %2")
+			.arg(finalizeResult.code, finalizeResult.message));
+		return;
+	}
+
+	const QString finalPath = finalizeResult.finalPath;
+	qInfo() << "最终文件路径:" << finalPath;
+	if (QFile::exists(stagedDecryptedTsPath) && !QFile::remove(stagedDecryptedTsPath)) {
+		qWarning() << "清理解密阶段 result.ts 失败:" << stagedDecryptedTsPath;
+	}
 
 	if (!removeDirectory(filePath))
 	{
 		qWarning() << "移除临时文件夹失败，请手动清理:" << filePath;
 		emit decryptFinished(false, "移除临时文件夹失败\n请手动清理");
+		return;
 	} else {
         qInfo() << "临时文件夹清理成功";
     }
