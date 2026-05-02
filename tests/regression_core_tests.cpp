@@ -12,6 +12,7 @@
 #include <QDate>
 #include <QSpinBox>
 #include <QCheckBox>
+#include <QRadioButton>
 #include <QCryptographicHash>
 #include <QCoreApplication>
 #include <QFile>
@@ -119,6 +120,11 @@ public:
         apiService.processMonthData(items, month, result, resultIndex, isHighlight);
     }
 
+    static void processTopicVideoData(APIService& apiService, const QJsonArray& items, QMap<int, VideoItem>& result, int& resultIndex)
+    {
+        apiService.processTopicVideoData(items, result, resultIndex);
+    }
+
     static QHash<QString, QString> parseM3U8QualityUrls(APIService& apiService, const QByteArray& m3u8Data, const QString& baseUrl)
     {
         return apiService.parseM3U8QualityUrls(m3u8Data, baseUrl);
@@ -137,6 +143,11 @@ public:
     static QUrl buildAlbumVideoListUrl(APIService& apiService, const QString& albumId, int mode, int page, int pageSize)
     {
         return apiService.buildAlbumVideoListUrl(albumId, mode, page, pageSize);
+    }
+
+    static QUrl buildTopicVideoListUrl(APIService& apiService, const QString& columnId, const QString& itemId, int type)
+    {
+        return apiService.buildTopicVideoListUrl(columnId, itemId, type);
     }
 
     static QStringList buildTsUrlsFromPlaylistData(APIService& apiService, const QByteArray& playlistData, const QString& fullM3u8Url)
@@ -252,6 +263,11 @@ public:
         worker.setProcessTimeoutMs(timeoutMs);
     }
 
+    static void setTranscodeToMp4(DecryptWorker& worker, bool transcodeToMp4)
+    {
+        worker.setTranscodeToMp4(transcodeToMp4);
+    }
+
     static void setTestProcessRunner(DecryptWorker& worker, const std::function<DecryptProcessResult(const DecryptProcessRequest&)>& runner)
     {
         worker.setTestProcessRunner(runner);
@@ -336,6 +352,7 @@ private slots:
     void decryptWorker_processFailed_restoresTempResultMp4();
     void decryptWorker_processFailed_preservesPreExistingLicense();
     void decryptWorker_success_preservesPreExistingLicense();
+    void decryptWorker_success_canKeepDecryptedTs();
     void decryptWorker_crashExitWithZeroExitCode_emitsProcessFailure();
 
     void concatWorker_zeroByteFile_emitsFailure();
@@ -349,12 +366,14 @@ private slots:
     void apiservice_parseJsonArray_missingObjectOrArrayKey_returnsEmptyArray();
     void apiservice_processMonthData_skipsItemsWithoutGuidOrTitle();
     void apiservice_processMonthData_marksHighlightItems();
+    void apiservice_processTopicVideoData_marksFragments();
     void apiservice_parseM3U8QualityUrls_and_selectQuality_chooseHighestForZero();
     void apiservice_getPlayColumnInfo_usesGuidFallbackForCctv4k();
     void apiservice_getVideoList_usesCctv4kGuidFallback();
     void apiservice_getEncryptM3U8Urls_cctv4kUses4000Playlist();
     void apiservice_buildVideoApiUrl_buildsExpectedQuery();
     void apiservice_buildAlbumVideoListUrl_buildsHighlightQuery();
+    void apiservice_buildTopicVideoListUrl_buildsFragmentQuery();
     void apiservice_buildTsUrlsFromPlaylistData_returnsExpectedAbsoluteUrls();
     void apiservice_sendNetworkRequest_fakeSuccess_returnsDeterministicBody();
     void apiservice_sendNetworkRequest_fakeError_returnsEmptyData();
@@ -403,7 +422,8 @@ void CoreRegressionTests::initGlobalSettings_createsDefaults()
     const auto [dateBeg, dateEnd] = readDisplayMinAndMax();
 
     QCOMPARE(readSavePath(), QString("C:\\Video"));
-    QCOMPARE(readThreadNum(), 10);
+    QCOMPARE(readThreadNum(), 1);
+    QCOMPARE(readTranscode(), true);
     QCOMPARE(readQuality(), QString("1"));
     QCOMPARE(readLogLevel(), 1);
     QCOMPARE(readShowHighlights(), false);
@@ -424,6 +444,8 @@ void CoreRegressionTests::setting_saveSettings_roundTripsValuesFromWidgetsToDisk
     auto* qualityCombo = setting.findChild<QComboBox*>("comboBox_quality");
     auto* logCombo = setting.findChild<QComboBox*>("comboBox_log");
     auto* highlightsCheck = setting.findChild<QCheckBox*>("checkBox_highlights");
+    auto* tsRadio = setting.findChild<QRadioButton*>("radioButton_ts");
+    auto* mp4Radio = setting.findChild<QRadioButton*>("radioButton_mp4");
 
     QVERIFY(savePathEdit != nullptr);
     QVERIFY(threadSpin != nullptr);
@@ -432,6 +454,8 @@ void CoreRegressionTests::setting_saveSettings_roundTripsValuesFromWidgetsToDisk
     QVERIFY(qualityCombo != nullptr);
     QVERIFY(logCombo != nullptr);
     QVERIFY(highlightsCheck != nullptr);
+    QVERIFY(tsRadio != nullptr);
+    QVERIFY(mp4Radio != nullptr);
 
     const QString expectedSavePath = QDir(m_tempDir->path()).filePath("custom_path");
     const int expectedThreadNum = 6;
@@ -447,6 +471,7 @@ void CoreRegressionTests::setting_saveSettings_roundTripsValuesFromWidgetsToDisk
     qualityCombo->setCurrentIndex(expectedQuality);
     logCombo->setCurrentIndex(expectedLogLevel);
     highlightsCheck->setChecked(true);
+    tsRadio->setChecked(true);
 
     setting.saveSettings();
 
@@ -454,6 +479,7 @@ void CoreRegressionTests::setting_saveSettings_roundTripsValuesFromWidgetsToDisk
 
     QCOMPARE(readSavePath(), expectedSavePath);
     QCOMPARE(readThreadNum(), expectedThreadNum);
+    QCOMPARE(readTranscode(), false);
     QCOMPARE(readQuality(), QString::number(expectedQuality));
     QCOMPARE(readLogLevel(), expectedLogLevel);
     QCOMPARE(readShowHighlights(), true);
@@ -482,6 +508,8 @@ void CoreRegressionTests::setting_smoke_persistsSettingsAcrossFreshSession()
         auto* qualityCombo = setting.findChild<QComboBox*>("comboBox_quality");
         auto* logCombo = setting.findChild<QComboBox*>("comboBox_log");
         auto* highlightsCheck = setting.findChild<QCheckBox*>("checkBox_highlights");
+        auto* tsRadio = setting.findChild<QRadioButton*>("radioButton_ts");
+        auto* mp4Radio = setting.findChild<QRadioButton*>("radioButton_mp4");
 
         QVERIFY(savePathEdit != nullptr);
         QVERIFY(threadSpin != nullptr);
@@ -490,6 +518,8 @@ void CoreRegressionTests::setting_smoke_persistsSettingsAcrossFreshSession()
         QVERIFY(qualityCombo != nullptr);
         QVERIFY(logCombo != nullptr);
         QVERIFY(highlightsCheck != nullptr);
+        QVERIFY(tsRadio != nullptr);
+        QVERIFY(mp4Radio != nullptr);
 
         savePathEdit->setText(expectedSavePath);
         threadSpin->setValue(expectedThreadNum);
@@ -498,6 +528,7 @@ void CoreRegressionTests::setting_smoke_persistsSettingsAcrossFreshSession()
         qualityCombo->setCurrentIndex(expectedQuality);
         logCombo->setCurrentIndex(expectedLogLevel);
         highlightsCheck->setChecked(true);
+        mp4Radio->setChecked(true);
 
         setting.saveSettings();
     }
@@ -509,6 +540,7 @@ void CoreRegressionTests::setting_smoke_persistsSettingsAcrossFreshSession()
 
     QCOMPARE(readSavePath(), expectedSavePath);
     QCOMPARE(readThreadNum(), expectedThreadNum);
+    QCOMPARE(readTranscode(), true);
     QCOMPARE(readQuality(), QString::number(expectedQuality));
     QCOMPARE(readLogLevel(), expectedLogLevel);
     QCOMPARE(readShowHighlights(), true);
@@ -2414,6 +2446,57 @@ void CoreRegressionTests::decryptWorker_success_preservesPreExistingLicense()
     QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密完成，输出 success-preexisting-license-video"));
 }
 
+void CoreRegressionTests::decryptWorker_success_canKeepDecryptedTs()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_success_keep_ts");
+    QVERIFY(QDir().mkpath(savePath));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("keep-ts-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTranscodeToMp4(worker, false);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+    QString cboxOutputFileName;
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&cboxOutputFileName](const DecryptProcessRequest& request) {
+        cboxOutputFileName = QFileInfo(request.arguments.at(1)).fileName();
+        QFile outputFile(request.arguments.at(1));
+        if (outputFile.open(QIODevice::WriteOnly)) {
+            outputFile.write("fake decrypted ts bytes");
+            outputFile.close();
+        }
+
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 0;
+        result.exitStatus = QProcess::NormalExit;
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(cboxOutputFileName, QString("result.ts"));
+    QVERIFY(QFileInfo::exists(QDir(savePath).filePath("keep-ts-video.ts")));
+    QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("keep-ts-video.mp4")));
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+}
+
 void CoreRegressionTests::decryptWorker_crashExitWithZeroExitCode_emitsProcessFailure()
 {
     DecryptWorker worker;
@@ -2531,6 +2614,32 @@ void CoreRegressionTests::apiservice_processMonthData_marksHighlightItems()
     QCOMPARE(result.size(), 1);
     QVERIFY(result.value(0).isHighlight);
     QCOMPARE(result.value(0).guid, QString("highlight-guid"));
+}
+
+void CoreRegressionTests::apiservice_processTopicVideoData_marksFragments()
+{
+    APIService& apiService = APIService::instance();
+
+    QJsonArray items{
+        QJsonObject{
+            {"guid", "fragment-guid"},
+            {"video_title", "fragment-title"},
+            {"video_focus_date", "2022-06-24 23:29:56"},
+            {"video_key_frame_url", "https://example.test/fragment.jpg"},
+            {"sc", "fragment brief"}
+        }
+    };
+
+    QMap<int, VideoItem> result;
+    int index = 0;
+    APIServiceTestAdapter::processTopicVideoData(apiService, items, result, index);
+
+    QCOMPARE(result.size(), 1);
+    QCOMPARE(index, 1);
+    QCOMPARE(result.value(0).guid, QString("fragment-guid"));
+    QCOMPARE(result.value(0).title, QString("fragment-title"));
+    QVERIFY(result.value(0).isHighlight);
+    QCOMPARE(result.value(0).listType, QString::fromUtf8("片段"));
 }
 
 void CoreRegressionTests::apiservice_parseM3U8QualityUrls_and_selectQuality_chooseHighestForZero()
@@ -2695,6 +2804,21 @@ void CoreRegressionTests::apiservice_buildAlbumVideoListUrl_buildsHighlightQuery
     QCOMPARE(query.queryItemValue(QString("mode")), QString("1"));
     QCOMPARE(query.queryItemValue(QString("p")), QString("3"));
     QCOMPARE(query.queryItemValue(QString("n")), QString("25"));
+}
+
+void CoreRegressionTests::apiservice_buildTopicVideoListUrl_buildsFragmentQuery()
+{
+    APIService& apiService = APIService::instance();
+
+    const auto url = APIServiceTestAdapter::buildTopicVideoListUrl(apiService, QString("TOPC1451550970356385"), QString("VIDER7mPB8nmQTvlV8rXlov0220624"), 1);
+    QCOMPARE(url.host(), QString("api.cntv.cn"));
+    QCOMPARE(url.path(), QString("/video/getVideoListByTopicIdInfo"));
+
+    const auto query = QUrlQuery(url);
+    QCOMPARE(query.queryItemValue(QString("videoid")), QString("VIDER7mPB8nmQTvlV8rXlov0220624"));
+    QCOMPARE(query.queryItemValue(QString("topicid")), QString("TOPC1451550970356385"));
+    QCOMPARE(query.queryItemValue(QString("serviceId")), QString("tvcctv"));
+    QCOMPARE(query.queryItemValue(QString("type")), QString("1"));
 }
 
 void CoreRegressionTests::apiservice_buildTsUrlsFromPlaylistData_returnsExpectedAbsoluteUrls()

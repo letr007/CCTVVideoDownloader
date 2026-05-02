@@ -23,9 +23,10 @@ Decrypt::~Decrypt()
 	}
 }
 
-void Decrypt::transferDecryptParams(const QString& name, const QString& savePath)
+void Decrypt::transferDecryptParams(const QString& name, const QString& savePath, bool transcodeToMp4)
 {
 	worker->setParams(name, savePath);
+	worker->setTranscodeToMp4(transcodeToMp4);
 	worker->moveToThread(decryptThread);
 	connect(decryptThread, &QThread::started, worker, &DecryptWorker::doDecrypt);
 	connect(worker, &DecryptWorker::decryptFinished, this, &Decrypt::onDecryptFinished);

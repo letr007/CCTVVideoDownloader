@@ -52,4 +52,8 @@ target_compile_definitions(core_regression_tests
         CORE_REGRESSION_TESTS
 )
 
+if (MSVC)
+    target_compile_options(core_regression_tests PRIVATE /utf-8)
+endif()
+
 add_test(NAME core_regression_tests COMMAND core_regression_tests)

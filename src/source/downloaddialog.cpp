@@ -10,20 +10,26 @@
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QTimer>
+#include <QResizeEvent>
 
 Download::Download(QWidget* parent)
 	: QDialog(parent)
 {
 	ui.setupUi(this);
+	resize(700, 500);
+	setMinimumSize(560, 400);
+	setMaximumSize(840, 600);
 	m_model = new DownloadModel(this);
 	m_engine = new DownloadEngine(this);
 	ui.tableView->setModel(m_model);
 	// 设置列宽策略
 	ui.tableView->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
 	ui.tableView->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-	ui.tableView->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
-	ui.tableView->horizontalHeader()->resizeSection(2, 180);
+	ui.tableView->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
 	ui.tableView->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+	ui.tableView->setTextElideMode(Qt::ElideMiddle);
+	ui.tableView->setWordWrap(false);
+	layoutDownloadDialog();
 
 	ui.progressBar_all->setValue(0);
 
@@ -31,6 +37,34 @@ Download::Download(QWidget* parent)
 	connect(m_model, &DownloadModel::dataChanged, [this]() {
 		ui.progressBar_all->setValue(m_model->totalProgress());
 		});
+}
+
+void Download::resizeEvent(QResizeEvent* event)
+{
+	QDialog::resizeEvent(event);
+	layoutDownloadDialog();
+}
+
+void Download::layoutDownloadDialog()
+{
+	if (!ui.label_7 || !ui.progressBar_all || !ui.tableView) {
+		return;
+	}
+
+	const int margin = 12;
+	const int gap = 8;
+	const int labelHeight = 22;
+	const int progressHeight = 24;
+	const int tableY = margin + labelHeight + gap + progressHeight + gap;
+
+	ui.label_7->setGeometry(margin, margin, width() - margin * 2, labelHeight);
+	ui.progressBar_all->setGeometry(margin, margin + labelHeight + gap, width() - margin * 2, progressHeight);
+	ui.tableView->setGeometry(margin, tableY, width() - margin * 2, height() - tableY - margin);
+
+	ui.tableView->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+	ui.tableView->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+	ui.tableView->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+	ui.tableView->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
 }
 
 Download::~Download()
@@ -122,7 +156,7 @@ void Download::onDownloadProgress(
 		}
 		if (progress >= 100)
 		{
-			info.status = DownloadStatus::Finished;
+			info.status = DownloadStatus::Downloading;
 		}
 		else if (progress > 0)
 		{
@@ -208,11 +242,22 @@ void Download::restorePersistedShardState()
 {
 	QSet<int> persistedPendingIndexes;
 	QSet<int> persistedCompletedIndexes;
+	bool persistedUrlsMatch = false;
 	const bool stateExists = hasPersistedShardState();
 	QFile stateFile(shardStateFilePath());
 	if (stateFile.open(QIODevice::ReadOnly)) {
 		const QJsonDocument document = QJsonDocument::fromJson(stateFile.readAll());
 		const QJsonObject root = document.object();
+		const QJsonArray urlsArray = root.value("urls").toArray();
+		if (urlsArray.size() == m_urls.size()) {
+			persistedUrlsMatch = true;
+			for (int i = 0; i < urlsArray.size(); ++i) {
+				if (urlsArray.at(i).toString() != m_urls.at(i)) {
+					persistedUrlsMatch = false;
+					break;
+				}
+			}
+		}
 		const QJsonArray pendingArray = root.value("pending_indexes").toArray();
 		const QJsonArray completedArray = root.value("completed_indexes").toArray();
 		for (const QJsonValue& value : pendingArray) {
@@ -229,6 +274,7 @@ void Download::restorePersistedShardState()
 		const QString filePath = shardFilePathForIndex(index);
 		const QFileInfo fileInfo(filePath);
 		const bool isPersistedComplete = stateExists
+			&& persistedUrlsMatch
 			&& persistedCompletedIndexes.contains(index)
 			&& !persistedPendingIndexes.contains(index)
 			&& fileInfo.exists()

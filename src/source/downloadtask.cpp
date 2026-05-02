@@ -306,9 +306,11 @@ void DownloadTask::run()
             if (timeoutMs > 0
                 && !timedOut
                 && !m_cancelled.load(std::memory_order_relaxed)
-                && !reply->isFinished()
-                && !hasFullyReceivedPayload()) {
-                inactivityTimer.start(timeoutMs);
+                && !reply->isFinished()) {
+                const int activeTimeoutMs = hasFullyReceivedPayload()
+                    ? std::max(timeoutMs, 1000)
+                    : timeoutMs;
+                inactivityTimer.start(activeTimeoutMs);
             } else {
                 inactivityTimer.stop();
             }

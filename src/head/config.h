@@ -14,6 +14,7 @@ extern std::tuple<QString, QString> readDisplayMinAndMax();
 extern QString readQuality();
 extern QString readSavePath();
 extern int readThreadNum();
+extern bool readTranscode();
 extern int readLogLevel();
 extern bool readShowHighlights();
 
