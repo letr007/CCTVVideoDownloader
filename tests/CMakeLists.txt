@@ -13,6 +13,7 @@ qt_add_executable(core_regression_tests
     fakes/fake_networkreply.cpp
     fakes/fake_networkaccessmanager.cpp
     ${PROJECT_SOURCE_DIR}/src/source/config.cpp
+    ${PROJECT_SOURCE_DIR}/src/source/directmediafinalizer.cpp
     ${PROJECT_SOURCE_DIR}/src/source/setting.cpp
     ${PROJECT_SOURCE_DIR}/src/source/apiservice.cpp
     ${PROJECT_SOURCE_DIR}/src/source/downloadtask.cpp
@@ -21,9 +22,13 @@ qt_add_executable(core_regression_tests
     ${PROJECT_SOURCE_DIR}/src/source/downloaddialog.cpp
     ${PROJECT_SOURCE_DIR}/src/source/decryptworker.cpp
     ${PROJECT_SOURCE_DIR}/src/source/concatworker.cpp
+    ${PROJECT_SOURCE_DIR}/src/source/ffmpegcliremuxer.cpp
+    ${PROJECT_SOURCE_DIR}/src/source/mediacontainervalidator.cpp
+    ${PROJECT_SOURCE_DIR}/src/source/mediafinalizer.cpp
     ${PROJECT_SOURCE_DIR}/src/source/tsmerger.cpp
     ${core_regression_tests_moc}
     ${PROJECT_SOURCE_DIR}/src/head/config.h
+    ${PROJECT_SOURCE_DIR}/src/head/directmediafinalizer.h
     ${PROJECT_SOURCE_DIR}/src/head/setting.h
     ${PROJECT_SOURCE_DIR}/src/head/downloadtask.h
     ${PROJECT_SOURCE_DIR}/src/head/downloadengine.h
@@ -31,6 +36,9 @@ qt_add_executable(core_regression_tests
     ${PROJECT_SOURCE_DIR}/src/head/downloaddialog.h
     ${PROJECT_SOURCE_DIR}/src/head/decryptworker.h
     ${PROJECT_SOURCE_DIR}/src/head/concatworker.h
+    ${PROJECT_SOURCE_DIR}/src/head/ffmpegcliremuxer.h
+    ${PROJECT_SOURCE_DIR}/src/head/mediacontainervalidator.h
+    ${PROJECT_SOURCE_DIR}/src/head/mediafinalizer.h
     ${PROJECT_SOURCE_DIR}/src/head/tsmerger.h
 )
 
@@ -55,5 +63,12 @@ target_compile_definitions(core_regression_tests
 if (MSVC)
     target_compile_options(core_regression_tests PRIVATE /utf-8)
 endif()
+
+add_custom_command(TARGET core_regression_tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:core_regression_tests>/decrypt"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${PROJECT_SOURCE_DIR}/src/decrypt"
+            "$<TARGET_FILE_DIR:core_regression_tests>/decrypt"
+)
 
 add_test(NAME core_regression_tests COMMAND core_regression_tests)

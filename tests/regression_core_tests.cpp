@@ -17,6 +17,7 @@
 #include <QCoreApplication>
 #include <QFile>
 #include <QElapsedTimer>
+#include <QProcess>
 #include <QTimer>
 #include <functional>
 #include <memory>
@@ -28,7 +29,11 @@
 #include "downloadengine.h"
 #include "downloadtask.h"
 #include "downloaddialog.h"
+#include "directmediafinalizer.h"
 #include "decryptworker.h"
+#include "ffmpegcliremuxer.h"
+#include "mediafinalizer.h"
+#include "mediacontainervalidator.h"
 #include "concatworker.h"
 #include "tsmerger.h"
 #include "fakes/fake_networkaccessmanager.h"
@@ -76,6 +81,36 @@ bool createFakeTsFile(const QString& filePath, int packetCount, quint16 pid = 0)
     return written == expectedSize;
 }
 
+bool createFileWithContents(const QString& filePath, const QByteArray& data)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        return false;
+    }
+
+    const qint64 written = file.write(data);
+    file.close();
+    return written == data.size();
+}
+
+QByteArray createFakeMp4Bytes()
+{
+    QByteArray data;
+    data.append(char(0x00));
+    data.append(char(0x00));
+    data.append(char(0x00));
+    data.append(char(0x18));
+    data.append("ftyp", 4);
+    data.append("isom", 4);
+    data.append(char(0x00));
+    data.append(char(0x00));
+    data.append(char(0x00));
+    data.append(char(0x00));
+    data.append("isom", 4);
+    data.append("mp42", 4);
+    return data;
+}
+
 void createDecryptAssets(const QString& assetsDirPath, bool includeCboxExe = true, bool includeLicense = true)
 {
     if (includeCboxExe) {
@@ -84,6 +119,30 @@ void createDecryptAssets(const QString& assetsDirPath, bool includeCboxExe = tru
     if (includeLicense) {
         QVERIFY(createEmptyFile(QDir(assetsDirPath).filePath("UDRM_LICENSE.v1.0")));
     }
+}
+
+QString bundledFfmpegPath()
+{
+    return QDir(QCoreApplication::applicationDirPath()).filePath("decrypt/ffmpeg.exe");
+}
+
+QByteArray createRemuxableTsFixtureBytes()
+{
+    static const QByteArray encoded =
+        "R0AREABC8CUAAcEAAP8B/wAB/IAUSBIBBkZGbXBlZwlTZXJ2aWNlMDF3fEPK////////////////////"
+        "////////////////////////////////////////////////////////////////////////////////"
+        "////////////////////////////////////////////////////////////////////////////////"
+        "//////////9HQAAQAACwDQABwQAAAAHwACqxBLL/////////////////////////////////////////"
+        "////////////////////////////////////////////////////////////////////////////////"
+        "////////////////////////////////////////////////////////////////////////////////"
+        "/////////////////////0dQABAAArAXAAHBAADhAPAAAuEA8AAD4QHwAPZKA1X/////////////////"
+        "////////////////////////////////////////////////////////////////////////////////"
+        "////////////////////////////////////////////////////////////////////////////////"
+        "////////////////////////////////R0EAMAdQAAB7DH4AAAAB4AAAgMAKMQAH9IERAAfYYQAAAbMU"
+        "APAj///gGAAAAbUUigABAAAAAAG4AAgAQAAAAQAAD//4AAABtY//80GAAAABARP5RSlL9wvNuUpSIuUp"
+        "SIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUp"
+        "SIuUpSIgAAABAhP5RSlL9wvNuUpSIuUpSIuUpSIuUpQ=";
+    return QByteArray::fromBase64(encoded);
 }
 
 }
@@ -289,6 +348,35 @@ public:
     }
 };
 
+class MediaFinalizerTestAdapter {
+public:
+    static void setProcessTimeoutMs(MediaFinalizer& finalizer, int timeoutMs)
+    {
+        finalizer.setProcessTimeoutMs(timeoutMs);
+    }
+
+    static void setTestProcessRunner(MediaFinalizer& finalizer,
+        const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& runner)
+    {
+        finalizer.m_remuxer.setTestProcessRunner(runner);
+    }
+
+    static void clearTestProcessRunner(MediaFinalizer& finalizer)
+    {
+        finalizer.m_remuxer.clearTestProcessRunner();
+    }
+
+    static void setTestDecryptAssetsDir(MediaFinalizer& finalizer, const QString& decryptAssetsDir)
+    {
+        finalizer.m_remuxer.setTestDecryptAssetsDir(decryptAssetsDir);
+    }
+
+    static void clearTestDecryptAssetsDir(MediaFinalizer& finalizer)
+    {
+        finalizer.m_remuxer.clearTestDecryptAssetsDir();
+    }
+};
+
 class CoreRegressionTests : public QObject
 {
     Q_OBJECT
@@ -337,6 +425,8 @@ private slots:
 
     void decryptWorker_renameFailure_emitsRenameError();
     void decryptWorker_fakeProcessRunner_seamSkipsRealProcess();
+    void decryptWorker_cboxOutputStaysInTaskDirectoryAndPreservesSaveRootResultTs();
+    void decryptWorker_cleanupFailure_emitsSingleFailureAfterPublish();
     void decryptWorker_processTimeoutNormalization_passesDefaultTimeoutToRunner();
     void decryptWorker_testDecryptAssetsDir_usesTemporaryAssets();
     void decryptWorker_invalidParams_emitsStructuredPreflightError();
@@ -353,14 +443,30 @@ private slots:
     void decryptWorker_processFailed_preservesPreExistingLicense();
     void decryptWorker_success_preservesPreExistingLicense();
     void decryptWorker_success_canKeepDecryptedTs();
+    void decryptWorker_invalidCboxOutput_rejectsAndDoesNotPublish();
     void decryptWorker_crashExitWithZeroExitCode_emitsProcessFailure();
 
+    void concatWorker_success_stagesResultTs();
     void concatWorker_zeroByteFile_emitsFailure();
 
     void tsMerger_validMinimalPacket_succeeds();
     void tsMerger_zeroByteFile_returnsFalse();
     void tsMerger_malformedNonZeroFile_returnsFalse();
     void tsMerger_failedMerge_preservesExistingOutputFile();
+    void mediaContainerValidator_validTs_detectsMpegTs();
+    void mediaContainerValidator_validMp4_detectsMp4();
+    void mediaContainerValidator_tsBytesRenamedMp4_rejectsAsMp4();
+    void mediaContainerValidator_mixedFtypAndTsSync_rejectsAsMp4();
+    void mediaContainerValidator_invalidFiles_rejectEmptyAndUnknown();
+    void directMediaFinalizer_whitespaceTitle_usesProducerHashContract();
+    void cctvVideoDownloader_cctv4kTsSelection_finalizesStagedTs();
+    void cctvVideoDownloader_cctv4kMp4Selection_remuxesStagedTs();
+    void mediaFinalizer_publishTs_validatesAndUsesUniqueName();
+    void mediaFinalizer_remuxesToMp4ThroughBundledCli();
+    void mediaFinalizer_missingBundledFfmpeg_reportsFailure();
+    void mediaFinalizer_remuxTimeout_reportsFailureAndDoesNotPublishMp4();
+    void mediaFinalizer_remuxProcessFailure_reportsDiagnostic();
+    void mediaFinalizer_invalidRemuxedMp4_reportsValidationFailure();
 
     void apiservice_parseJsonObject_returnsEmptyOnInvalidJson();
     void apiservice_parseJsonArray_missingObjectOrArrayKey_returnsEmptyArray();
@@ -1645,7 +1751,7 @@ void CoreRegressionTests::tsMerger_mergeCreatesOutputInTaskDirectory()
 
     const QString firstTsPath = QDir(taskDir).filePath(QStringLiteral("1.ts"));
     const QString secondTsPath = QDir(taskDir).filePath(QStringLiteral("2.ts"));
-    const QString outputPath = QDir(taskDir).filePath(QStringLiteral("result.mp4"));
+    const QString outputPath = QDir(taskDir).filePath(QStringLiteral("result.ts"));
 
     QVERIFY(createFakeTsFile(firstTsPath, 2, 0));
     QVERIFY(createFakeTsFile(secondTsPath, 2, 256));
@@ -1660,6 +1766,10 @@ void CoreRegressionTests::tsMerger_mergeCreatesOutputInTaskDirectory()
     QVERIFY(outputInfo.exists());
     QVERIFY(outputInfo.isFile());
     QVERIFY(outputInfo.size() > 0);
+    QVERIFY(!QFileInfo::exists(QDir(taskDir).filePath(QStringLiteral("result.mp4"))));
+
+    const MediaContainerValidationResult validation = MediaContainerValidator::validateFile(outputPath, MediaContainerType::MpegTs);
+    QVERIFY2(validation.ok, qPrintable(validation.code + QStringLiteral(": ") + validation.message));
 }
 
 void CoreRegressionTests::decryptWorker_renameFailure_emitsRenameError()
@@ -1675,7 +1785,7 @@ void CoreRegressionTests::decryptWorker_renameFailure_emitsRenameError()
     const QString taskHash = decryptTaskHash(name);
     const QString tempTaskPath = QDir(savePath).filePath(taskHash);
     QVERIFY(QDir().mkpath(tempTaskPath));
-    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
 
     QTemporaryDir decryptAssetsDir;
     QVERIFY(decryptAssetsDir.isValid());
@@ -1693,11 +1803,14 @@ void CoreRegressionTests::decryptWorker_renameFailure_emitsRenameError()
 
     const auto arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toBool(), false);
-    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("重命名MP4->CBOX失败"));
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("重命名TS->CBOX失败"));
 }
 
 void CoreRegressionTests::decryptWorker_fakeProcessRunner_seamSkipsRealProcess()
 {
+    const QString ffmpegPath = bundledFfmpegPath();
+    QVERIFY2(QFileInfo::exists(ffmpegPath), qPrintable(QStringLiteral("Bundled ffmpeg runtime missing at %1").arg(ffmpegPath)));
+
     DecryptWorker worker;
     QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
 
@@ -1716,7 +1829,7 @@ void CoreRegressionTests::decryptWorker_fakeProcessRunner_seamSkipsRealProcess()
     const QString taskHash = decryptTaskHash(name);
     const QString tempTaskPath = QDir(savePath).filePath(taskHash);
     QVERIFY(QDir().mkpath(tempTaskPath));
-    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
 
     bool runnerCalled = false;
     DecryptProcessRequest capturedRequest;
@@ -1724,11 +1837,7 @@ void CoreRegressionTests::decryptWorker_fakeProcessRunner_seamSkipsRealProcess()
         runnerCalled = true;
         capturedRequest = request;
 
-        QFile outputFile(request.arguments.at(1));
-        if (outputFile.open(QIODevice::WriteOnly)) {
-            outputFile.write("fake decrypted bytes");
-            outputFile.close();
-        }
+        createFileWithContents(request.arguments.at(1), createRemuxableTsFixtureBytes());
 
         DecryptProcessResult result;
         result.started = true;
@@ -1748,12 +1857,130 @@ void CoreRegressionTests::decryptWorker_fakeProcessRunner_seamSkipsRealProcess()
     QVERIFY(runnerCalled);
     QCOMPARE(capturedRequest.arguments.size(), 2);
     QCOMPARE(capturedRequest.arguments.at(0), QDir(tempTaskPath).filePath("input.cbox"));
-    QCOMPARE(capturedRequest.arguments.at(1), QDir(savePath).filePath("result.mp4"));
+    QCOMPARE(capturedRequest.arguments.at(1), QDir(tempTaskPath).filePath("result.ts"));
     QVERIFY(QFileInfo::exists(QDir(savePath).filePath("fake-runner-video.mp4")));
+    QVERIFY(MediaContainerValidator::validateFile(QDir(savePath).filePath("fake-runner-video.mp4"), MediaContainerType::Mp4).ok);
 
     const auto arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toBool(), true);
     QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密完成，输出 fake-runner-video"));
+}
+
+void CoreRegressionTests::decryptWorker_cboxOutputStaysInTaskDirectoryAndPreservesSaveRootResultTs()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_staging_contract");
+    QVERIFY(QDir().mkpath(savePath));
+
+    const QString saveRootResultTsPath = QDir(savePath).filePath("result.ts");
+    const QByteArray saveRootSentinel("pre-existing save-root result.ts bytes");
+    QVERIFY(createFileWithContents(saveRootResultTsPath, saveRootSentinel));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("staging-contract-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTranscodeToMp4(worker, false);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
+
+    bool runnerCalled = false;
+    DecryptProcessRequest capturedRequest;
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest& request) -> DecryptProcessResult {
+        runnerCalled = true;
+        capturedRequest = request;
+        createFakeTsFile(request.arguments.at(1), 4, 512);
+
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 0;
+        result.exitStatus = QProcess::NormalExit;
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(runnerCalled);
+    QCOMPARE(capturedRequest.arguments.size(), 2);
+    QCOMPARE(capturedRequest.arguments.at(0), QDir(tempTaskPath).filePath("input.cbox"));
+    QCOMPARE(capturedRequest.arguments.at(1), QDir(tempTaskPath).filePath("result.ts"));
+    QVERIFY(QFileInfo::exists(QDir(savePath).filePath("staging-contract-video.ts")));
+    QVERIFY(!QFileInfo::exists(tempTaskPath));
+
+    QFile saveRootResultTs(saveRootResultTsPath);
+    QVERIFY(saveRootResultTs.open(QIODevice::ReadOnly));
+    QCOMPARE(saveRootResultTs.readAll(), saveRootSentinel);
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密完成，输出 staging-contract-video"));
+}
+
+void CoreRegressionTests::decryptWorker_cleanupFailure_emitsSingleFailureAfterPublish()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_cleanup_failure");
+    QVERIFY(QDir().mkpath(savePath));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("cleanup-failure-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTranscodeToMp4(worker, false);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
+
+    std::unique_ptr<QFile> lockedCleanupFile;
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest& request) -> DecryptProcessResult {
+        createFakeTsFile(request.arguments.at(1), 4, 768);
+
+        lockedCleanupFile = std::make_unique<QFile>(QDir(tempTaskPath).filePath("locked-cleanup.tmp"));
+        if (lockedCleanupFile->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            lockedCleanupFile->write("locked");
+            lockedCleanupFile->flush();
+        }
+
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 0;
+        result.exitStatus = QProcess::NormalExit;
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(QFileInfo::exists(QDir(savePath).filePath("cleanup-failure-video.ts")));
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("移除临时文件夹失败\n请手动清理"));
+
+    if (lockedCleanupFile) {
+        lockedCleanupFile->close();
+    }
+    QDir(tempTaskPath).removeRecursively();
 }
 
 void CoreRegressionTests::decryptWorker_processTimeoutNormalization_passesDefaultTimeoutToRunner()
@@ -1771,23 +1998,20 @@ void CoreRegressionTests::decryptWorker_processTimeoutNormalization_passesDefaul
 
     const QString name = QStringLiteral("timeout-default-video");
     worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTranscodeToMp4(worker, false);
     DecryptWorkerTestAdapter::setProcessTimeoutMs(worker, 0);
     DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
 
     const QString taskHash = decryptTaskHash(name);
     const QString tempTaskPath = QDir(savePath).filePath(taskHash);
     QVERIFY(QDir().mkpath(tempTaskPath));
-    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
 
     int seenTimeoutMs = -1;
     DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest& request) -> DecryptProcessResult {
         seenTimeoutMs = request.timeoutMs;
 
-        QFile outputFile(request.arguments.at(1));
-        if (outputFile.open(QIODevice::WriteOnly)) {
-            outputFile.write("fake decrypted bytes");
-            outputFile.close();
-        }
+        createFakeTsFile(request.arguments.at(1), 4, 512);
 
         DecryptProcessResult result;
         result.started = true;
@@ -1803,6 +2027,7 @@ void CoreRegressionTests::decryptWorker_processTimeoutNormalization_passesDefaul
 
     QCOMPARE(spy.count(), 1);
     QCOMPARE(seenTimeoutMs, 30000);
+    QVERIFY(QFileInfo::exists(QDir(savePath).filePath("timeout-default-video.ts")));
 
     const auto arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toBool(), true);
@@ -1823,22 +2048,19 @@ void CoreRegressionTests::decryptWorker_testDecryptAssetsDir_usesTemporaryAssets
 
     const QString name = QStringLiteral("assets-dir-video");
     worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTranscodeToMp4(worker, false);
     DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
 
     const QString taskHash = decryptTaskHash(name);
     const QString tempTaskPath = QDir(savePath).filePath(taskHash);
     QVERIFY(QDir().mkpath(tempTaskPath));
-    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
 
     DecryptProcessRequest capturedRequest;
     DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest& request) -> DecryptProcessResult {
         capturedRequest = request;
 
-        QFile outputFile(request.arguments.at(1));
-        if (outputFile.open(QIODevice::WriteOnly)) {
-            outputFile.write("fake decrypted bytes");
-            outputFile.close();
-        }
+        createFakeTsFile(request.arguments.at(1), 4, 768);
 
         DecryptProcessResult result;
         result.started = true;
@@ -1854,7 +2076,7 @@ void CoreRegressionTests::decryptWorker_testDecryptAssetsDir_usesTemporaryAssets
 
     QCOMPARE(spy.count(), 1);
     QCOMPARE(capturedRequest.program, QDir(decryptAssetsDir.path()).filePath("cbox.exe"));
-    QVERIFY(QFileInfo::exists(QDir(savePath).filePath("assets-dir-video.mp4")));
+    QVERIFY(QFileInfo::exists(QDir(savePath).filePath("assets-dir-video.ts")));
     QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("UDRM_LICENSE.v1.0")));
 
     const auto arguments = spy.takeFirst();
@@ -1921,7 +2143,7 @@ void CoreRegressionTests::decryptWorker_missingInput_emitsPreflightErrorBeforeMu
     QVERIFY(!QFileInfo::exists(cboxPath));
     const auto arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toBool(), false);
-    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=input_missing]: result.mp4 不存在"));
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=input_missing]: result.ts 不存在"));
 }
 
 void CoreRegressionTests::decryptWorker_missingCbox_emitsPreflightErrorBeforeProcessStart()
@@ -1942,7 +2164,7 @@ void CoreRegressionTests::decryptWorker_missingCbox_emitsPreflightErrorBeforePro
 
     const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
     QVERIFY(QDir().mkpath(tempTaskPath));
-    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
 
     int runnerCallCount = 0;
     DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest&) {
@@ -1982,8 +2204,8 @@ void CoreRegressionTests::decryptWorker_missingLicense_emitsPreflightErrorBefore
     const QString taskHash = decryptTaskHash(name);
     const QString tempTaskPath = QDir(savePath).filePath(taskHash);
     QVERIFY(QDir().mkpath(tempTaskPath));
-    const QString mp4Path = QDir(tempTaskPath).filePath("result.mp4");
-    QVERIFY(createEmptyFile(mp4Path));
+    const QString mp4Path = QDir(tempTaskPath).filePath("result.ts");
+    QVERIFY(createFakeTsFile(mp4Path, 4, 256));
 
     int runnerCallCount = 0;
     DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest&) {
@@ -2023,7 +2245,7 @@ void CoreRegressionTests::decryptWorker_outputUnwritable_emitsPreflightErrorBefo
 
     const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
     QVERIFY(QDir().mkpath(tempTaskPath));
-    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
 
     const QString probePath = QDir(savePath).filePath(
         QStringLiteral(".decrypt_write_probe_%1.tmp").arg(QString::number(QCoreApplication::applicationPid()))
@@ -2067,7 +2289,7 @@ void CoreRegressionTests::decryptWorker_startFailed_emitsStructuredProcessStartE
 
     const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
     QVERIFY(QDir().mkpath(tempTaskPath));
-    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
 
     DecryptWorkerTestAdapter::setTestProcessRunner(worker, [](const DecryptProcessRequest&) {
         DecryptProcessResult result;
@@ -2081,7 +2303,7 @@ void CoreRegressionTests::decryptWorker_startFailed_emitsStructuredProcessStartE
     DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
 
     QCOMPARE(spy.count(), 1);
-    QVERIFY(QFileInfo::exists(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(QFileInfo::exists(QDir(tempTaskPath).filePath("result.ts")));
     QVERIFY(!QFileInfo::exists(QDir(tempTaskPath).filePath("input.cbox")));
 
     const auto arguments = spy.takeFirst();
@@ -2108,9 +2330,9 @@ void CoreRegressionTests::decryptWorker_timedOut_emitsStructuredTimeoutError()
 
     const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
     QVERIFY(QDir().mkpath(tempTaskPath));
-    const QString resultMp4Path = QDir(tempTaskPath).filePath("result.mp4");
+    const QString resultMp4Path = QDir(tempTaskPath).filePath("result.ts");
     const QString inputCboxPath = QDir(tempTaskPath).filePath("input.cbox");
-    QVERIFY(createEmptyFile(resultMp4Path));
+    QVERIFY(createFakeTsFile(resultMp4Path, 4, 256));
 
     int observedTimeoutMs = -1;
     DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest& request) -> DecryptProcessResult {
@@ -2158,7 +2380,7 @@ void CoreRegressionTests::decryptWorker_processFailed_prefersStderrAndCleansUpAr
 
     const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
     QVERIFY(QDir().mkpath(tempTaskPath));
-    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
 
     DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest&) -> DecryptProcessResult {
         if (!createEmptyFile(QDir(savePath).filePath("output.txt"))) {
@@ -2181,7 +2403,7 @@ void CoreRegressionTests::decryptWorker_processFailed_prefersStderrAndCleansUpAr
 
     QCOMPARE(spy.count(), 1);
     QVERIFY(QFileInfo::exists(tempTaskPath));
-    QVERIFY(QFileInfo::exists(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(QFileInfo::exists(QDir(tempTaskPath).filePath("result.ts")));
     QVERIFY(!QFileInfo::exists(QDir(tempTaskPath).filePath("input.cbox")));
     QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("output.txt")));
     QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("UDRM_LICENSE.v1.0")));
@@ -2209,7 +2431,7 @@ void CoreRegressionTests::decryptWorker_processFailed_fallsBackToStdoutDiagnosti
 
     const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
     QVERIFY(QDir().mkpath(tempTaskPath));
-    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
 
     DecryptWorkerTestAdapter::setTestProcessRunner(worker, [](const DecryptProcessRequest&) {
         DecryptProcessResult result;
@@ -2250,7 +2472,7 @@ void CoreRegressionTests::decryptWorker_processFailed_truncatesLongDiagnostic()
 
     const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
     QVERIFY(QDir().mkpath(tempTaskPath));
-    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
 
     const QString longStderr(3000, QChar('x'));
     DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest&) {
@@ -2295,9 +2517,9 @@ void CoreRegressionTests::decryptWorker_processFailed_restoresTempResultMp4()
 
     const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
     QVERIFY(QDir().mkpath(tempTaskPath));
-    const QString resultMp4Path = QDir(tempTaskPath).filePath("result.mp4");
+    const QString resultMp4Path = QDir(tempTaskPath).filePath("result.ts");
     const QString inputCboxPath = QDir(tempTaskPath).filePath("input.cbox");
-    QVERIFY(createEmptyFile(resultMp4Path));
+    QVERIFY(createFakeTsFile(resultMp4Path, 4, 256));
 
     DecryptWorkerTestAdapter::setTestProcessRunner(worker, [](const DecryptProcessRequest&) {
         DecryptProcessResult result;
@@ -2349,9 +2571,9 @@ void CoreRegressionTests::decryptWorker_processFailed_preservesPreExistingLicens
 
     const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
     QVERIFY(QDir().mkpath(tempTaskPath));
-    const QString resultMp4Path = QDir(tempTaskPath).filePath("result.mp4");
+    const QString resultMp4Path = QDir(tempTaskPath).filePath("result.ts");
     const QString inputCboxPath = QDir(tempTaskPath).filePath("input.cbox");
-    QVERIFY(createEmptyFile(resultMp4Path));
+    QVERIFY(createFakeTsFile(resultMp4Path, 4, 256));
 
     bool outputCreated = false;
     DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest&) {
@@ -2408,18 +2630,15 @@ void CoreRegressionTests::decryptWorker_success_preservesPreExistingLicense()
 
     const QString name = QStringLiteral("success-preexisting-license-video");
     worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTranscodeToMp4(worker, false);
     DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
 
     const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
     QVERIFY(QDir().mkpath(tempTaskPath));
-    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
 
     DecryptWorkerTestAdapter::setTestProcessRunner(worker, [](const DecryptProcessRequest& request) {
-        QFile outputFile(request.arguments.at(1));
-        if (outputFile.open(QIODevice::WriteOnly)) {
-            outputFile.write("fake decrypted bytes");
-            outputFile.close();
-        }
+        createFakeTsFile(request.arguments.at(1), 4, 1024);
 
         DecryptProcessResult result;
         result.started = true;
@@ -2434,7 +2653,7 @@ void CoreRegressionTests::decryptWorker_success_preservesPreExistingLicense()
     DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
 
     QCOMPARE(spy.count(), 1);
-    QVERIFY(QFileInfo::exists(QDir(savePath).filePath("success-preexisting-license-video.mp4")));
+    QVERIFY(QFileInfo::exists(QDir(savePath).filePath("success-preexisting-license-video.ts")));
     QVERIFY(QFileInfo::exists(licenseTarget));
 
     QFile preservedLicense(licenseTarget);
@@ -2466,15 +2685,11 @@ void CoreRegressionTests::decryptWorker_success_canKeepDecryptedTs()
 
     const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
     QVERIFY(QDir().mkpath(tempTaskPath));
-    QVERIFY(createEmptyFile(QDir(tempTaskPath).filePath("result.mp4")));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
 
     DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&cboxOutputFileName](const DecryptProcessRequest& request) {
         cboxOutputFileName = QFileInfo(request.arguments.at(1)).fileName();
-        QFile outputFile(request.arguments.at(1));
-        if (outputFile.open(QIODevice::WriteOnly)) {
-            outputFile.write("fake decrypted ts bytes");
-            outputFile.close();
-        }
+        createFakeTsFile(request.arguments.at(1), 4, 1280);
 
         DecryptProcessResult result;
         result.started = true;
@@ -2492,9 +2707,60 @@ void CoreRegressionTests::decryptWorker_success_canKeepDecryptedTs()
     QCOMPARE(cboxOutputFileName, QString("result.ts"));
     QVERIFY(QFileInfo::exists(QDir(savePath).filePath("keep-ts-video.ts")));
     QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("keep-ts-video.mp4")));
+    QVERIFY(MediaContainerValidator::validateFile(QDir(savePath).filePath("keep-ts-video.ts"), MediaContainerType::MpegTs).ok);
 
     const auto arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toBool(), true);
+}
+
+void CoreRegressionTests::decryptWorker_invalidCboxOutput_rejectsAndDoesNotPublish()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_invalid_cbox_output");
+    QVERIFY(QDir().mkpath(savePath));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("invalid-cbox-output-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    const QString resultTsPath = QDir(tempTaskPath).filePath("result.ts");
+    const QString inputCboxPath = QDir(tempTaskPath).filePath("input.cbox");
+    const QString stagedOutputPath = QDir(savePath).filePath("result.ts");
+    QVERIFY(createFakeTsFile(resultTsPath, 4, 256));
+
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [](const DecryptProcessRequest& request) {
+        createFileWithContents(request.arguments.at(1), createFakeMp4Bytes());
+
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 0;
+        result.exitStatus = QProcess::NormalExit;
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(QFileInfo::exists(resultTsPath));
+    QVERIFY(!QFileInfo::exists(inputCboxPath));
+    QVERIFY(!QFileInfo::exists(stagedOutputPath));
+    QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("invalid-cbox-output-video.ts")));
+    QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("invalid-cbox-output-video.mp4")));
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=invalid_cbox_output]: [unexpected_container] Detected media container does not match expected type"));
 }
 
 void CoreRegressionTests::decryptWorker_crashExitWithZeroExitCode_emitsProcessFailure()
@@ -2515,9 +2781,9 @@ void CoreRegressionTests::decryptWorker_crashExitWithZeroExitCode_emitsProcessFa
 
     const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
     QVERIFY(QDir().mkpath(tempTaskPath));
-    const QString resultMp4Path = QDir(tempTaskPath).filePath("result.mp4");
+    const QString resultMp4Path = QDir(tempTaskPath).filePath("result.ts");
     const QString inputCboxPath = QDir(tempTaskPath).filePath("input.cbox");
-    QVERIFY(createEmptyFile(resultMp4Path));
+    QVERIFY(createFakeTsFile(resultMp4Path, 4, 256));
 
     DecryptWorkerTestAdapter::setTestProcessRunner(worker, [](const DecryptProcessRequest&) {
         DecryptProcessResult result;
@@ -3009,6 +3275,35 @@ void CoreRegressionTests::fakeNetworkAccessManager_delayedFinish_waitsUntilQueue
     QCOMPARE(reply->error(), QNetworkReply::NoError);
 }
 
+void CoreRegressionTests::concatWorker_success_stagesResultTs()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString firstTsPath = QDir(tempDir.path()).filePath(QStringLiteral("2.ts"));
+    const QString secondTsPath = QDir(tempDir.path()).filePath(QStringLiteral("10.ts"));
+    QVERIFY(createFakeTsFile(firstTsPath, 2, 0));
+    QVERIFY(createFakeTsFile(secondTsPath, 2, 256));
+
+    ConcatWorker worker;
+    QSignalSpy spy(&worker, &ConcatWorker::concatFinished);
+
+    worker.setFilePath(tempDir.path());
+    worker.doConcat();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QVERIFY(arguments.at(1).toString().contains(QStringLiteral("result.ts")));
+
+    const QString resultTsPath = QDir(tempDir.path()).filePath(QStringLiteral("result.ts"));
+    QVERIFY(QFileInfo::exists(resultTsPath));
+    QVERIFY(!QFileInfo::exists(QDir(tempDir.path()).filePath(QStringLiteral("result.mp4"))));
+
+    const MediaContainerValidationResult validation = MediaContainerValidator::validateFile(resultTsPath, MediaContainerType::MpegTs);
+    QVERIFY2(validation.ok, qPrintable(validation.code + QStringLiteral(": ") + validation.message));
+}
+
 void CoreRegressionTests::concatWorker_zeroByteFile_emitsFailure()
 {
     QTemporaryDir tempDir;
@@ -3027,6 +3322,8 @@ void CoreRegressionTests::concatWorker_zeroByteFile_emitsFailure()
     const auto arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toBool(), false);
     QVERIFY(arguments.at(1).toString().contains(QStringLiteral("空文件")));
+    QVERIFY(!QFileInfo::exists(QDir(tempDir.path()).filePath(QStringLiteral("result.ts"))));
+    QVERIFY(!QFileInfo::exists(QDir(tempDir.path()).filePath(QStringLiteral("result.mp4"))));
 }
 
 void CoreRegressionTests::tsMerger_zeroByteFile_returnsFalse()
@@ -3037,7 +3334,7 @@ void CoreRegressionTests::tsMerger_zeroByteFile_returnsFalse()
     const QString zeroFile = QDir(tempDir.path()).filePath("0000.ts");
     QVERIFY(createEmptyFile(zeroFile));
 
-    const QString outputPath = QDir(tempDir.path()).filePath("result.mp4");
+    const QString outputPath = QDir(tempDir.path()).filePath("result.ts");
 
     TSMerger merger;
     merger.reset();
@@ -3060,7 +3357,7 @@ void CoreRegressionTests::tsMerger_malformedNonZeroFile_returnsFalse()
         QCOMPARE(file.write(packet), 188);
     }
 
-    const QString outputPath = QDir(tempDir.path()).filePath("result.mp4");
+    const QString outputPath = QDir(tempDir.path()).filePath("result.ts");
 
     TSMerger merger;
     merger.reset();
@@ -3084,7 +3381,7 @@ void CoreRegressionTests::tsMerger_failedMerge_preservesExistingOutputFile()
         QCOMPARE(file.write(packet), 188);
     }
 
-    const QString outputPath = QDir(tempDir.path()).filePath("result.mp4");
+    const QString outputPath = QDir(tempDir.path()).filePath("result.ts");
     const QByteArray existingBody("previous merged output");
     {
         QFile file(outputPath);
@@ -3109,15 +3406,9 @@ void CoreRegressionTests::tsMerger_validMinimalPacket_succeeds()
     QVERIFY(tempDir.isValid());
 
     const QString validFile = QDir(tempDir.path()).filePath("0000.ts");
-    {
-        QFile file(validFile);
-        QVERIFY(file.open(QIODevice::WriteOnly));
-        QByteArray packet(188, '\0');
-        packet[0] = static_cast<char>(0x47); // TS sync byte
-        QCOMPARE(file.write(packet), 188);
-    }
+    QVERIFY(createFakeTsFile(validFile, 4, 0));
 
-    const QString outputPath = QDir(tempDir.path()).filePath("result.mp4");
+    const QString outputPath = QDir(tempDir.path()).filePath("result.ts");
 
     TSMerger merger;
     merger.reset();
@@ -3126,6 +3417,425 @@ void CoreRegressionTests::tsMerger_validMinimalPacket_succeeds()
     QVERIFY(merger.merge(files, outputPath));
     QVERIFY(QFileInfo::exists(outputPath));
     QVERIFY(QFileInfo(outputPath).size() > 0);
+
+    const MediaContainerValidationResult validation = MediaContainerValidator::validateFile(outputPath, MediaContainerType::MpegTs);
+    QVERIFY2(validation.ok, qPrintable(validation.code + QStringLiteral(": ") + validation.message));
+}
+
+void CoreRegressionTests::mediaContainerValidator_validTs_detectsMpegTs()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString tsFilePath = QDir(tempDir.path()).filePath("sample.ts");
+    QVERIFY(createFakeTsFile(tsFilePath, 4, 256));
+
+    const MediaContainerValidationResult result = MediaContainerValidator::validateFile(tsFilePath, MediaContainerType::MpegTs);
+
+    QVERIFY2(result.ok, qPrintable(result.code + QStringLiteral(": ") + result.message));
+    QCOMPARE(result.expectedType, MediaContainerType::MpegTs);
+    QCOMPARE(result.detectedType, MediaContainerType::MpegTs);
+    QCOMPARE(result.code, QStringLiteral("container_match"));
+}
+
+void CoreRegressionTests::mediaContainerValidator_validMp4_detectsMp4()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString mp4FilePath = QDir(tempDir.path()).filePath("sample.mp4");
+    QVERIFY(createFileWithContents(mp4FilePath, createFakeMp4Bytes()));
+
+    const MediaContainerValidationResult result = MediaContainerValidator::validateFile(mp4FilePath, MediaContainerType::Mp4);
+
+    QVERIFY2(result.ok, qPrintable(result.code + QStringLiteral(": ") + result.message));
+    QCOMPARE(result.expectedType, MediaContainerType::Mp4);
+    QCOMPARE(result.detectedType, MediaContainerType::Mp4);
+    QCOMPARE(result.code, QStringLiteral("container_match"));
+}
+
+void CoreRegressionTests::mediaContainerValidator_tsBytesRenamedMp4_rejectsAsMp4()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString fakeMp4Path = QDir(tempDir.path()).filePath("renamed.mp4");
+    QVERIFY(createFakeTsFile(fakeMp4Path, 4, 256));
+
+    const MediaContainerValidationResult result = MediaContainerValidator::validateFile(fakeMp4Path, MediaContainerType::Mp4);
+
+    QVERIFY(!result.ok);
+    QCOMPARE(result.expectedType, MediaContainerType::Mp4);
+    QCOMPARE(result.detectedType, MediaContainerType::MpegTs);
+    QCOMPARE(result.code, QStringLiteral("unexpected_container"));
+}
+
+void CoreRegressionTests::mediaContainerValidator_mixedFtypAndTsSync_rejectsAsMp4()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    QByteArray mixedSignatureBytes = createFakeMp4Bytes();
+    for (int i = 0; i < 4; ++i) {
+        QByteArray packet(188, '\0');
+        packet[0] = 0x47;
+        packet[3] = 0x10;
+        mixedSignatureBytes.append(packet);
+    }
+
+    const QString mixedPath = QDir(tempDir.path()).filePath("mixed-signature.mp4");
+    QVERIFY(createFileWithContents(mixedPath, mixedSignatureBytes));
+
+    const MediaContainerValidationResult result = MediaContainerValidator::validateFile(mixedPath, MediaContainerType::Mp4);
+
+    QVERIFY(!result.ok);
+    QCOMPARE(result.expectedType, MediaContainerType::Mp4);
+    QCOMPARE(result.detectedType, MediaContainerType::MpegTs);
+    QCOMPARE(result.code, QStringLiteral("unexpected_container"));
+}
+
+void CoreRegressionTests::mediaContainerValidator_invalidFiles_rejectEmptyAndUnknown()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString emptyFilePath = QDir(tempDir.path()).filePath("empty.bin");
+    QVERIFY(createEmptyFile(emptyFilePath));
+
+    const MediaContainerValidationResult emptyResult = MediaContainerValidator::validateFile(emptyFilePath, MediaContainerType::Mp4);
+
+    QVERIFY(!emptyResult.ok);
+    QCOMPARE(emptyResult.expectedType, MediaContainerType::Mp4);
+    QCOMPARE(emptyResult.detectedType, MediaContainerType::Unknown);
+    QCOMPARE(emptyResult.code, QStringLiteral("empty_file"));
+
+    const QString invalidFilePath = QDir(tempDir.path()).filePath("invalid.bin");
+    QVERIFY(createFileWithContents(invalidFilePath, QByteArray("not a media container")));
+
+    const MediaContainerValidationResult invalidResult = MediaContainerValidator::validateFile(invalidFilePath, MediaContainerType::Mp4);
+
+    QVERIFY(!invalidResult.ok);
+    QCOMPARE(invalidResult.expectedType, MediaContainerType::Mp4);
+    QCOMPARE(invalidResult.detectedType, MediaContainerType::Unknown);
+    QCOMPARE(invalidResult.code, QStringLiteral("unknown_container"));
+}
+
+void CoreRegressionTests::directMediaFinalizer_whitespaceTitle_usesProducerHashContract()
+{
+    initializeSettingsSandbox();
+
+    const QString rawTitle = QStringLiteral("  CCTV-4K 空白标题  ");
+    const QString trimmedTitle = rawTitle.trimmed();
+    const QString producerTaskHash = decryptTaskHash(rawTitle);
+    const QString trimmedTaskHash = decryptTaskHash(trimmedTitle);
+    QVERIFY(producerTaskHash != trimmedTaskHash);
+
+    g_settings->beginGroup("settings");
+    g_settings->setValue("save_dir", m_tempDir->path());
+    g_settings->setValue("transcode", false);
+    g_settings->endGroup();
+    g_settings->sync();
+
+    const QString taskDirPath = QDir(m_tempDir->path()).filePath(producerTaskHash);
+    QVERIFY(QDir().mkpath(taskDirPath));
+
+    const QString stagingPath = QDir(taskDirPath).filePath(QStringLiteral("result.ts"));
+    QVERIFY(createFakeTsFile(stagingPath, 4, 601));
+
+    const DirectMediaFinalizeResult result = finalizeDirectTsTask(rawTitle, m_tempDir->path(), false);
+
+    QVERIFY2(result.ok, qPrintable(result.code + QStringLiteral(": ") + result.message));
+    QCOMPARE(result.code, QStringLiteral("published_ts"));
+
+    const QString finalPath = QDir(m_tempDir->path()).filePath(QStringLiteral("%1.ts").arg(trimmedTitle));
+    QVERIFY(QFileInfo::exists(finalPath));
+    QVERIFY(!QFileInfo::exists(stagingPath));
+    QVERIFY(!QFileInfo::exists(taskDirPath));
+    QVERIFY(!QFileInfo::exists(QDir(m_tempDir->path()).filePath(trimmedTaskHash)));
+
+    const MediaContainerValidationResult validation = MediaContainerValidator::validateFile(finalPath, MediaContainerType::MpegTs);
+    QVERIFY(validation.ok);
+}
+
+void CoreRegressionTests::cctvVideoDownloader_cctv4kTsSelection_finalizesStagedTs()
+{
+    initializeSettingsSandbox();
+
+    g_settings->beginGroup("settings");
+    g_settings->setValue("save_dir", m_tempDir->path());
+    g_settings->setValue("transcode", false);
+    g_settings->endGroup();
+    g_settings->sync();
+
+    const QString title = QStringLiteral("CCTV-4K TS");
+    const QString taskHash = decryptTaskHash(title);
+    const QString taskDirPath = QDir(m_tempDir->path()).filePath(taskHash);
+    QVERIFY(QDir().mkpath(taskDirPath));
+
+    const QString stagingPath = QDir(taskDirPath).filePath(QStringLiteral("result.ts"));
+    QVERIFY(createFakeTsFile(stagingPath, 4, 600));
+    QVERIFY(createFileWithContents(QDir(m_tempDir->path()).filePath(QStringLiteral("output.txt")), QByteArrayLiteral("stale")));
+
+    const DirectMediaFinalizeResult result = finalizeDirectTsTask(title, m_tempDir->path(), false);
+
+    QVERIFY2(result.ok, qPrintable(result.code + QStringLiteral(": ") + result.message));
+    QCOMPARE(result.code, QStringLiteral("published_ts"));
+
+    const QString finalPath = QDir(m_tempDir->path()).filePath(QStringLiteral("CCTV-4K TS.ts"));
+    QVERIFY(QFileInfo::exists(finalPath));
+    QVERIFY(!QFileInfo::exists(stagingPath));
+    QVERIFY(!QFileInfo::exists(taskDirPath));
+    QVERIFY(!QFileInfo::exists(QDir(m_tempDir->path()).filePath(QStringLiteral("output.txt"))));
+
+    const MediaContainerValidationResult validation = MediaContainerValidator::validateFile(finalPath, MediaContainerType::MpegTs);
+    QVERIFY(validation.ok);
+}
+
+void CoreRegressionTests::cctvVideoDownloader_cctv4kMp4Selection_remuxesStagedTs()
+{
+    const QString ffmpegPath = bundledFfmpegPath();
+    QVERIFY2(QFileInfo::exists(ffmpegPath), qPrintable(QStringLiteral("Bundled ffmpeg runtime missing at %1").arg(ffmpegPath)));
+
+    initializeSettingsSandbox();
+
+    g_settings->beginGroup("settings");
+    g_settings->setValue("save_dir", m_tempDir->path());
+    g_settings->setValue("transcode", true);
+    g_settings->endGroup();
+    g_settings->sync();
+
+    const QString title = QStringLiteral("CCTV-4K MP4");
+    const QString taskHash = decryptTaskHash(title);
+    const QString taskDirPath = QDir(m_tempDir->path()).filePath(taskHash);
+    QVERIFY(QDir().mkpath(taskDirPath));
+
+    const QString stagingPath = QDir(taskDirPath).filePath(QStringLiteral("result.ts"));
+    QVERIFY(createFileWithContents(stagingPath, createRemuxableTsFixtureBytes()));
+    QVERIFY(MediaContainerValidator::validateFile(stagingPath, MediaContainerType::MpegTs).ok);
+    QVERIFY(createFileWithContents(QDir(m_tempDir->path()).filePath(QStringLiteral("output.txt")), QByteArrayLiteral("stale")));
+
+    const DirectMediaFinalizeResult result = finalizeDirectTsTask(title, m_tempDir->path(), true);
+
+    QVERIFY2(result.ok, qPrintable(result.code + QStringLiteral(": ") + result.message));
+    QCOMPARE(result.code, QStringLiteral("published_mp4"));
+
+    const QString finalPath = QDir(m_tempDir->path()).filePath(QStringLiteral("CCTV-4K MP4.mp4"));
+    QVERIFY(QFileInfo::exists(finalPath));
+    QVERIFY(!QFileInfo::exists(finalPath + QStringLiteral(".tmp")));
+    QVERIFY(!QFileInfo::exists(stagingPath));
+    QVERIFY(!QFileInfo::exists(taskDirPath));
+    QVERIFY(!QFileInfo::exists(QDir(m_tempDir->path()).filePath(QStringLiteral("output.txt"))));
+
+    const MediaContainerValidationResult validation = MediaContainerValidator::validateFile(finalPath, MediaContainerType::Mp4);
+    QVERIFY(validation.ok);
+}
+
+void CoreRegressionTests::mediaFinalizer_publishTs_validatesAndUsesUniqueName()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString stagingPath = QDir(tempDir.path()).filePath("result.ts");
+    QVERIFY(createFakeTsFile(stagingPath, 4, 256));
+
+    const QString existingPath = QDir(tempDir.path()).filePath("新闻.ts");
+    QVERIFY(createFakeTsFile(existingPath, 4, 257));
+
+    MediaFinalizer finalizer;
+    const MediaFinalizeResult result = finalizer.finalize(stagingPath,
+        QStringLiteral("新闻"),
+        tempDir.path(),
+        MediaContainerType::MpegTs);
+
+    QVERIFY(result.ok);
+    QCOMPARE(result.code, QStringLiteral("published_ts"));
+    QCOMPARE(result.publishedType, MediaContainerType::MpegTs);
+    QCOMPARE(QFileInfo(result.finalPath).fileName(), QStringLiteral("新闻(1).ts"));
+    QVERIFY(QFileInfo::exists(result.finalPath));
+    QVERIFY(!QFileInfo::exists(stagingPath));
+
+    const MediaContainerValidationResult validation = MediaContainerValidator::validateFile(result.finalPath, MediaContainerType::MpegTs);
+    QVERIFY(validation.ok);
+}
+
+void CoreRegressionTests::mediaFinalizer_remuxesToMp4ThroughBundledCli()
+{
+    const QString ffmpegPath = bundledFfmpegPath();
+    QVERIFY2(QFileInfo::exists(ffmpegPath), qPrintable(QStringLiteral("Bundled ffmpeg runtime missing at %1").arg(ffmpegPath)));
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString stagingPath = QDir(tempDir.path()).filePath("result.ts");
+    QVERIFY(createFileWithContents(stagingPath, createRemuxableTsFixtureBytes()));
+    QVERIFY(MediaContainerValidator::validateFile(stagingPath, MediaContainerType::MpegTs).ok);
+
+    const QString existingPath = QDir(tempDir.path()).filePath("片段.mp4");
+    QVERIFY(createFileWithContents(existingPath, createFakeMp4Bytes()));
+
+    MediaFinalizer finalizer;
+    MediaFinalizerTestAdapter::setProcessTimeoutMs(finalizer, 30000);
+
+    const MediaFinalizeResult result = finalizer.finalize(stagingPath,
+        QStringLiteral("片段"),
+        tempDir.path(),
+        MediaContainerType::Mp4);
+
+    QVERIFY2(result.ok, qPrintable(result.code + QStringLiteral(": ") + result.message));
+    QCOMPARE(result.code, QStringLiteral("published_mp4"));
+    QCOMPARE(result.publishedType, MediaContainerType::Mp4);
+    QCOMPARE(QFileInfo(result.finalPath).fileName(), QStringLiteral("片段(1).mp4"));
+    QVERIFY(QFileInfo::exists(result.finalPath));
+    QVERIFY(!QFileInfo::exists(result.finalPath + QStringLiteral(".tmp")));
+
+    const MediaContainerValidationResult validation = MediaContainerValidator::validateFile(result.finalPath, MediaContainerType::Mp4);
+    QVERIFY(validation.ok);
+}
+
+void CoreRegressionTests::mediaFinalizer_missingBundledFfmpeg_reportsFailure()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString stagingPath = QDir(tempDir.path()).filePath("result.ts");
+    QVERIFY(createFakeTsFile(stagingPath, 4, 256));
+
+    QTemporaryDir emptyAssetsDir;
+    QVERIFY(emptyAssetsDir.isValid());
+
+    MediaFinalizer finalizer;
+    MediaFinalizerTestAdapter::setTestDecryptAssetsDir(finalizer, emptyAssetsDir.path());
+
+    const MediaFinalizeResult result = finalizer.finalize(stagingPath,
+        QStringLiteral("缺失FFmpeg"),
+        tempDir.path(),
+        MediaContainerType::Mp4);
+
+    QVERIFY(!result.ok);
+    QCOMPARE(result.code, QStringLiteral("ffmpeg_missing"));
+    QVERIFY(result.message.contains(QStringLiteral("ffmpeg")));
+    QVERIFY(!QFileInfo::exists(QDir(tempDir.path()).filePath("缺失FFmpeg.mp4")));
+
+    MediaFinalizerTestAdapter::clearTestDecryptAssetsDir(finalizer);
+}
+
+void CoreRegressionTests::mediaFinalizer_remuxTimeout_reportsFailureAndDoesNotPublishMp4()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString stagingPath = QDir(tempDir.path()).filePath("result.ts");
+    QVERIFY(createFakeTsFile(stagingPath, 4, 256));
+
+    const QString finalPath = QDir(tempDir.path()).filePath(QStringLiteral("超时Remux.mp4"));
+    const QString tempMp4Path = finalPath + QStringLiteral(".tmp");
+
+    MediaFinalizer finalizer;
+    bool runnerCalled = false;
+    QString observedTempPath;
+    MediaFinalizerTestAdapter::setTestProcessRunner(finalizer, [&](const FfmpegCliProcessRequest& request) -> FfmpegCliProcessResult {
+        runnerCalled = true;
+        observedTempPath = request.arguments.last();
+        const bool created = createFileWithContents(tempMp4Path, QByteArrayLiteral("partial mp4 bytes"));
+
+        FfmpegCliProcessResult result;
+        result.started = true;
+        result.timedOut = true;
+        result.stderrText = QStringLiteral("synthetic ffmpeg timeout output");
+        if (!created) {
+            result.started = false;
+            result.timedOut = false;
+            result.errorString = QStringLiteral("failed to create synthetic remux temp file");
+        }
+        return result;
+    });
+
+    const MediaFinalizeResult result = finalizer.finalize(stagingPath,
+        QStringLiteral("超时Remux"),
+        tempDir.path(),
+        MediaContainerType::Mp4);
+
+    QVERIFY(runnerCalled);
+    QCOMPARE(observedTempPath, tempMp4Path);
+    QVERIFY(!result.ok);
+    QCOMPARE(result.code, QStringLiteral("timeout"));
+    QVERIFY(result.message.contains(QStringLiteral("timed out")));
+    QVERIFY(!QFileInfo::exists(finalPath));
+    QVERIFY(!QFileInfo::exists(tempMp4Path));
+
+    MediaFinalizerTestAdapter::clearTestProcessRunner(finalizer);
+}
+
+void CoreRegressionTests::mediaFinalizer_remuxProcessFailure_reportsDiagnostic()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString stagingPath = QDir(tempDir.path()).filePath("result.ts");
+    QVERIFY(createFakeTsFile(stagingPath, 4, 256));
+
+    MediaFinalizer finalizer;
+    MediaFinalizerTestAdapter::setTestProcessRunner(finalizer, [](const FfmpegCliProcessRequest&) {
+        FfmpegCliProcessResult result;
+        result.started = true;
+        result.exitCode = 9;
+        result.stderrText = QStringLiteral("synthetic ffmpeg failure");
+        return result;
+    });
+
+    const MediaFinalizeResult result = finalizer.finalize(stagingPath,
+        QStringLiteral("失败Remux"),
+        tempDir.path(),
+        MediaContainerType::Mp4);
+
+    QVERIFY(!result.ok);
+    QCOMPARE(result.code, QStringLiteral("process_failed"));
+    QVERIFY(result.message.contains(QStringLiteral("synthetic ffmpeg failure")));
+    QVERIFY(!QFileInfo::exists(QDir(tempDir.path()).filePath("失败Remux.mp4")));
+
+    MediaFinalizerTestAdapter::clearTestProcessRunner(finalizer);
+}
+
+void CoreRegressionTests::mediaFinalizer_invalidRemuxedMp4_reportsValidationFailure()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString stagingPath = QDir(tempDir.path()).filePath("result.ts");
+    QVERIFY(createFakeTsFile(stagingPath, 4, 256));
+
+    MediaFinalizer finalizer;
+    MediaFinalizerTestAdapter::setTestProcessRunner(finalizer, [](const FfmpegCliProcessRequest& request) {
+        FfmpegCliProcessResult result;
+        result.started = true;
+        result.exitCode = 0;
+        result.exitStatus = QProcess::NormalExit;
+
+        QFile outputFile(request.arguments.last());
+        if (outputFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            const QByteArray fakeTsPacket(188, char(0x47));
+            outputFile.write(fakeTsPacket);
+            outputFile.write(fakeTsPacket);
+            outputFile.write(fakeTsPacket);
+            outputFile.write(fakeTsPacket);
+            outputFile.close();
+        }
+
+        return result;
+    });
+
+    const MediaFinalizeResult result = finalizer.finalize(stagingPath,
+        QStringLiteral("假MP4"),
+        tempDir.path(),
+        MediaContainerType::Mp4);
+
+    QVERIFY(!result.ok);
+    QCOMPARE(result.code, QStringLiteral("invalid_remuxed_mp4"));
+    QVERIFY(result.message.contains(QStringLiteral("validation failed")));
+    QVERIFY(!QFileInfo::exists(QDir(tempDir.path()).filePath("假MP4.mp4")));
+    QVERIFY(!QFileInfo::exists(QDir(tempDir.path()).filePath("假MP4.mp4.tmp")));
+
+    MediaFinalizerTestAdapter::clearTestProcessRunner(finalizer);
 }
 
 QTEST_MAIN(CoreRegressionTests)
