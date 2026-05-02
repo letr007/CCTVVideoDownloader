@@ -302,13 +302,13 @@ void Download::persistShardState() const
 		return;
 	}
 
-	QDir().mkpath(m_savePath);
-
 	const QList<int> pendingIndexes = pendingIndexesFromState();
 	if (pendingIndexes.isEmpty()) {
 		clearPersistedShardState();
 		return;
 	}
+
+	QDir().mkpath(m_savePath);
 
 	QJsonObject root;
 	root.insert("version", 1);
