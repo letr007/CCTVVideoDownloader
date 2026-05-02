@@ -28,6 +28,7 @@ set(PROJECT_SOURCES
     src/source/concat.cpp
     src/source/concatworker.cpp
     src/source/config.cpp
+    src/source/directmediafinalizer.cpp
     src/source/decrypt.cpp
     src/source/decryptworker.cpp
     src/source/downloaddialog.cpp
@@ -36,6 +37,9 @@ set(PROJECT_SOURCES
     src/source/downloadtask.cpp
     src/source/import.cpp
     src/source/logger.cpp
+    src/source/mediacontainervalidator.cpp
+    src/source/mediafinalizer.cpp
+    src/source/ffmpegcliremuxer.cpp
     src/source/main.cpp
     src/source/setting.cpp
     src/source/tsmerger.cpp
@@ -46,6 +50,7 @@ set(PROJECT_SOURCES
     src/head/concat.h
     src/head/concatworker.h
     src/head/config.h
+    src/head/directmediafinalizer.h
     src/head/decrypt.h
     src/head/decryptworker.h
     src/head/downloadengine.h
@@ -54,6 +59,9 @@ set(PROJECT_SOURCES
     src/head/downloadtask.h
     src/head/import.h
     src/head/logger.h
+    src/head/mediacontainervalidator.h
+    src/head/mediafinalizer.h
+    src/head/ffmpegcliremuxer.h
     src/head/setting.h
     src/head/tsmerger.h
 
