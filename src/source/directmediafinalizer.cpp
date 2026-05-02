@@ -55,3 +55,9 @@ DirectMediaFinalizeResult finalizeDirectTsTask(const QString& title,
 	result.finalPath = finalizeResult.finalPath;
 	return result;
 }
+
+void DirectFinalizeWorker::doWork(const QString& title, const QString& savePath, bool transcodeToMp4)
+{
+	const DirectMediaFinalizeResult result = finalizeDirectTsTask(title, savePath, transcodeToMp4);
+	emit finished(result.ok, result.code, result.message, result.finalPath);
+}
