@@ -32,6 +32,7 @@ void Import::handlePlayColumnInfoResolved(quint64 requestId, const QStringList& 
 	setBusy(false);
 	if (data.size() != 3 || data.at(0).isEmpty())
 	{
+		ui.label_status->setText(QStringLiteral("导入失败：未获取到有效节目信息。"));
 		qWarning() << "获取数据失败";
 		return;
 	}
@@ -63,6 +64,7 @@ void Import::handlePlayColumnInfoResolved(quint64 requestId, const QStringList& 
 
 	if (isDuplicate)
 	{
+		ui.label_status->setText(QStringLiteral("该节目已存在，无需重复导入。"));
 		qInfo() << "跳过重复数据";
 		g_settings->endGroup();
 		return;
@@ -102,11 +104,15 @@ void Import::handlePlayColumnInfoFailed(quint64 requestId, const QString& errorM
 	}
 
 	setBusy(false);
+	ui.label_status->setText(errorMessage.isEmpty() ? QStringLiteral("导入失败，请稍后重试。") : QStringLiteral("导入失败：%1").arg(errorMessage));
 	qWarning() << errorMessage;
 }
 
 void Import::setBusy(bool busy)
 {
+	if (busy) {
+		ui.label_status->setText(QStringLiteral("正在导入，请稍候..."));
+	}
 	ui.lineEdit->setEnabled(!busy);
 	ui.buttonBox->setEnabled(!busy);
 }

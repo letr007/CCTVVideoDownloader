@@ -7,13 +7,13 @@
     <x>0</x>
     <y>0</y>
     <width>260</width>
-    <height>150</height>
+    <height>190</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
     <width>170</width>
-    <height>110</height>
+    <height>190</height>
    </size>
   </property>
   <property name="maximumSize">
@@ -29,7 +29,7 @@
    <property name="geometry">
     <rect>
      <x>50</x>
-     <y>100</y>
+     <y>145</y>
      <width>150</width>
      <height>30</height>
     </rect>
@@ -49,6 +49,22 @@
      <width>220</width>
      <height>30</height>
     </rect>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_status">
+   <property name="geometry">
+    <rect>
+     <x>20</x>
+     <y>95</y>
+     <width>220</width>
+     <height>40</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="wordWrap">
+    <bool>true</bool>
    </property>
   </widget>
   <widget class="QLabel" name="label">
