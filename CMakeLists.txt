@@ -25,15 +25,15 @@ set(PROJECT_SOURCES
     src/source/about.cpp
     src/source/apiservice.cpp
     src/source/cctvvideodownloader.cpp
-    src/source/concat.cpp
     src/source/concatworker.cpp
     src/source/config.cpp
+    src/source/downloadcoordinator.cpp
     src/source/directmediafinalizer.cpp
-    src/source/decrypt.cpp
     src/source/decryptworker.cpp
     src/source/downloaddialog.cpp
     src/source/downloadengine.cpp
     src/source/downloadmodel.cpp
+    src/source/downloadprogresswindow.cpp
     src/source/downloadtask.cpp
     src/source/import.cpp
     src/source/logger.cpp
@@ -47,15 +47,16 @@ set(PROJECT_SOURCES
     src/head/about.h
     src/head/apiservice.h
     src/head/cctvvideodownloader.h
-    src/head/concat.h
     src/head/concatworker.h
     src/head/config.h
+    src/head/downloadcoordinator.h
     src/head/directmediafinalizer.h
-    src/head/decrypt.h
+    src/head/downloadcoordinatorseams.h
     src/head/decryptworker.h
     src/head/downloadengine.h
     src/head/downloaddialog.h
     src/head/downloadmodel.h
+    src/head/downloadprogresswindow.h
     src/head/downloadtask.h
     src/head/import.h
     src/head/logger.h
@@ -71,7 +72,6 @@ set(PROJECT_SOURCES
     src/ui/ctvd_setting.ui
     src/ui/dialog.ui
     src/ui/import.ui
-    src/ui/process.ui
 
     src/resources/cctvvideodownloader.qrc
     src/resources/resources.qrc

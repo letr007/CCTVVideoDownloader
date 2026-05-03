@@ -2,16 +2,14 @@
 #include "../head/about.h"
 #include "../head/setting.h"
 #include "../head/import.h"
-#include "../head/downloaddialog.h"
-#include "../head/concat.h"
-#include "../head/decrypt.h"
 #include "../head/apiservice.h"
-#include "../head/directmediafinalizer.h"
+#include "../head/downloadcoordinator.h"
+#include "../head/downloadjob.h"
+#include "../head/downloadprogresswindow.h"
 #include "../head/logger.h"
 #include <algorithm>
-#include <QEventLoop>
 #include <QResizeEvent>
-#include <QThread>
+#include <QStatusBar>
 
 #include <QSizePolicy>
 
@@ -47,16 +45,17 @@ CCTVVideoDownloader::CCTVVideoDownloader(QWidget* parent)
     Logger::instance()->setLogLevel(logLevel);
     // 连接槽函数
     signalConnect();
+    m_downloadCoordinator = new DownloadCoordinator(&APIService::instance(), nullptr, nullptr, nullptr, this);
+    m_downloadProgressWindow = new DownloadProgressWindow(m_downloadCoordinator, this);
+
+    connect(m_downloadCoordinator, &DownloadCoordinator::batchFinished,
+        this, &CCTVVideoDownloader::onCoordinatorBatchFinished);
 
     flashProgrammeList();
 }
 
 CCTVVideoDownloader::~CCTVVideoDownloader()
 {
-	if (m_directFinalizeThread && m_directFinalizeThread->isRunning()) {
-		m_directFinalizeThread->quit();
-		m_directFinalizeThread->wait();
-	}
 }
 
 void CCTVVideoDownloader::signalConnect()
@@ -74,6 +73,8 @@ void CCTVVideoDownloader::signalConnect()
     connect(ui.tableWidget_List, &QTableWidget::cellClicked, this, &CCTVVideoDownloader::isVideoSelected); // 刷新信息
     connect(ui.pushButton, &QPushButton::clicked, this, &CCTVVideoDownloader::openDownloadDialog); // 下载
     connect(ui.btn_select_all, &QPushButton::clicked, this, &CCTVVideoDownloader::toggleSelectAllVideos); // 全选视频
+    connect(&APIService::instance(), &APIService::browseVideoListResolved, this, &CCTVVideoDownloader::handleBrowseVideoListResolved);
+    connect(&APIService::instance(), &APIService::imageResolved, this, &CCTVVideoDownloader::handlePreviewImageResolved);
 }
 
 void CCTVVideoDownloader::flashProgrammeList()
@@ -130,94 +131,18 @@ void CCTVVideoDownloader::flashVideoList()
     qInfo() << "获取视频列表参数 - columnId:" << columnId << "itemId:" << itemId
              << "显示范围:" << displayMin << "-" << displayMax;
     
-    VIDEOS = APIService::instance().getVideoList(
+    m_pendingVideoListShowHighlights = readShowHighlights();
+    m_pendingVideoListRequestId = APIService::instance().startGetBrowseVideoList(
         columnId,
         itemId,
         displayMin,
-        displayMax
+        displayMax,
+        m_pendingVideoListShowHighlights
     );
-
-    const bool showHighlights = readShowHighlights();
-    int highlightCount = 0;
-    int fragmentCount = 0;
-    auto appendExtraVideos = [this](const QMap<int, VideoItem>& extras, int& appendedCount) {
-        int nextIndex = VIDEOS.isEmpty() ? 0 : (VIDEOS.lastKey() + 1);
-        for (const VideoItem& item : std::as_const(extras)) {
-            bool alreadyListed = false;
-            for (const VideoItem& existing : std::as_const(VIDEOS)) {
-                if (!item.guid.isEmpty() && item.guid == existing.guid) {
-                    alreadyListed = true;
-                    break;
-                }
-            }
-            if (alreadyListed) {
-                continue;
-            }
-            VIDEOS.insert(nextIndex++, item);
-            ++appendedCount;
-        }
-    };
-
-    if (showHighlights) {
-        QMap<int, VideoItem> highlights = APIService::instance().getHighlightList(itemId);
-        appendExtraVideos(highlights, highlightCount);
-
-        QMap<int, VideoItem> fragments = APIService::instance().getFragmentList(columnId, itemId);
-        appendExtraVideos(fragments, fragmentCount);
-        qInfo() << "Extra video counts - highlights:" << highlightCount << "fragments:" << fragmentCount;
-    }
-    
-    qInfo() << "获取到" << VIDEOS.size() << "个视频，其中看点" << highlightCount << "个";
-    
-    // 显示结果
-    ui.tableWidget_List->clearContents();
-    ui.tableWidget_List->setRowCount(VIDEOS.size());
-    ui.tableWidget_List->setColumnCount(showHighlights ? 3 : 2);
-
-    ui.tableWidget_List->setColumnWidth(0, 30);
-    ui.tableWidget_List->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
-    ui.tableWidget_List->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    if (showHighlights) {
-        ui.tableWidget_List->setColumnWidth(2, 56);
-        ui.tableWidget_List->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
-    }
-
-    // 隐藏行头
-    ui.tableWidget_List->verticalHeader()->setVisible(false);
-
-    // 设置列标题
-    ui.tableWidget_List->setHorizontalHeaderLabels(showHighlights
-        ? QStringList{ "", "视频标题", "看点" }
-        : QStringList{ "", "视频标题" });
-
-    int row = 0;
-    for (auto&& [index, item] : std::as_const(VIDEOS).asKeyValueRange()) {
-        // 在第一列创建复选框
-        QTableWidgetItem* checkItem = new QTableWidgetItem();
-        checkItem->setCheckState(Qt::Unchecked);
-        checkItem->setFlags(checkItem->flags() | Qt::ItemIsUserCheckable ^ Qt::ItemIsEditable);
-        checkItem->setTextAlignment(Qt::AlignCenter); // 居中对齐
-        ui.tableWidget_List->setItem(row, 0, checkItem);
-
-        // 在第二列创建标题项
-        QTableWidgetItem* titleItem = new QTableWidgetItem(item.title);
-        titleItem->setFlags(titleItem->flags() ^ Qt::ItemIsEditable); // 设为不可编辑
-        ui.tableWidget_List->setItem(row, 1, titleItem);
-
-        if (showHighlights) {
-            QTableWidgetItem* highlightItem = new QTableWidgetItem(item.isHighlight ? QStringLiteral("看点") : QStringLiteral("完整"));
-            highlightItem->setText(item.isHighlight ? item.listType : QStringLiteral("完整"));
-            highlightItem->setFlags(highlightItem->flags() ^ Qt::ItemIsEditable);
-            highlightItem->setTextAlignment(Qt::AlignCenter);
-            ui.tableWidget_List->setItem(row, 2, highlightItem);
-        }
-
-        row++;
-    }
-    ui.tableWidget_List->viewport()->update();
-    ui.btn_select_all->setText("全选");
-    
-    qInfo() << "视频列表刷新完成，显示" << VIDEOS.size() << "个视频";
+    ui.flash_list->setEnabled(false);
+    ui.tableWidget_List->setEnabled(false);
+    ui.btn_select_all->setEnabled(false);
+    qInfo() << "已发起异步视频列表刷新，请求ID:" << m_pendingVideoListRequestId;
 }
 
 void CCTVVideoDownloader::isProgrammeSelected(int r, int c)
@@ -263,30 +188,103 @@ void CCTVVideoDownloader::isVideoSelected(int r, int c)
     auto time = it->time;
     auto imageUrl = it->image;
 
-    //qDebug() << title << GUID;
-    DOWNLOAD_META_INFO.emplace(title, GUID, false);
     // 文本处理
     brief.replace(' ', '\n').replace('\r', '\n');
     brief.replace(QRegularExpression("\n+"), "\n");
     time.replace(' ', '\n');
     //qDebug() << brief;
-    // 从API获取图片
-    auto image = APIService::instance().getImage(imageUrl);
-    if (!image.isNull())
-    {
-        m_previewPixmap = QPixmap::fromImage(image);
-        updatePreviewImage();
-    }
-    else
-    {
-        m_previewPixmap = QPixmap();
-        ui.label_img->setText("图片加载失败");
-    }
     ui.label_title->setText(title);
     ui.label_introduce->setText(brief);
     ui.label_introduce->setWordWrap(true);
     ui.label_time->setText(time);
-    
+
+    m_pendingPreviewImageUrl = imageUrl;
+    m_previewPixmap = QPixmap();
+    ui.label_img->setPixmap(QPixmap());
+    ui.label_img->setText(imageUrl.isEmpty() ? QStringLiteral("图片加载失败") : QStringLiteral("图片加载中..."));
+    if (!imageUrl.isEmpty()) {
+        m_pendingImageRequestId = APIService::instance().startGetImage(imageUrl);
+    }
+}
+
+void CCTVVideoDownloader::handleBrowseVideoListResolved(quint64 requestId, const QMap<int, VideoItem>& videos)
+{
+    if (requestId != m_pendingVideoListRequestId) {
+        return;
+    }
+
+    VIDEOS = videos;
+    qInfo() << "异步视频列表刷新完成，请求ID:" << requestId << "视频数量:" << VIDEOS.size();
+    renderVideoList(m_pendingVideoListShowHighlights);
+    ui.flash_list->setEnabled(true);
+    ui.tableWidget_List->setEnabled(true);
+    ui.btn_select_all->setEnabled(true);
+}
+
+void CCTVVideoDownloader::handlePreviewImageResolved(quint64 requestId, const QString& url, const QImage& image)
+{
+    if (requestId != m_pendingImageRequestId || url != m_pendingPreviewImageUrl) {
+        return;
+    }
+
+    if (image.isNull()) {
+        m_previewPixmap = QPixmap();
+        ui.label_img->setPixmap(QPixmap());
+        ui.label_img->setText(QStringLiteral("图片加载失败"));
+        return;
+    }
+
+    m_previewPixmap = QPixmap::fromImage(image);
+    ui.label_img->setText(QString());
+    updatePreviewImage();
+}
+
+void CCTVVideoDownloader::renderVideoList(bool showHighlights)
+{
+    ui.tableWidget_List->clearContents();
+    ui.tableWidget_List->setRowCount(VIDEOS.size());
+    ui.tableWidget_List->setColumnCount(showHighlights ? 3 : 2);
+
+    ui.tableWidget_List->setColumnWidth(0, 30);
+    ui.tableWidget_List->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
+    ui.tableWidget_List->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    if (showHighlights) {
+        ui.tableWidget_List->setColumnWidth(2, 56);
+        ui.tableWidget_List->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    }
+
+    ui.tableWidget_List->verticalHeader()->setVisible(false);
+    ui.tableWidget_List->setHorizontalHeaderLabels(showHighlights
+        ? QStringList{ "", "视频标题", "看点" }
+        : QStringList{ "", "视频标题" });
+
+    int row = 0;
+    for (auto&& [index, item] : std::as_const(VIDEOS).asKeyValueRange()) {
+        Q_UNUSED(index);
+        QTableWidgetItem* checkItem = new QTableWidgetItem();
+        checkItem->setCheckState(Qt::Unchecked);
+        checkItem->setFlags(checkItem->flags() | Qt::ItemIsUserCheckable ^ Qt::ItemIsEditable);
+        checkItem->setTextAlignment(Qt::AlignCenter);
+        ui.tableWidget_List->setItem(row, 0, checkItem);
+
+        QTableWidgetItem* titleItem = new QTableWidgetItem(item.title);
+        titleItem->setFlags(titleItem->flags() ^ Qt::ItemIsEditable);
+        ui.tableWidget_List->setItem(row, 1, titleItem);
+
+        if (showHighlights) {
+            QTableWidgetItem* highlightItem = new QTableWidgetItem(item.isHighlight ? QStringLiteral("看点") : QStringLiteral("完整"));
+            highlightItem->setText(item.isHighlight ? item.listType : QStringLiteral("完整"));
+            highlightItem->setFlags(highlightItem->flags() ^ Qt::ItemIsEditable);
+            highlightItem->setTextAlignment(Qt::AlignCenter);
+            ui.tableWidget_List->setItem(row, 2, highlightItem);
+        }
+
+        ++row;
+    }
+
+    ui.tableWidget_List->viewport()->update();
+    ui.btn_select_all->setText(QStringLiteral("全选"));
+    qInfo() << "视频列表渲染完成，显示" << VIDEOS.size() << "个视频";
 }
 
 void CCTVVideoDownloader::toggleSelectAllVideos()
@@ -363,11 +361,31 @@ void CCTVVideoDownloader::openImportDialog()
 void CCTVVideoDownloader::openDownloadDialog()
 {
     qInfo() << "打开下载对话框";
-    
-    // 检查列表中被选中的项
+
     QString savePath = readSavePath();
     int threadNum = readThreadNum();
+    const QString quality = readQuality();
+    const bool transcodeToMp4 = readTranscode();
     QList<int> selectedIndexes;
+    QList<DownloadJob> jobs;
+
+    auto appendJobForIndex = [&](int index) {
+        auto it = VIDEOS.find(index);
+        if (it == VIDEOS.end()) {
+            qWarning() << "无效的video index:" << index;
+            return false;
+        }
+
+        DownloadJob job;
+        job.request.url = it->guid;
+        job.request.videoTitle = it->title;
+        job.request.quality = quality;
+        job.request.savePath = savePath;
+        job.request.threadCount = std::max(1, threadNum);
+        job.request.transcodeToMp4 = transcodeToMp4;
+        jobs.append(job);
+        return true;
+    };
 
     int rows = ui.tableWidget_List->rowCount();
     for (int r = 0; r < rows; ++r) {
@@ -379,186 +397,34 @@ void CCTVVideoDownloader::openDownloadDialog()
 
     qInfo() << "选中" << selectedIndexes.size() << "个视频进行下载，保存路径:" << savePath << "线程数:" << threadNum;
 
-    // 如果没有选中任何项，使用单个选中视频
     if (selectedIndexes.empty()) {
         qInfo() << "未选中批量下载，使用单个视频下载";
-        if (!DOWNLOAD_META_INFO.has_value()) {
+        const int selectedIndex = ui.tableWidget_List->currentRow();
+        if (selectedIndex < 0 || !appendJobForIndex(selectedIndex)) {
             qWarning() << "下载失败: 未选择要下载的视频";
             QMessageBox::warning(this, "Warning", "请先选择要下载的视频！");
             return;
         }
-        auto [title, GUID, is4K] = *DOWNLOAD_META_INFO;
-        qInfo() << "单个视频下载 - 标题:" << title << "GUID:" << GUID;
-
-        QStringList URLS = APIService::instance().getEncryptM3U8Urls(
-            GUID,
-            readQuality()
-        );
-        DOWNLOAD_META_INFO.emplace(title, GUID, APIService::instance().lastM3U8ResultWas4K());
-
-        qInfo() << "获取到" << URLS.size() << "个TS文件URL";
-        if (URLS.isEmpty()) {
-            qWarning() << "下载失败: 未获取到任何TS切片URL，GUID:" << GUID;
-            QMessageBox::warning(this, "Warning", "未获取到可下载的TS切片，请稍后重试或查看日志。");
-            return;
+    } else {
+        for (int index : selectedIndexes) {
+            appendJobForIndex(index);
         }
+    }
 
-        Download dialog(this);
-        // 先关闭下载窗口再进行完成后操作
-        connect(&dialog, &Download::DownloadFinished, this, [&dialog](bool success) {
-            qInfo() << "下载完成，关闭下载对话框";
-            success ? dialog.accept() : dialog.reject();
-            });
-        dialog.transferDwonloadParams(title, URLS, savePath, threadNum);
-        dialog.setModal(true);
-        const int result = dialog.exec();
-        qInfo() << "下载对话框已关闭";
-        if (result == QDialog::Accepted) {
-            concatVideo();
-        }
+    if (jobs.isEmpty()) {
+        qWarning() << "下载失败: 未生成任何下载任务";
+        QMessageBox::warning(this, "Warning", "未生成任何下载任务，请稍后重试。");
         return;
     }
 
-    // 按选中顺序逐个处理
-    qInfo() << "开始批量下载" << selectedIndexes.size() << "个视频";
-    for (int idx : selectedIndexes) {
-        auto it = VIDEOS.find(idx);
-        if (it == VIDEOS.end()) {
-            qWarning() << "无效的video index(批量):" << idx;
-            continue;
-        }
-        auto title = it->title;
-        auto GUID = it->guid;
+    m_downloadProgressWindow->open();
 
-        qInfo() << "批量下载第" << idx << "个视频 - 标题:" << title << "GUID:" << GUID;
-
-        // 设置当前下载元信息，便于后续 concat/decrypt 使用
-        DOWNLOAD_META_INFO.emplace(title, GUID, false);
-
-        QStringList URLS = APIService::instance().getEncryptM3U8Urls(
-            GUID,
-            readQuality()
-        );
-        DOWNLOAD_META_INFO.emplace(title, GUID, APIService::instance().lastM3U8ResultWas4K());
-
-        qInfo() << "获取到" << URLS.size() << "个TS文件URL";
-        if (URLS.isEmpty()) {
-            qWarning() << "批量下载失败: 未获取到任何TS切片URL，GUID:" << GUID;
-            QMessageBox::warning(this, "Warning", QString("视频 \"%1\" 未获取到可下载的TS切片，已跳过。").arg(title));
-            continue;
-        }
-
-        Download dialog(this);
-        connect(&dialog, &Download::DownloadFinished, this, [&dialog](bool success) {
-            qInfo() << "下载完成，关闭下载对话框";
-            success ? dialog.accept() : dialog.reject();
-            });
-        dialog.transferDwonloadParams(title, URLS, savePath, threadNum);
-        dialog.setModal(true);
-        const int result = dialog.exec();
-        qInfo() << "下载对话框已关闭";
-        if (result != QDialog::Accepted) {
-            qInfo() << "批量下载已取消或失败，停止后续任务";
-            break;
-        }
-        concatVideo();
+    const bool started = jobs.size() == 1
+        ? m_downloadCoordinator->startSingle(jobs.first())
+        : m_downloadCoordinator->startBatch(jobs);
+    if (!started && !m_downloadCoordinator->isBusy()) {
+        QMessageBox::warning(this, "Warning", "下载任务启动失败，请稍后重试。");
     }
-    
-    qInfo() << "批量下载全部完成";
-}
-
-void CCTVVideoDownloader::concatVideo()
-{
-    if (!DOWNLOAD_META_INFO.has_value()) {
-        qWarning() << "视频拼接失败: 下载元信息为空";
-        return;
-    }
-    
-    auto [title, GUID, is4K] = *DOWNLOAD_META_INFO;
-    QString savePath = readSavePath();
-    
-    qInfo() << "开始视频拼接 - 标题:" << title << "GUID:" << GUID << "保存路径:" << savePath;
-    
-    Concat concatDialog(this);
-    connect(&concatDialog, &Concat::ConcatFinished, this, &CCTVVideoDownloader::decryptVideo);
-    concatDialog.transferConcatParams(title, savePath);
-    concatDialog.exec();
-    
-    qInfo() << "视频拼接对话框已关闭";
-}
-
-void CCTVVideoDownloader::decryptVideo()
-{
-    if (!DOWNLOAD_META_INFO.has_value()) {
-        qWarning() << "视频解密失败: 下载元信息为空";
-        return;
-	}
-    
-    auto [title, GUID, is4K] = *DOWNLOAD_META_INFO;
-    QString savePath = readSavePath();
-	if (is4K) {
-		if (m_directFinalizeThread && m_directFinalizeThread->isRunning()) {
-			qWarning() << "CCTV-4K 最终发布已在处理中，等待当前任务完成";
-			QEventLoop pendingLoop;
-			connect(m_directFinalizeThread, &QThread::finished, &pendingLoop, &QEventLoop::quit);
-			pendingLoop.exec();
-		}
-
-		qInfo() << "当前视频为CCTV-4K，在后台线程中发布已验证的 TS 阶段文件";
-
-		const bool transcode = readTranscode();
-		auto* worker = new DirectFinalizeWorker();
-		auto* thread = new QThread(this);
-
-		m_directFinalizeWorker = worker;
-		m_directFinalizeThread = thread;
-
-		worker->moveToThread(thread);
-
-		connect(thread, &QThread::started, worker, [worker, title, savePath, transcode]() {
-			worker->doWork(title, savePath, transcode);
-		});
-
-		connect(worker, &DirectFinalizeWorker::finished, this,
-			[this](bool ok, const QString& code, const QString& message, const QString& finalPath) {
-				if (!ok) {
-					qCritical() << "CCTV-4K 最终发布失败:" << code << message;
-					QMessageBox::warning(this,
-						"Warning",
-						QString::fromUtf8("CCTV-4K 视频最终发布失败 [%1]: %2")
-							.arg(code, message));
-				} else {
-					qInfo() << "CCTV-4K视频处理完成，输出文件:" << finalPath;
-				}
-			});
-
-		connect(worker, &DirectFinalizeWorker::finished, thread, &QThread::quit);
-		connect(worker, &DirectFinalizeWorker::finished, worker, &QObject::deleteLater);
-
-		connect(thread, &QThread::finished, this, [this, thread, worker]() {
-			if (m_directFinalizeWorker == worker) {
-				m_directFinalizeWorker = nullptr;
-			}
-			if (m_directFinalizeThread == thread) {
-				m_directFinalizeThread = nullptr;
-			}
-			thread->deleteLater();
-		});
-
-		QEventLoop finalizeLoop;
-		connect(thread, &QThread::finished, &finalizeLoop, &QEventLoop::quit);
-		thread->start();
-		finalizeLoop.exec();
-		return;
-	}
-    
-    qInfo() << "开始视频解密 - 标题:" << title << "GUID:" << GUID << "保存路径:" << savePath;
-    
-    Decrypt decryptDialog(this);
-    decryptDialog.transferDecryptParams(title, savePath, readTranscode());
-    decryptDialog.exec();
-    
-    qInfo() << "视频解密对话框已关闭";
 }
 
 void CCTVVideoDownloader::updatePreviewImage()
@@ -573,6 +439,21 @@ void CCTVVideoDownloader::updatePreviewImage()
 
     QPixmap scaled = m_previewPixmap.scaled(ui.label_img->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
     ui.label_img->setPixmap(scaled);
+}
+
+void CCTVVideoDownloader::onCoordinatorBatchFinished(int completedJobs, int failedJobs, int cancelledJobs, int totalJobs, bool stoppedByFatalError)
+{
+    const QString prefix = stoppedByFatalError
+        ? QStringLiteral("Download stopped: ")
+        : QStringLiteral("Download finished: ");
+    const QString message = QStringLiteral("%1Completed: %2, Failed: %3, Cancelled: %4 / Total: %5")
+        .arg(prefix)
+        .arg(completedJobs)
+        .arg(failedJobs)
+        .arg(cancelledJobs)
+        .arg(totalJobs);
+    statusBar()->showMessage(message, 8000);
+    qInfo() << message;
 }
 
 void CCTVVideoDownloader::resizeEvent(QResizeEvent* event)

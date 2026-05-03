@@ -4,6 +4,10 @@ qt6_wrap_cpp(core_regression_tests_moc
     ${PROJECT_SOURCE_DIR}/src/head/downloadengine.h
     ${PROJECT_SOURCE_DIR}/src/head/decryptworker.h
     ${PROJECT_SOURCE_DIR}/src/head/concatworker.h
+    ${PROJECT_SOURCE_DIR}/src/head/downloadcoordinator.h
+    ${PROJECT_SOURCE_DIR}/src/head/downloadcoordinatorseams.h
+    ${PROJECT_SOURCE_DIR}/src/head/downloadprogresswindow.h
+    ${PROJECT_SOURCE_DIR}/src/head/import.h
     ${CMAKE_CURRENT_SOURCE_DIR}/fakes/fake_networkreply.h
     ${CMAKE_CURRENT_SOURCE_DIR}/fakes/fake_networkaccessmanager.h
 )
@@ -19,13 +23,17 @@ qt_add_executable(core_regression_tests
     ${PROJECT_SOURCE_DIR}/src/source/downloadtask.cpp
     ${PROJECT_SOURCE_DIR}/src/source/downloadengine.cpp
     ${PROJECT_SOURCE_DIR}/src/source/downloadmodel.cpp
+    ${PROJECT_SOURCE_DIR}/src/source/downloadcoordinator.cpp
     ${PROJECT_SOURCE_DIR}/src/source/downloaddialog.cpp
+    ${PROJECT_SOURCE_DIR}/src/source/downloadprogresswindow.cpp
     ${PROJECT_SOURCE_DIR}/src/source/decryptworker.cpp
     ${PROJECT_SOURCE_DIR}/src/source/concatworker.cpp
     ${PROJECT_SOURCE_DIR}/src/source/ffmpegcliremuxer.cpp
     ${PROJECT_SOURCE_DIR}/src/source/mediacontainervalidator.cpp
     ${PROJECT_SOURCE_DIR}/src/source/mediafinalizer.cpp
     ${PROJECT_SOURCE_DIR}/src/source/tsmerger.cpp
+    ${PROJECT_SOURCE_DIR}/src/source/import.cpp
+    ${PROJECT_SOURCE_DIR}/src/ui/import.ui
     ${core_regression_tests_moc}
     ${PROJECT_SOURCE_DIR}/src/head/config.h
     ${PROJECT_SOURCE_DIR}/src/head/directmediafinalizer.h
@@ -33,13 +41,17 @@ qt_add_executable(core_regression_tests
     ${PROJECT_SOURCE_DIR}/src/head/downloadtask.h
     ${PROJECT_SOURCE_DIR}/src/head/downloadengine.h
     ${PROJECT_SOURCE_DIR}/src/head/downloadmodel.h
+    ${PROJECT_SOURCE_DIR}/src/head/downloadcoordinator.h
+    ${PROJECT_SOURCE_DIR}/src/head/downloadcoordinatorseams.h
     ${PROJECT_SOURCE_DIR}/src/head/downloaddialog.h
+    ${PROJECT_SOURCE_DIR}/src/head/downloadprogresswindow.h
     ${PROJECT_SOURCE_DIR}/src/head/decryptworker.h
     ${PROJECT_SOURCE_DIR}/src/head/concatworker.h
     ${PROJECT_SOURCE_DIR}/src/head/ffmpegcliremuxer.h
     ${PROJECT_SOURCE_DIR}/src/head/mediacontainervalidator.h
     ${PROJECT_SOURCE_DIR}/src/head/mediafinalizer.h
     ${PROJECT_SOURCE_DIR}/src/head/tsmerger.h
+    ${PROJECT_SOURCE_DIR}/src/head/import.h
 )
 
 target_include_directories(core_regression_tests
@@ -58,6 +70,7 @@ target_link_libraries(core_regression_tests
 target_compile_definitions(core_regression_tests
     PRIVATE
         CORE_REGRESSION_TESTS
+        PROJECT_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
 )
 
 if (MSVC)
@@ -72,3 +85,6 @@ add_custom_command(TARGET core_regression_tests POST_BUILD
 )
 
 add_test(NAME core_regression_tests COMMAND core_regression_tests)
+set_tests_properties(core_regression_tests PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)

@@ -15,8 +15,8 @@
 #include <QPixmap>
 
 class QResizeEvent;
-class QThread;
-class DirectFinalizeWorker;
+class DownloadCoordinator;
+class DownloadProgressWindow;
 
 class CCTVVideoDownloader : public QMainWindow
 {
@@ -45,10 +45,6 @@ public:
 
     void openDownloadDialog();
 
-    void concatVideo();
-
-    void decryptVideo();
-
     void ImportProgrammeFromUrl();
 
     void toggleSelectAllVideos();
@@ -56,15 +52,24 @@ public:
 protected:
     void resizeEvent(QResizeEvent* event) override;
 
+private slots:
+    void onCoordinatorBatchFinished(int completedJobs, int failedJobs, int cancelledJobs, int totalJobs, bool stoppedByFatalError);
+
 private:
+    void handleBrowseVideoListResolved(quint64 requestId, const QMap<int, VideoItem>& videos);
+    void handlePreviewImageResolved(quint64 requestId, const QString& url, const QImage& image);
+    void renderVideoList(bool showHighlights);
     void updatePreviewImage();
 
     Ui::MainWindow ui;
     QPixmap m_previewPixmap;
+    quint64 m_pendingVideoListRequestId = 0;
+    quint64 m_pendingImageRequestId = 0;
+    bool m_pendingVideoListShowHighlights = false;
+    QString m_pendingPreviewImageUrl;
     inline static std::optional<std::tuple<QString, QString>> SELECTED_ID;
-    inline static std::optional<std::tuple<QString, QString, bool>> DOWNLOAD_META_INFO;
     inline static QMap<int, VideoItem> VIDEOS;
 
-    QThread* m_directFinalizeThread = nullptr;
-    DirectFinalizeWorker* m_directFinalizeWorker = nullptr;
+    DownloadCoordinator* m_downloadCoordinator = nullptr;
+    DownloadProgressWindow* m_downloadProgressWindow = nullptr;
 };
