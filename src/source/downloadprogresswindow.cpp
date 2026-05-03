@@ -103,6 +103,7 @@ void DownloadProgressWindow::buildUi()
     m_messageLabel = new QLabel(this);
     m_messageLabel->setWordWrap(true);
     m_messageLabel->setTextFormat(Qt::PlainText);
+    m_messageLabel->setVisible(false);
     rootLayout->addWidget(m_messageLabel);
 
     rootLayout->addStretch();
@@ -111,16 +112,24 @@ void DownloadProgressWindow::buildUi()
     buttonLayout->setSpacing(8);
 
     m_cancelCurrentButton = new QPushButton(QStringLiteral("取消当前"), this);
+    m_cancelCurrentButton->setMinimumHeight(34);
     m_cancelCurrentButton->setEnabled(false);
     connect(m_cancelCurrentButton, &QPushButton::clicked,
         this, &DownloadProgressWindow::requestCancelCurrent);
     buttonLayout->addWidget(m_cancelCurrentButton);
 
     m_cancelAllButton = new QPushButton(QStringLiteral("全部取消"), this);
+    m_cancelAllButton->setMinimumHeight(34);
     m_cancelAllButton->setEnabled(false);
     connect(m_cancelAllButton, &QPushButton::clicked,
         this, &DownloadProgressWindow::requestCancelAll);
     buttonLayout->addWidget(m_cancelAllButton);
+
+    m_closeButton = new QPushButton(QStringLiteral("关闭"), this);
+    m_closeButton->setMinimumHeight(34);
+    m_closeButton->setVisible(false);
+    connect(m_closeButton, &QPushButton::clicked, this, [this]() { close(); });
+    buttonLayout->addWidget(m_closeButton);
 
     rootLayout->addLayout(buttonLayout);
 }
@@ -186,6 +195,9 @@ void DownloadProgressWindow::refreshFromCoordinator()
 
     m_cancelCurrentButton->setEnabled(m_batchActive);
     m_cancelAllButton->setEnabled(m_batchActive);
+    m_cancelCurrentButton->setVisible(m_batchActive);
+    m_cancelAllButton->setVisible(m_batchActive);
+    m_closeButton->setVisible(!m_batchActive);
 }
 
 void DownloadProgressWindow::closeEvent(QCloseEvent* event)
@@ -224,6 +236,9 @@ void DownloadProgressWindow::onCoordinatorBusyChanged(bool busy)
     m_batchActive = busy;
     m_cancelCurrentButton->setEnabled(busy);
     m_cancelAllButton->setEnabled(busy);
+    m_cancelCurrentButton->setVisible(busy);
+    m_cancelAllButton->setVisible(busy);
+    m_closeButton->setVisible(!busy);
 
     if (!busy) {
         m_titleLabel->clear();
@@ -236,6 +251,9 @@ void DownloadProgressWindow::onBatchStarted(int totalJobs)
     m_batchActive = true;
     m_cancelCurrentButton->setEnabled(true);
     m_cancelAllButton->setEnabled(true);
+    m_cancelCurrentButton->setVisible(true);
+    m_cancelAllButton->setVisible(true);
+    m_closeButton->setVisible(false);
     m_messageLabel->clear();
     resetShardDetails();
     updateBatchSummary(0, 0, 0, totalJobs);
@@ -283,6 +301,9 @@ void DownloadProgressWindow::onBatchFinished(int completedJobs, int failedJobs, 
     m_batchActive = false;
     m_cancelCurrentButton->setEnabled(false);
     m_cancelAllButton->setEnabled(false);
+    m_cancelCurrentButton->setVisible(false);
+    m_cancelAllButton->setVisible(false);
+    m_closeButton->setVisible(true);
     updateBatchSummary(completedJobs, failedJobs, cancelledJobs, totalJobs);
     m_batchProgressBar->setValue(100);
     m_titleLabel->clear();
@@ -329,8 +350,10 @@ void DownloadProgressWindow::resetShardDetails()
 
 void DownloadProgressWindow::setMessage(const QString& message, bool isError)
 {
-    m_messageLabel->setText(messageText(message));
-    if (message.isEmpty()) {
+    const QString translatedMessage = messageText(message);
+    m_messageLabel->setText(translatedMessage);
+    m_messageLabel->setVisible(!translatedMessage.isEmpty());
+    if (translatedMessage.isEmpty()) {
         return;
     }
 
@@ -382,6 +405,18 @@ QString DownloadProgressWindow::messageText(const QString& message) const
     }
     if (message == QStringLiteral("batch stopped")) {
         return QStringLiteral("批次已停止");
+    }
+    if (message.startsWith(QStringLiteral("batch stopped: "))) {
+        return QStringLiteral("批次已停止：%1").arg(messageText(message.mid(15)));
+    }
+    if (message == QStringLiteral("concat stage busy")) {
+        return QStringLiteral("合并阶段正忙");
+    }
+    if (message == QStringLiteral("decrypt stage busy")) {
+        return QStringLiteral("解密阶段正忙");
+    }
+    if (message == QStringLiteral("direct finalize stage busy") || message == QStringLiteral("direct_finalize_busy")) {
+        return QStringLiteral("收尾阶段正忙");
     }
 
     return message;

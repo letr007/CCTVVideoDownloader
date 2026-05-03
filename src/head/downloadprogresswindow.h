@@ -79,4 +79,5 @@ private:
     QLabel* m_messageLabel = nullptr;
     QPushButton* m_cancelCurrentButton = nullptr;
     QPushButton* m_cancelAllButton = nullptr;
+    QPushButton* m_closeButton = nullptr;
 };
