@@ -6545,7 +6545,7 @@ void CoreRegressionTests::cctvVideoDownloader_openDownloadDialog_withoutSelectio
 
     const QString source = QString::fromUtf8(sourceFile.readAll());
     const int emptySelectionBranch = source.indexOf(QStringLiteral("if (selectedIndexes.empty())"));
-    const int warningCall = source.indexOf(QStringLiteral("QMessageBox::warning(this, \"Warning\", \"请先选择要下载的视频！\");"));
+    const int warningCall = source.indexOf(QStringLiteral("QMessageBox::warning(this, \"提示\", \"请先选择要下载的视频！\");"));
     const int openProgressWindow = source.indexOf(QStringLiteral("m_downloadProgressWindow->open();"));
     const int startCoordinator = source.indexOf(QStringLiteral("m_downloadCoordinator->startSingle("));
 

@@ -283,7 +283,7 @@ void CCTVVideoDownloader::renderVideoList(bool showHighlights)
     }
 
     ui.tableWidget_List->viewport()->update();
-    ui.btn_select_all->setText(QStringLiteral("全选"));
+    ui.btn_select_all->setText(QStringLiteral("全选视频"));
     qInfo() << "视频列表渲染完成，显示" << VIDEOS.size() << "个视频";
 }
 
@@ -311,7 +311,7 @@ void CCTVVideoDownloader::toggleSelectAllVideos()
         }
     }
 
-    ui.btn_select_all->setText(allChecked ? "全选" : "取消");
+    ui.btn_select_all->setText(allChecked ? "全选视频" : "取消选择");
 }
 
 void CCTVVideoDownloader::openAboutDialog()
@@ -343,7 +343,7 @@ void CCTVVideoDownloader::openSaveDir()
     // 使用QDesktopServices打开路径
     if (!QDesktopServices::openUrl(url)) {
         qWarning() << "打开文件保存位置失败:" << saveDir;
-        QMessageBox::warning(nullptr, "Error", "打开文件保存位置失败");
+        QMessageBox::warning(nullptr, "错误", "打开文件保存位置失败");
     } else {
         qInfo() << "成功打开保存目录";
     }
@@ -402,7 +402,7 @@ void CCTVVideoDownloader::openDownloadDialog()
         const int selectedIndex = ui.tableWidget_List->currentRow();
         if (selectedIndex < 0 || !appendJobForIndex(selectedIndex)) {
             qWarning() << "下载失败: 未选择要下载的视频";
-            QMessageBox::warning(this, "Warning", "请先选择要下载的视频！");
+            QMessageBox::warning(this, "提示", "请先选择要下载的视频！");
             return;
         }
     } else {
@@ -413,7 +413,7 @@ void CCTVVideoDownloader::openDownloadDialog()
 
     if (jobs.isEmpty()) {
         qWarning() << "下载失败: 未生成任何下载任务";
-        QMessageBox::warning(this, "Warning", "未生成任何下载任务，请稍后重试。");
+        QMessageBox::warning(this, "提示", "未生成任何下载任务，请稍后重试。");
         return;
     }
 
@@ -423,7 +423,7 @@ void CCTVVideoDownloader::openDownloadDialog()
         ? m_downloadCoordinator->startSingle(jobs.first())
         : m_downloadCoordinator->startBatch(jobs);
     if (!started && !m_downloadCoordinator->isBusy()) {
-        QMessageBox::warning(this, "Warning", "下载任务启动失败，请稍后重试。");
+        QMessageBox::warning(this, "错误", "下载任务启动失败，请稍后重试。");
     }
 }
 
@@ -444,9 +444,9 @@ void CCTVVideoDownloader::updatePreviewImage()
 void CCTVVideoDownloader::onCoordinatorBatchFinished(int completedJobs, int failedJobs, int cancelledJobs, int totalJobs, bool stoppedByFatalError)
 {
     const QString prefix = stoppedByFatalError
-        ? QStringLiteral("Download stopped: ")
-        : QStringLiteral("Download finished: ");
-    const QString message = QStringLiteral("%1Completed: %2, Failed: %3, Cancelled: %4 / Total: %5")
+        ? QStringLiteral("下载因严重错误停止：")
+        : QStringLiteral("下载完成：");
+    const QString message = QStringLiteral("%1已完成：%2，失败：%3，已取消：%4 / 总计：%5")
         .arg(prefix)
         .arg(completedJobs)
         .arg(failedJobs)
