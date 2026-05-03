@@ -3,6 +3,7 @@
 #include "ffmpegcliremuxer.h"
 #include "mediacontainervalidator.h"
 
+#include <functional>
 #include <QString>
 
 struct MediaFinalizeResult
@@ -25,7 +26,13 @@ public:
 	MediaFinalizeResult finalize(const QString& stagingTsPath,
 		const QString& title,
 		const QString& saveDir,
-		MediaContainerType desiredContainer);
+		MediaContainerType desiredContainer,
+		const std::function<bool()>& cancellationRequested = {});
+
+	#ifdef CORE_REGRESSION_TESTS
+	void setTestProcessRunner(const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& runner);
+	void setTestDecryptAssetsDir(const QString& decryptAssetsDir);
+	#endif
 
 private:
 	QString sanitizedTitle(const QString& title) const;

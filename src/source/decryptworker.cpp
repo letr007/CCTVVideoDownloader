@@ -6,6 +6,7 @@
 #include <QProcess>
 #include <QStringConverter>
 #include <QCoreApplication>
+#include <QElapsedTimer>
 
 namespace {
 
@@ -56,7 +57,12 @@ QString preferredProcessDiagnostic(const DecryptProcessResult& result)
         return stdoutText;
     }
 
-    return QStringLiteral("cbox 退出失败");
+	return QStringLiteral("cbox 退出失败");
+}
+
+bool isCancellationRequested(const std::function<bool()>& cancellationRequested)
+{
+	return cancellationRequested && cancellationRequested();
 }
 
 void logProcessDiagnostics(const DecryptProcessResult& result)
@@ -111,29 +117,70 @@ DecryptProcessResult runDecryptProcess(const DecryptProcessRequest& request)
     cbox.start(request.program, request.arguments);
 
     DecryptProcessResult result;
-    if (!cbox.waitForStarted(request.timeoutMs)) {
-        result.errorString = cbox.errorString();
-        return result;
-    }
+	QElapsedTimer timer;
+	timer.start();
+	constexpr int pollIntervalMs = 50;
+	while (!cbox.waitForStarted(pollIntervalMs)) {
+		if (isCancellationRequested(request.cancellationRequested)) {
+			result.cancelled = true;
+			cbox.terminate();
+			if (!cbox.waitForFinished(1000) && cbox.state() != QProcess::NotRunning) {
+				cbox.kill();
+				cbox.waitForFinished(1000);
+			}
+			result.stdoutText = QString::fromLocal8Bit(cbox.readAllStandardOutput());
+			result.stderrText = QString::fromLocal8Bit(cbox.readAllStandardError());
+			result.errorString = cbox.errorString();
+			result.exitCode = cbox.exitCode();
+			result.exitStatus = cbox.exitStatus();
+			return result;
+		}
+
+		if (cbox.error() != QProcess::UnknownError || timer.elapsed() >= request.timeoutMs) {
+			result.errorString = cbox.errorString();
+			return result;
+		}
+	}
 
     result.started = true;
-    if (!cbox.waitForFinished(request.timeoutMs)) {
-        result.timedOut = true;
-        result.stdoutText = QString::fromLocal8Bit(cbox.readAllStandardOutput());
-        result.stderrText = QString::fromLocal8Bit(cbox.readAllStandardError());
-        result.errorString = cbox.errorString();
+	timer.restart();
+	while (!cbox.waitForFinished(pollIntervalMs)) {
+		if (isCancellationRequested(request.cancellationRequested)) {
+			result.cancelled = true;
+			result.stdoutText = QString::fromLocal8Bit(cbox.readAllStandardOutput());
+			result.stderrText = QString::fromLocal8Bit(cbox.readAllStandardError());
+			result.errorString = cbox.errorString();
 
-        cbox.terminate();
-        if (!cbox.waitForFinished(1000) && cbox.state() != QProcess::NotRunning) {
-            cbox.kill();
-            cbox.waitForFinished(1000);
-        }
+			cbox.terminate();
+			if (!cbox.waitForFinished(1000) && cbox.state() != QProcess::NotRunning) {
+				cbox.kill();
+				cbox.waitForFinished(1000);
+			}
 
-        result.exitCode = cbox.exitCode();
-        result.exitStatus = cbox.exitStatus();
-        result.errorString = cbox.errorString();
-        return result;
-    }
+			result.exitCode = cbox.exitCode();
+			result.exitStatus = cbox.exitStatus();
+			result.errorString = cbox.errorString();
+			return result;
+		}
+
+		if (timer.elapsed() >= request.timeoutMs) {
+			result.timedOut = true;
+			result.stdoutText = QString::fromLocal8Bit(cbox.readAllStandardOutput());
+			result.stderrText = QString::fromLocal8Bit(cbox.readAllStandardError());
+			result.errorString = cbox.errorString();
+
+			cbox.terminate();
+			if (!cbox.waitForFinished(1000) && cbox.state() != QProcess::NotRunning) {
+				cbox.kill();
+				cbox.waitForFinished(1000);
+			}
+
+			result.exitCode = cbox.exitCode();
+			result.exitStatus = cbox.exitStatus();
+			result.errorString = cbox.errorString();
+			return result;
+		}
+	}
 
     result.exitCode = cbox.exitCode();
     result.exitStatus = cbox.exitStatus();
@@ -190,6 +237,11 @@ DecryptWorker::DecryptWorker(QObject* parent)
 {
 }
 
+void DecryptWorker::cancelDecrypt()
+{
+	m_cancelled.store(true, std::memory_order_relaxed);
+}
+
 void DecryptWorker::setProcessTimeoutMs(int timeoutMs)
 {
     m_processTimeoutMs = normalizeProcessTimeoutMs(timeoutMs);
@@ -210,6 +262,15 @@ void DecryptWorker::doDecrypt()
 {
     qInfo() << "开始视频解密 - 视频名称:" << m_name << "保存路径:" << m_savePath;
 
+	auto cancellationRequested = [this]() {
+		return m_cancelled.load(std::memory_order_relaxed);
+	};
+
+	if (cancellationRequested()) {
+		emit decryptFinished(false, QStringLiteral("cancelled"));
+		return;
+	}
+
     const QString trimmedName = m_name.trimmed();
     const QString trimmedSavePath = m_savePath.trimmed();
     if (trimmedName.isEmpty() || trimmedSavePath.isEmpty()) {
@@ -223,11 +284,14 @@ void DecryptWorker::doDecrypt()
         return;
     }
     
-	auto nameHash = QString(
-		QCryptographicHash::hash(m_name.toUtf8(), QCryptographicHash::Sha256)
-		.toHex()
-	);
-	auto filePath = QDir::cleanPath(trimmedSavePath + "/" + nameHash);
+	QString filePath = m_taskDirectory.trimmed();
+	if (filePath.isEmpty()) {
+		auto nameHash = QString(
+			QCryptographicHash::hash(m_name.toUtf8(), QCryptographicHash::Sha256)
+			.toHex()
+		);
+		filePath = QDir::cleanPath(trimmedSavePath + "/" + nameHash);
+	}
     qInfo() << "临时文件路径:" << filePath;
 
 	QFileInfo tempDirectoryInfo(filePath);
@@ -311,6 +375,7 @@ void DecryptWorker::doDecrypt()
 	request.arguments = { cboxPath, stagedDecryptedTsPath };
 	request.workingDirectory = trimmedSavePath;
 	request.timeoutMs = m_processTimeoutMs;
+	request.cancellationRequested = cancellationRequested;
 
     qInfo() << "启动CBOX解密进程，参数:" << request.arguments;
 
@@ -327,6 +392,17 @@ void DecryptWorker::doDecrypt()
 #endif
 
     logProcessDiagnostics(processResult);
+
+	if (processResult.cancelled || cancellationRequested())
+	{
+		qInfo() << "CBOX解密已取消";
+		if (!restoreConvertedInputToTs(cboxPath, stagingInputPath)) {
+			qWarning() << "回滚 input.cbox -> result.ts 失败:" << cboxPath << stagingInputPath;
+		}
+		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+		emit decryptFinished(false, QStringLiteral("cancelled"));
+		return;
+	}
 
 	if (!processResult.started)
 	{
@@ -385,11 +461,27 @@ void DecryptWorker::doDecrypt()
 
 	MediaFinalizer finalizer;
 	finalizer.setProcessTimeoutMs(m_processTimeoutMs);
+	if (cancellationRequested()) {
+		if (!restoreConvertedInputToTs(cboxPath, stagingInputPath)) {
+			qWarning() << "回滚 input.cbox -> result.ts 失败:" << cboxPath << stagingInputPath;
+		}
+		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+		emit decryptFinished(false, QStringLiteral("cancelled"));
+		return;
+	}
+
 	const MediaFinalizeResult finalizeResult = finalizer.finalize(stagedDecryptedTsPath,
 		m_name,
 		trimmedSavePath,
-		desiredContainer);
+		desiredContainer,
+		cancellationRequested);
 	if (!finalizeResult.ok) {
+		if (finalizeResult.code == QStringLiteral("cancelled") || cancellationRequested()) {
+			cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+			emit decryptFinished(false, QStringLiteral("cancelled"));
+			return;
+		}
+
 		qCritical() << "MediaFinalizer 发布失败:" << finalizeResult.code << finalizeResult.message;
 		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
 		emit decryptFinished(false, QStringLiteral("解密失败 [code=%1]: %2")

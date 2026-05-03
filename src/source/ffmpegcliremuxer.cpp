@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
+#include <QElapsedTimer>
 
 namespace {
 
@@ -38,6 +39,11 @@ QString preferredProcessDiagnostic(const FfmpegCliProcessResult& result)
 	return QStringLiteral("ffmpeg 退出失败");
 }
 
+bool isCancellationRequested(const std::function<bool()>& cancellationRequested)
+{
+	return cancellationRequested && cancellationRequested();
+}
+
 FfmpegCliProcessResult runFfmpegProcess(const FfmpegCliProcessRequest& request)
 {
 	QProcess ffmpeg;
@@ -45,28 +51,69 @@ FfmpegCliProcessResult runFfmpegProcess(const FfmpegCliProcessRequest& request)
 	ffmpeg.start(request.program, request.arguments);
 
 	FfmpegCliProcessResult result;
-	if (!ffmpeg.waitForStarted(request.timeoutMs)) {
-		result.errorString = ffmpeg.errorString();
-		return result;
+	QElapsedTimer timer;
+	timer.start();
+	constexpr int pollIntervalMs = 50;
+	while (!ffmpeg.waitForStarted(pollIntervalMs)) {
+		if (isCancellationRequested(request.cancellationRequested)) {
+			result.cancelled = true;
+			ffmpeg.terminate();
+			if (!ffmpeg.waitForFinished(1000) && ffmpeg.state() != QProcess::NotRunning) {
+				ffmpeg.kill();
+				ffmpeg.waitForFinished(1000);
+			}
+			result.stdoutText = QString::fromLocal8Bit(ffmpeg.readAllStandardOutput());
+			result.stderrText = QString::fromLocal8Bit(ffmpeg.readAllStandardError());
+			result.errorString = ffmpeg.errorString();
+			result.exitCode = ffmpeg.exitCode();
+			result.exitStatus = ffmpeg.exitStatus();
+			return result;
+		}
+
+		if (ffmpeg.error() != QProcess::UnknownError || timer.elapsed() >= request.timeoutMs) {
+			result.errorString = ffmpeg.errorString();
+			return result;
+		}
 	}
 
 	result.started = true;
-	if (!ffmpeg.waitForFinished(request.timeoutMs)) {
-		result.timedOut = true;
-		result.stdoutText = QString::fromLocal8Bit(ffmpeg.readAllStandardOutput());
-		result.stderrText = QString::fromLocal8Bit(ffmpeg.readAllStandardError());
-		result.errorString = ffmpeg.errorString();
+	timer.restart();
+	while (!ffmpeg.waitForFinished(pollIntervalMs)) {
+		if (isCancellationRequested(request.cancellationRequested)) {
+			result.cancelled = true;
+			result.stdoutText = QString::fromLocal8Bit(ffmpeg.readAllStandardOutput());
+			result.stderrText = QString::fromLocal8Bit(ffmpeg.readAllStandardError());
+			result.errorString = ffmpeg.errorString();
 
-		ffmpeg.terminate();
-		if (!ffmpeg.waitForFinished(1000) && ffmpeg.state() != QProcess::NotRunning) {
-			ffmpeg.kill();
-			ffmpeg.waitForFinished(1000);
+			ffmpeg.terminate();
+			if (!ffmpeg.waitForFinished(1000) && ffmpeg.state() != QProcess::NotRunning) {
+				ffmpeg.kill();
+				ffmpeg.waitForFinished(1000);
+			}
+
+			result.exitCode = ffmpeg.exitCode();
+			result.exitStatus = ffmpeg.exitStatus();
+			result.errorString = ffmpeg.errorString();
+			return result;
 		}
 
-		result.exitCode = ffmpeg.exitCode();
-		result.exitStatus = ffmpeg.exitStatus();
-		result.errorString = ffmpeg.errorString();
-		return result;
+		if (timer.elapsed() >= request.timeoutMs) {
+			result.timedOut = true;
+			result.stdoutText = QString::fromLocal8Bit(ffmpeg.readAllStandardOutput());
+			result.stderrText = QString::fromLocal8Bit(ffmpeg.readAllStandardError());
+			result.errorString = ffmpeg.errorString();
+
+			ffmpeg.terminate();
+			if (!ffmpeg.waitForFinished(1000) && ffmpeg.state() != QProcess::NotRunning) {
+				ffmpeg.kill();
+				ffmpeg.waitForFinished(1000);
+			}
+
+			result.exitCode = ffmpeg.exitCode();
+			result.exitStatus = ffmpeg.exitStatus();
+			result.errorString = ffmpeg.errorString();
+			return result;
+		}
 	}
 
 	result.exitCode = ffmpeg.exitCode();
@@ -119,10 +166,16 @@ QString FfmpegCliRemuxer::decryptAssetsDir() const
 	return QDir(QCoreApplication::applicationDirPath()).filePath("decrypt");
 }
 
-FfmpegCliRemuxResult FfmpegCliRemuxer::remuxTsToMp4(const QString& inputTsPath, const QString& outputMp4TempPath) const
+FfmpegCliRemuxResult FfmpegCliRemuxer::remuxTsToMp4(const QString& inputTsPath,
+	const QString& outputMp4TempPath,
+	const std::function<bool()>& cancellationRequested) const
 {
 	const QString trimmedInputPath = inputTsPath.trimmed();
 	const QString trimmedOutputPath = outputMp4TempPath.trimmed();
+	if (isCancellationRequested(cancellationRequested)) {
+		return failureResult(QStringLiteral("cancelled"), QStringLiteral("cancelled"));
+	}
+
 	if (trimmedInputPath.isEmpty() || trimmedOutputPath.isEmpty()) {
 		return failureResult(QStringLiteral("invalid_params"),
 			QStringLiteral("FFmpeg remux parameters are invalid"));
@@ -167,6 +220,7 @@ FfmpegCliRemuxResult FfmpegCliRemuxer::remuxTsToMp4(const QString& inputTsPath, 
 	};
 	request.workingDirectory = outputInfo.absolutePath();
 	request.timeoutMs = computeRemuxTimeoutMs(trimmedInputPath, m_processTimeoutMs);
+	request.cancellationRequested = cancellationRequested;
 	qInfo() << "启动FFmpeg封装进程，超时:" << request.timeoutMs << "ms, 参数:" << request.arguments;
 
 	FfmpegCliProcessResult processResult;
@@ -182,6 +236,12 @@ FfmpegCliRemuxResult FfmpegCliRemuxer::remuxTsToMp4(const QString& inputTsPath, 
 #endif
 	qInfo() << "FFmpeg stdout:" << cappedDiagnosticText(processResult.stdoutText);
 	qInfo() << "FFmpeg stderr:" << cappedDiagnosticText(processResult.stderrText);
+
+	if (processResult.cancelled || isCancellationRequested(cancellationRequested)) {
+		FfmpegCliRemuxResult result = failureResult(QStringLiteral("cancelled"), QStringLiteral("cancelled"));
+		result.processResult = processResult;
+		return result;
+	}
 
 	if (!processResult.started) {
 		FfmpegCliRemuxResult result = failureResult(QStringLiteral("start_failed"),

@@ -24,6 +24,11 @@ QString validationFailureMessage(const QString& prefix, const MediaContainerVali
 	return QStringLiteral("%1 [%2]: %3").arg(prefix, validation.code, validation.message);
 }
 
+bool isCancellationRequested(const std::function<bool()>& cancellationRequested)
+{
+	return cancellationRequested && cancellationRequested();
+}
+
 } // namespace
 
 void MediaFinalizer::setProcessTimeoutMs(int timeoutMs)
@@ -31,11 +36,28 @@ void MediaFinalizer::setProcessTimeoutMs(int timeoutMs)
 	m_remuxer.setProcessTimeoutMs(timeoutMs);
 }
 
+#ifdef CORE_REGRESSION_TESTS
+void MediaFinalizer::setTestProcessRunner(const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& runner)
+{
+	m_remuxer.setTestProcessRunner(runner);
+}
+
+void MediaFinalizer::setTestDecryptAssetsDir(const QString& decryptAssetsDir)
+{
+	m_remuxer.setTestDecryptAssetsDir(decryptAssetsDir);
+}
+#endif
+
 MediaFinalizeResult MediaFinalizer::finalize(const QString& stagingTsPath,
 	const QString& title,
 	const QString& saveDir,
-	MediaContainerType desiredContainer)
+	MediaContainerType desiredContainer,
+	const std::function<bool()>& cancellationRequested)
 {
+	if (isCancellationRequested(cancellationRequested)) {
+		return failureResult(QStringLiteral("cancelled"), QStringLiteral("cancelled"), desiredContainer);
+	}
+
 	const QString trimmedStagingPath = stagingTsPath.trimmed();
 	const QString trimmedTitle = title.trimmed();
 	const QString trimmedSaveDir = saveDir.trimmed();
@@ -73,10 +95,19 @@ MediaFinalizeResult MediaFinalizer::finalize(const QString& stagingTsPath,
 
 	if (desiredContainer == MediaContainerType::MpegTs) {
 		const QString finalTsPath = uniqueOutputPath(trimmedSaveDir, baseName, QStringLiteral("ts"));
+		if (isCancellationRequested(cancellationRequested)) {
+			return failureResult(QStringLiteral("cancelled"), QStringLiteral("cancelled"), MediaContainerType::MpegTs);
+		}
+
 		if (!QFile::rename(trimmedStagingPath, finalTsPath)) {
 			return failureResult(QStringLiteral("publish_failed"),
 				QStringLiteral("Unable to publish final TS file: %1").arg(finalTsPath),
 				MediaContainerType::MpegTs);
+		}
+
+		if (isCancellationRequested(cancellationRequested)) {
+			QFile::remove(finalTsPath);
+			return failureResult(QStringLiteral("cancelled"), QStringLiteral("cancelled"), MediaContainerType::MpegTs);
 		}
 
 		MediaFinalizeResult result;
@@ -97,10 +128,13 @@ MediaFinalizeResult MediaFinalizer::finalize(const QString& stagingTsPath,
 			MediaContainerType::Mp4);
 	}
 
-	const FfmpegCliRemuxResult remuxResult = m_remuxer.remuxTsToMp4(trimmedStagingPath, tempMp4Path);
+	const FfmpegCliRemuxResult remuxResult = m_remuxer.remuxTsToMp4(trimmedStagingPath, tempMp4Path, cancellationRequested);
 	if (!remuxResult.ok) {
 		if (QFile::exists(tempMp4Path)) {
 			QFile::remove(tempMp4Path);
+		}
+		if (remuxResult.code == QStringLiteral("cancelled") || isCancellationRequested(cancellationRequested)) {
+			return failureResult(QStringLiteral("cancelled"), QStringLiteral("cancelled"), MediaContainerType::Mp4);
 		}
 		return failureResult(remuxResult.code,
 			QStringLiteral("MP4 remux failed: %1").arg(remuxResult.message),
@@ -117,11 +151,21 @@ MediaFinalizeResult MediaFinalizer::finalize(const QString& stagingTsPath,
 	}
 	qInfo() << "MP4封装校验通过:" << tempMp4Path;
 
+	if (isCancellationRequested(cancellationRequested)) {
+		QFile::remove(tempMp4Path);
+		return failureResult(QStringLiteral("cancelled"), QStringLiteral("cancelled"), MediaContainerType::Mp4);
+	}
+
 	if (!QFile::rename(tempMp4Path, finalMp4Path)) {
 		QFile::remove(tempMp4Path);
 		return failureResult(QStringLiteral("publish_failed"),
 			QStringLiteral("Unable to publish final MP4 file: %1").arg(finalMp4Path),
 			MediaContainerType::Mp4);
+	}
+
+	if (isCancellationRequested(cancellationRequested)) {
+		QFile::remove(finalMp4Path);
+		return failureResult(QStringLiteral("cancelled"), QStringLiteral("cancelled"), MediaContainerType::Mp4);
 	}
 
 	MediaFinalizeResult result;

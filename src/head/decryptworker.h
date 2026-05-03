@@ -3,10 +3,8 @@
 #include <QObject>
 #include <QProcess>
 #include <QStringList>
-
-#ifdef CORE_REGRESSION_TESTS
+#include <atomic>
 #include <functional>
-#endif
 
 struct DecryptProcessRequest
 {
@@ -14,6 +12,7 @@ struct DecryptProcessRequest
 	QStringList arguments;
 	QString workingDirectory;
 	int timeoutMs = 30000;
+	std::function<bool()> cancellationRequested;
 };
 
 struct DecryptProcessResult
@@ -25,7 +24,10 @@ struct DecryptProcessResult
 	QString stdoutText;
 	QString stderrText;
 	QString errorString;
+	bool cancelled = false;
 };
+
+class ProductionCoordinatorDecryptStage;
 
 class DecryptWorker : public QObject
 {
@@ -33,14 +35,18 @@ class DecryptWorker : public QObject
 
 #ifdef CORE_REGRESSION_TESTS
 	friend class DecryptWorkerTestAdapter;
+	friend class ProductionCoordinatorDecryptStage;
 #endif
 
 public:
 	explicit DecryptWorker(QObject* parent = nullptr);
 
 	void setParams(const QString& name, const QString& savePath) { m_name = name; m_savePath = savePath; }
+	void setTaskDirectory(const QString& taskDirectory) { m_taskDirectory = taskDirectory; }
 	void setTranscodeToMp4(bool transcodeToMp4) { m_transcodeToMp4 = transcodeToMp4; }
 	void setProcessTimeoutMs(int timeoutMs);
+	void startDecrypt() { doDecrypt(); }
+	void cancelDecrypt();
 
 public slots:
 	void doDecrypt();
@@ -60,8 +66,10 @@ private:
 
 	QString m_name;
 	QString m_savePath;
+	QString m_taskDirectory;
 	bool m_transcodeToMp4 = true;
 	int m_processTimeoutMs{30000};
+	std::atomic_bool m_cancelled{false};
 
 	#ifdef CORE_REGRESSION_TESTS
 	std::function<DecryptProcessResult(const DecryptProcessRequest&)> m_testProcessRunner;

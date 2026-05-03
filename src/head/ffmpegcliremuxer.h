@@ -3,10 +3,7 @@
 #include <QProcess>
 #include <QString>
 #include <QStringList>
-
-#ifdef CORE_REGRESSION_TESTS
 #include <functional>
-#endif
 
 struct FfmpegCliProcessRequest
 {
@@ -14,6 +11,7 @@ struct FfmpegCliProcessRequest
 	QStringList arguments;
 	QString workingDirectory;
 	int timeoutMs = 30000;
+	std::function<bool()> cancellationRequested;
 };
 
 struct FfmpegCliProcessResult
@@ -25,6 +23,7 @@ struct FfmpegCliProcessResult
 	QString stdoutText;
 	QString stderrText;
 	QString errorString;
+	bool cancelled = false;
 };
 
 struct FfmpegCliRemuxResult
@@ -40,11 +39,14 @@ class FfmpegCliRemuxer
 {
 #ifdef CORE_REGRESSION_TESTS
 	friend class MediaFinalizerTestAdapter;
+	friend class MediaFinalizer;
 #endif
 
 public:
 	void setProcessTimeoutMs(int timeoutMs);
-	FfmpegCliRemuxResult remuxTsToMp4(const QString& inputTsPath, const QString& outputMp4TempPath) const;
+	FfmpegCliRemuxResult remuxTsToMp4(const QString& inputTsPath,
+		const QString& outputMp4TempPath,
+		const std::function<bool()>& cancellationRequested = {}) const;
 
 private:
 	QString decryptAssetsDir() const;

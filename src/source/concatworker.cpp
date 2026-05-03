@@ -13,9 +13,19 @@ ConcatWorker::ConcatWorker(QObject* parent) : QObject(parent)
 {
 }
 
+void ConcatWorker::cancelConcat()
+{
+    m_cancelled.store(true, std::memory_order_relaxed);
+}
+
 void ConcatWorker::doConcat()
 {
     qInfo() << "开始视频拼接，文件路径:" << m_filePath;
+
+    if (m_cancelled.load(std::memory_order_relaxed)) {
+        emit concatFinished(false, QStringLiteral("cancelled"));
+        return;
+    }
     
     QDir fileDir(m_filePath);
     if (!fileDir.exists()) {
@@ -58,12 +68,27 @@ void ConcatWorker::doConcat()
 	TSMerger merger;
 	merger.reset();
     qInfo() << "开始合并TS文件...";
-    
-    if (merger.merge(tsFilePaths, outPath)) {
+
+    if (merger.merge(tsFilePaths, outPath, [this]() {
+        return m_cancelled.load(std::memory_order_relaxed);
+    })) {
+        if (m_cancelled.load(std::memory_order_relaxed)) {
+            if (QFile::exists(outPath) && !QFile::remove(outPath)) {
+                qWarning() << "取消后清理 result.ts 失败:" << outPath;
+            }
+            emit concatFinished(false, QStringLiteral("cancelled"));
+            return;
+        }
+
         qInfo() << "视频拼接成功完成，TS暂存文件:" << outPath;
         emit concatFinished(true, "TS暂存完成，输出 result.ts");
     }
     else {
+        if (m_cancelled.load(std::memory_order_relaxed)) {
+            emit concatFinished(false, QStringLiteral("cancelled"));
+            return;
+        }
+
         qCritical() << "视频拼接失败";
         emit concatFinished(false, "拼接失败");
     }

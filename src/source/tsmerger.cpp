@@ -4,7 +4,50 @@
 #include <QFile>
 #include <QFileInfo>
 
-bool TSMerger::merge(const std::vector<QString>& inputFiles, const QString& outputFile) {
+namespace {
+
+bool isCancellationRequested(const std::function<bool()>& cancellationRequested)
+{
+    return cancellationRequested && cancellationRequested();
+}
+
+#ifdef CORE_REGRESSION_TESTS
+std::function<void()>& tsMergerTestPacketProcessedHook()
+{
+    static std::function<void()> hook;
+    return hook;
+}
+
+void invokeTsMergerTestPacketProcessedHook()
+{
+    auto& hook = tsMergerTestPacketProcessedHook();
+    if (hook) {
+        hook();
+    }
+}
+#else
+void invokeTsMergerTestPacketProcessedHook()
+{
+}
+#endif
+
+} // namespace
+
+#ifdef CORE_REGRESSION_TESTS
+void setTsMergerTestPacketProcessedHook(const std::function<void()>& hook)
+{
+    tsMergerTestPacketProcessedHook() = hook;
+}
+
+void clearTsMergerTestPacketProcessedHook()
+{
+    tsMergerTestPacketProcessedHook() = {};
+}
+#endif
+
+bool TSMerger::merge(const std::vector<QString>& inputFiles,
+    const QString& outputFile,
+    const std::function<bool()>& cancellationRequested) {
     qInfo() << "开始合并TS文件，输入文件数:" << inputFiles.size() << "输出文件:" << outputFile;
     
     if (inputFiles.empty()) {
@@ -33,8 +76,17 @@ bool TSMerger::merge(const std::vector<QString>& inputFiles, const QString& outp
     qInfo() << "临时输出文件已打开:" << tempOutputFile;
 
     for (size_t i=0; i < inputFiles.size(); ++i) {
+        if (isCancellationRequested(cancellationRequested)) {
+            qInfo() << "TS合并已取消，停止处理后续文件";
+            outfile.close();
+            if (QFile::exists(tempOutputFile) && !QFile::remove(tempOutputFile)) {
+                qWarning() << "取消后清理临时合并输出文件失败:" << tempOutputFile;
+            }
+            return false;
+        }
+
         qInfo() << "处理第" << (i+1) << "/" << inputFiles.size() << "个文件:" << inputFiles[i];
-        if (!processFile(inputFiles[i], outfile, i == 0)) {
+        if (!processFile(inputFiles[i], outfile, i == 0, cancellationRequested)) {
             qCritical() << "处理文件失败:" << inputFiles[i];
             outfile.close();
             if (QFile::exists(tempOutputFile) && !QFile::remove(tempOutputFile)) {
@@ -46,6 +98,14 @@ bool TSMerger::merge(const std::vector<QString>& inputFiles, const QString& outp
     }
 
     outfile.close();
+
+    if (isCancellationRequested(cancellationRequested)) {
+        qInfo() << "TS合并已取消，停止发布输出文件";
+        if (QFile::exists(tempOutputFile) && !QFile::remove(tempOutputFile)) {
+            qWarning() << "取消后清理临时合并输出文件失败:" << tempOutputFile;
+        }
+        return false;
+    }
 
     const bool hadExistingOutput = QFile::exists(outputFile);
     bool movedExistingOutputToBackup = false;
@@ -96,8 +156,16 @@ bool TSMerger::merge(const std::vector<QString>& inputFiles, const QString& outp
     return true;
 }
 
-bool TSMerger::processFile(const QString& filename, QFile& outfile, bool isFirstFile) {
+bool TSMerger::processFile(const QString& filename,
+    QFile& outfile,
+    bool isFirstFile,
+    const std::function<bool()>& cancellationRequested) {
     qDebug() << "处理TS文件:" << filename << "是否为第一个文件:" << isFirstFile;
+
+    if (isCancellationRequested(cancellationRequested)) {
+        qInfo() << "TS文件处理前检测到取消请求:" << filename;
+        return false;
+    }
     
     QFile infile(filename);
     if (!infile.open(QIODevice::ReadOnly)) {
@@ -133,6 +201,11 @@ bool TSMerger::processFile(const QString& filename, QFile& outfile, bool isFirst
     size_t validPacketCount = 0;
 
     for (size_t i = 0; i + TS_PACKET_SIZE <= data.size(); i += TS_PACKET_SIZE) {
+        if (isCancellationRequested(cancellationRequested)) {
+            qInfo() << "TS文件处理过程中收到取消请求:" << filename;
+            return false;
+        }
+
         if (!validatePacket(data, i)) {
             invalidCount++;
             continue; // 跳过无效包
@@ -150,6 +223,7 @@ bool TSMerger::processFile(const QString& filename, QFile& outfile, bool isFirst
                 qCritical() << "写入输出文件失败:" << outfile.fileName();
                 return false;
             }
+            invokeTsMergerTestPacketProcessedHook();
             packetCount++;
         }
         else {
@@ -161,6 +235,7 @@ bool TSMerger::processFile(const QString& filename, QFile& outfile, bool isFirst
                 qCritical() << "写入输出文件失败:" << outfile.fileName();
                 return false;
             }
+            invokeTsMergerTestPacketProcessedHook();
             packetCount++;
         }
     }

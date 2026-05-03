@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include <QObject>
+#include <atomic>
 
 class ConcatWorker : public QObject
 {
@@ -9,6 +10,8 @@ public:
     explicit ConcatWorker(QObject* parent = nullptr);
 
     void setFilePath(const QString& path) { m_filePath = path; }
+    void startConcat() { doConcat(); }
+    void cancelConcat();
 
 public slots:
     void doConcat();
@@ -18,4 +21,5 @@ signals:
 
 private:
     QString m_filePath;
+    std::atomic_bool m_cancelled{false};
 };

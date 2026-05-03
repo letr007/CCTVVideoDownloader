@@ -3,7 +3,13 @@
 #include <QObject>
 #include <QDebug>
 #include <QFile>
+#include <functional>
 #include <vector>
+
+#ifdef CORE_REGRESSION_TESTS
+void setTsMergerTestPacketProcessedHook(const std::function<void()>& hook);
+void clearTsMergerTestPacketProcessedHook();
+#endif
 
 class TSMerger {
 private:
@@ -14,14 +20,18 @@ private:
 	bool pmtIdentified = false;
 
 public:
-	bool merge(const std::vector<QString>& inputFiles, const QString& outputFile);
+	bool merge(const std::vector<QString>& inputFiles, const QString& outputFile,
+		const std::function<bool()>& cancellationRequested = {});
 
 	void reset() {
 		pmtPid = 0;
 		pmtIdentified = false;
 	}
 private:
-	bool processFile(const QString& fileName, QFile& outFile, bool isFirstFile);
+	bool processFile(const QString& fileName,
+		QFile& outFile,
+		bool isFirstFile,
+		const std::function<bool()>& cancellationRequested);
 	void identifyPMTPID(const std::vector<uint8_t>& data, size_t packetOffset);
 	bool validatePacket(const std::vector<uint8_t>& data, size_t offset);
 };
