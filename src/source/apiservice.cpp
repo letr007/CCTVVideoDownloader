@@ -9,10 +9,15 @@
 #include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QNetworkReply>
 #include <QtNetwork/QNetworkRequest>
+#include <QtNetwork/QSslConfiguration>
+#include <QtNetwork/QSslSocket>
 #include <QEventLoop>
+#include <QThread>
+#include <QTimer>
 #include <QUrlQuery>
 #include <QRegularExpression>
 #include <QMutexLocker>
+#include <utility>
 
 // 静态成员初始化
 QPointer<APIService> APIService::m_instance = nullptr;
@@ -37,6 +42,32 @@ APIService::~APIService()
 {
 }
 
+QNetworkAccessManager* APIService::networkAccessManager()
+{
+#ifdef CORE_REGRESSION_TESTS
+    if (m_testNetworkAccessManager) {
+        return m_testNetworkAccessManager;
+    }
+#endif
+    return &m_networkAccessManager;
+}
+
+QNetworkRequest APIService::buildNetworkRequest(const QUrl& url, const QHash<QString, QString>& headers) const
+{
+    QNetworkRequest request(url);
+
+    QSslConfiguration sslConfig = request.sslConfiguration();
+    sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+    request.setSslConfiguration(sslConfig);
+    request.setHeader(QNetworkRequest::UserAgentHeader, "Lavf/60.10.100");
+
+    for (auto it = headers.begin(); it != headers.end(); ++it) {
+        request.setRawHeader(it.key().toUtf8(), it.value().toUtf8());
+    }
+
+    return request;
+}
+
 // 通用的网络请求函数
 QByteArray APIService::sendNetworkRequest(const QUrl& url, const QHash<QString, QString>& headers)
 {
@@ -50,20 +81,7 @@ QByteArray APIService::sendNetworkRequest(const QUrl& url, const QHash<QString, 
     }
 #endif
 
-    QNetworkRequest request(url);
-    // 设置SSL配置以绕过SSL验证
-    QSslConfiguration sslConfig = request.sslConfiguration();
-    sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
-    request.setSslConfiguration(sslConfig);
-
-    // 设置User-Agent
-    request.setHeader(QNetworkRequest::UserAgentHeader,
-        "Lavf/60.10.100");
-
-    // 添加自定义头部
-    for (auto it = headers.begin(); it != headers.end(); ++it) {
-        request.setRawHeader(it.key().toUtf8(), it.value().toUtf8());
-    }
+    QNetworkRequest request = buildNetworkRequest(url, headers);
 
     QNetworkReply* reply = manager->get(request);
     // 连接SSL错误处理，忽略SSL错误
@@ -640,111 +658,306 @@ QImage APIService::getImage(const QString& url)
     return image;
 }
 
-QStringList APIService::getEncryptM3U8Urls(const QString& GUID, const QString& quality)
+quint64 APIService::nextAsyncBrowseRequestId()
 {
-    qInfo() << "获取加密M3U8 URL，GUID:" << GUID << "质量:" << quality;
+    QMutexLocker locker(&m_mutex);
+    return ++m_nextAsyncBrowseRequestId;
+}
+
+quint64 APIService::startGetPlayColumnInfo(const QString& url)
+{
+    const quint64 requestId = nextAsyncBrowseRequestId();
+    {
+        QMutexLocker locker(&m_mutex);
+        m_activePlayColumnInfoRequestId = requestId;
+    }
+
+    auto publishResult = [this, requestId, url]() {
+        const QSharedPointer<QStringList> result = getPlayColumnInfo(url);
+        const bool matchesActiveRequest = [this, requestId]() {
+            QMutexLocker locker(&m_mutex);
+            return m_activePlayColumnInfoRequestId == requestId;
+        }();
+        if (!matchesActiveRequest) {
+            return;
+        }
+
+        if (!result.isNull() && result->size() == 3 && !result->at(0).isEmpty()) {
+            emit playColumnInfoResolved(requestId, *result);
+            return;
+        }
+
+        emit playColumnInfoFailed(requestId, QStringLiteral("获取栏目信息失败"));
+    };
+
+#ifdef CORE_REGRESSION_TESTS
+    if (m_testNetworkAccessManager) {
+        QTimer::singleShot(0, this, publishResult);
+        return requestId;
+    }
+#endif
+
+    QThread* workerThread = QThread::create([this, requestId, url]() {
+        const QSharedPointer<QStringList> result = getPlayColumnInfo(url);
+        const bool matchesActiveRequest = [this, requestId]() {
+            QMutexLocker locker(&m_mutex);
+            return m_activePlayColumnInfoRequestId == requestId;
+        }();
+        if (!matchesActiveRequest) {
+            return;
+        }
+
+        if (!result.isNull() && result->size() == 3 && !result->at(0).isEmpty()) {
+            const QStringList data = *result;
+            QMetaObject::invokeMethod(this, [this, requestId, data]() {
+                emit playColumnInfoResolved(requestId, data);
+            }, Qt::QueuedConnection);
+            return;
+        }
+
+        QMetaObject::invokeMethod(this, [this, requestId]() {
+            emit playColumnInfoFailed(requestId, QStringLiteral("获取栏目信息失败"));
+        }, Qt::QueuedConnection);
+    });
+    workerThread->setObjectName(QStringLiteral("APIServicePlayColumnInfoWorker"));
+    connect(workerThread, &QThread::finished, workerThread, &QObject::deleteLater);
+    workerThread->start();
+    return requestId;
+}
+
+quint64 APIService::startGetBrowseVideoList(const QString& column_id,
+    const QString& item_id,
+    const QString& start_date,
+    const QString& end_date,
+    bool includeHighlights)
+{
+    const quint64 requestId = nextAsyncBrowseRequestId();
+    {
+        QMutexLocker locker(&m_mutex);
+        m_activeBrowseVideoListRequestId = requestId;
+    }
+
+    auto publishResult = [this, requestId, column_id, item_id, start_date, end_date, includeHighlights]() {
+        QMap<int, VideoItem> videos = getVideoList(column_id, item_id, start_date, end_date);
+
+        auto appendExtraVideos = [&videos](const QMap<int, VideoItem>& extras) {
+            int nextIndex = videos.isEmpty() ? 0 : (videos.lastKey() + 1);
+            for (const VideoItem& item : extras) {
+                bool alreadyListed = false;
+                for (const VideoItem& existing : std::as_const(videos)) {
+                    if (!item.guid.isEmpty() && item.guid == existing.guid) {
+                        alreadyListed = true;
+                        break;
+                    }
+                }
+                if (alreadyListed) {
+                    continue;
+                }
+                videos.insert(nextIndex++, item);
+            }
+        };
+
+        if (includeHighlights) {
+            appendExtraVideos(getHighlightList(item_id));
+            appendExtraVideos(getFragmentList(column_id, item_id));
+        }
+
+        const bool matchesActiveRequest = [this, requestId]() {
+            QMutexLocker locker(&m_mutex);
+            return m_activeBrowseVideoListRequestId == requestId;
+        }();
+        if (!matchesActiveRequest) {
+            return;
+        }
+
+        emit browseVideoListResolved(requestId, videos);
+    };
+
+#ifdef CORE_REGRESSION_TESTS
+    if (m_testNetworkAccessManager) {
+        QTimer::singleShot(0, this, publishResult);
+        return requestId;
+    }
+#endif
+
+    QThread* workerThread = QThread::create([this, requestId, column_id, item_id, start_date, end_date, includeHighlights]() {
+        QMap<int, VideoItem> videos = getVideoList(column_id, item_id, start_date, end_date);
+
+        auto appendExtraVideos = [&videos](const QMap<int, VideoItem>& extras) {
+            int nextIndex = videos.isEmpty() ? 0 : (videos.lastKey() + 1);
+            for (const VideoItem& item : extras) {
+                bool alreadyListed = false;
+                for (const VideoItem& existing : std::as_const(videos)) {
+                    if (!item.guid.isEmpty() && item.guid == existing.guid) {
+                        alreadyListed = true;
+                        break;
+                    }
+                }
+                if (alreadyListed) {
+                    continue;
+                }
+                videos.insert(nextIndex++, item);
+            }
+        };
+
+        if (includeHighlights) {
+            appendExtraVideos(getHighlightList(item_id));
+            appendExtraVideos(getFragmentList(column_id, item_id));
+        }
+
+        const bool matchesActiveRequest = [this, requestId]() {
+            QMutexLocker locker(&m_mutex);
+            return m_activeBrowseVideoListRequestId == requestId;
+        }();
+        if (!matchesActiveRequest) {
+            return;
+        }
+
+        QMetaObject::invokeMethod(this, [this, requestId, videos]() {
+            emit browseVideoListResolved(requestId, videos);
+        }, Qt::QueuedConnection);
+    });
+    workerThread->setObjectName(QStringLiteral("APIServiceBrowseVideoListWorker"));
+    connect(workerThread, &QThread::finished, workerThread, &QObject::deleteLater);
+    workerThread->start();
+    return requestId;
+}
+
+quint64 APIService::startGetImage(const QString& url)
+{
+    const quint64 requestId = nextAsyncBrowseRequestId();
+    {
+        QMutexLocker locker(&m_mutex);
+        m_activeImageRequestId = requestId;
+    }
+
+    auto publishResult = [this, requestId, url]() {
+        const QImage image = getImage(url);
+        const bool matchesActiveRequest = [this, requestId]() {
+            QMutexLocker locker(&m_mutex);
+            return m_activeImageRequestId == requestId;
+        }();
+        if (!matchesActiveRequest) {
+            return;
+        }
+
+        emit imageResolved(requestId, url, image);
+    };
+
+#ifdef CORE_REGRESSION_TESTS
+    if (m_testNetworkAccessManager) {
+        QTimer::singleShot(0, this, publishResult);
+        return requestId;
+    }
+#endif
+
+    QThread* workerThread = QThread::create([this, requestId, url]() {
+        const QImage image = getImage(url);
+        const bool matchesActiveRequest = [this, requestId]() {
+            QMutexLocker locker(&m_mutex);
+            return m_activeImageRequestId == requestId;
+        }();
+        if (!matchesActiveRequest) {
+            return;
+        }
+
+        QMetaObject::invokeMethod(this, [this, requestId, url, image]() {
+            emit imageResolved(requestId, url, image);
+        }, Qt::QueuedConnection);
+    });
+    workerThread->setObjectName(QStringLiteral("APIServiceImageWorker"));
+    connect(workerThread, &QThread::finished, workerThread, &QObject::deleteLater);
+    workerThread->start();
+    return requestId;
+}
+
+void APIService::startGetEncryptM3U8Urls(const QString& GUID, const QString& quality)
+{
+    qInfo() << "异步获取加密M3U8 URL，GUID:" << GUID << "质量:" << quality;
+
+    if (m_activeM3u8ResolveId != 0) {
+        cancelGetEncryptM3U8Urls();
+    }
+
     m_lastM3U8ResultWas4K = false;
-    
-    // 获取视频信息
+    m_pendingGuid = GUID;
+    m_pendingQuality = quality;
+    m_pendingMasterPlaylistUrl.clear();
+    m_m3u8ResolveStage = M3u8ResolveStage::FetchInfo;
+    ++m_activeM3u8ResolveId;
+
     QUrl infoUrl("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do");
     QUrlQuery infoQuery;
     infoQuery.addQueryItem("pid", GUID);
     infoUrl.setQuery(infoQuery);
-
-    QByteArray infoData = sendNetworkRequest(infoUrl);
-    if (infoData.isEmpty()) {
-        qWarning() << "获取视频信息失败: 响应数据为空";
-        return QStringList();
-    }
-
-    QJsonParseError infoParseError;
-    QJsonDocument infoDoc = QJsonDocument::fromJson(infoData, &infoParseError);
-    if (infoParseError.error == QJsonParseError::NoError && infoDoc.isObject()) {
-        QJsonObject rootObj = infoDoc.object();
-        QString playChannel = rootObj["play_channel"].toString();
-        if (playChannel.contains(QStringLiteral("CCTV-4K"), Qt::CaseInsensitive)) {
-            QString hlsUrl = rootObj["hls_url"].toString();
-            if (hlsUrl.isEmpty()) {
-                qWarning() << "CCTV-4K视频hls_url为空";
-                return QStringList();
-            }
-
-            hlsUrl.replace(QStringLiteral("main"), QStringLiteral("4000"));
-            qInfo() << "检测到CCTV-4K频道视频，使用4K M3U8 URL:" << hlsUrl;
-
-            QByteArray m3u8Data = sendNetworkRequest(QUrl(hlsUrl));
-            if (m3u8Data.isEmpty()) {
-                qWarning() << "获取CCTV-4K M3U8文件失败";
-                return QStringList();
-            }
-
-            QStringList tsList = buildTsUrlsFromPlaylistData(m3u8Data, hlsUrl);
-            m_lastM3U8ResultWas4K = !tsList.isEmpty();
-            qInfo() << "获取到" << tsList.size() << "个CCTV-4K TS文件";
-            return tsList;
-        }
-    }
-
-    QJsonObject manifestObj = parseJsonObject(infoData, "manifest");
-    QString hlsH5eUrl = manifestObj["hls_enc2_url"].toString();
-
-    if (hlsH5eUrl.isEmpty()) {
-        qWarning() << "无法获取hls_enc2_url";
-        return QStringList();
-    }
-
-    qInfo() << "获取到M3U8 URL:" << hlsH5eUrl;
-    
-    // 替换CDN
-    QRegularExpression re("https://[^/]+/asp/enc2/");
-    QRegularExpressionMatch match = re.match(hlsH5eUrl);
-
-    if (match.hasMatch()) {
-        // hlsH5eUrl.replace(match.captured(0), "https://dh5cntv.a.bdydns.com/asp/enc2/");
-        // replace CDN
-        // drm.cntv.vod.dnsv1.com
-        // dhls.cntv.baishancdnx.cn.bsgslb.cn
-        hlsH5eUrl.replace(match.captured(0), "https://drm.cntv.vod.dnsv1.com/asp/enc2/");
-    }
-    else {
-        qWarning() << "无法替换CDN，使用默认CDN";
-    }
-
-    qInfo() << "替换后M3U8 URL:" << hlsH5eUrl;
-
-    // 获取主M3U8文件
-    QByteArray m3u8Data = sendNetworkRequest(QUrl(hlsH5eUrl));
-    if (m3u8Data.isEmpty()) {
-        qWarning() << "获取M3U8文件失败: 响应数据为空";
-        return QStringList();
-    }
-
-    qDebug() << "M3U8文件大小:" << m3u8Data.size() << "字节";
-
-    // 解析质量信息
-    QHash<QString, QString> qualityUrls = parseM3U8QualityUrls(m3u8Data, hlsH5eUrl);
-    if (qualityUrls.isEmpty()) {
-        qWarning() << "解析M3U8质量信息失败";
-        return QStringList();
-    }
-
-    qDebug() << "可用的质量选项:" << qualityUrls.keys().join(", ");
-
-    // 选择质量
-    QString selectedQuality = selectQuality(quality, qualityUrls);
-    if (selectedQuality.isEmpty()) {
-        qWarning() << "选择质量失败";
-        return QStringList();
-    }
-
-    qDebug() << "选择的质量:" << selectedQuality;
-
-    // 获取TS文件列表
-    QStringList tsList = getTsFileList(qualityUrls[selectedQuality], hlsH5eUrl);
-    qDebug() << "获取到" << tsList.size() << "个TS文件";
-    
-    return tsList;
+    startM3u8NetworkRequest(m_activeM3u8ResolveId, infoUrl);
 }
+
+void APIService::cancelGetEncryptM3U8Urls()
+{
+    if (m_activeM3u8ResolveId == 0) {
+        return;
+    }
+
+    qInfo() << "取消异步M3U8解析，GUID:" << m_pendingGuid;
+
+    QPointer<QNetworkReply> reply = m_pendingM3u8Reply;
+    m_pendingM3u8Reply = nullptr;
+    m_activeM3u8ResolveId = 0;
+    m_m3u8ResolveStage = M3u8ResolveStage::None;
+    m_pendingGuid.clear();
+    m_pendingQuality.clear();
+    m_pendingMasterPlaylistUrl.clear();
+    m_lastM3U8ResultWas4K = false;
+
+    emit encryptM3U8UrlsCancelled();
+
+    if (reply) {
+        reply->abort();
+    }
+}
+
+#ifdef CORE_REGRESSION_TESTS
+QStringList APIService::getEncryptM3U8Urls(const QString& GUID, const QString& quality)
+{
+    QStringList resolvedUrls;
+    bool done = false;
+
+    const QMetaObject::Connection successConnection = connect(this,
+        &APIService::encryptM3U8UrlsResolved,
+        this,
+        [&](const QStringList& urls, bool) {
+            resolvedUrls = urls;
+            done = true;
+        },
+        Qt::DirectConnection);
+    const QMetaObject::Connection failedConnection = connect(this,
+        &APIService::encryptM3U8UrlsFailed,
+        this,
+        [&](const QString&) {
+            done = true;
+        },
+        Qt::DirectConnection);
+    const QMetaObject::Connection cancelledConnection = connect(this,
+        &APIService::encryptM3U8UrlsCancelled,
+        this,
+        [&]() {
+            done = true;
+        },
+        Qt::DirectConnection);
+
+    startGetEncryptM3U8Urls(GUID, quality);
+
+    while (!done) {
+        QCoreApplication::processEvents();
+    }
+
+    disconnect(successConnection);
+    disconnect(failedConnection);
+    disconnect(cancelledConnection);
+    return resolvedUrls;
+}
+#endif
 
 QHash<QString, QString> APIService::parseM3U8QualityUrls(const QByteArray& m3u8Data, const QString& baseUrl)
 {
@@ -851,6 +1064,185 @@ QString APIService::selectQuality(const QString& requestedQuality, const QHash<Q
 bool APIService::lastM3U8ResultWas4K() const
 {
     return m_lastM3U8ResultWas4K;
+}
+
+void APIService::startM3u8NetworkRequest(quint64 requestId, const QUrl& url)
+{
+    if (requestId != m_activeM3u8ResolveId || requestId == 0) {
+        return;
+    }
+
+    qInfo() << "异步M3U8请求:" << url.toString() << "阶段:" << static_cast<int>(m_m3u8ResolveStage);
+
+    QNetworkReply* reply = networkAccessManager()->get(buildNetworkRequest(url));
+    m_pendingM3u8Reply = reply;
+
+    QObject::connect(reply, &QNetworkReply::errorOccurred, this,
+        [reply](QNetworkReply::NetworkError error) {
+            if (error == QNetworkReply::SslHandshakeFailedError) {
+                qWarning() << "SSL握手失败，尝试忽略错误:" << reply->errorString();
+                reply->ignoreSslErrors();
+            }
+        });
+
+    QObject::connect(reply, &QNetworkReply::finished, this,
+        [this, requestId]() {
+            handleM3u8ReplyFinished(requestId);
+        });
+}
+
+void APIService::handleM3u8ReplyFinished(quint64 requestId)
+{
+    if (requestId != m_activeM3u8ResolveId || requestId == 0 || !m_pendingM3u8Reply) {
+        return;
+    }
+
+    QNetworkReply* reply = m_pendingM3u8Reply;
+    m_pendingM3u8Reply = nullptr;
+    const M3u8ResolveStage stage = m_m3u8ResolveStage;
+
+    if (reply->error() != QNetworkReply::NoError) {
+        const QString errorMessage = reply->error() == QNetworkReply::OperationCanceledError
+            ? QStringLiteral("M3U8解析已取消")
+            : QStringLiteral("网络请求失败: %1").arg(reply->errorString());
+        reply->deleteLater();
+        finishM3u8ResolveFailure(requestId, errorMessage);
+        return;
+    }
+
+    const QByteArray responseData = reply->readAll();
+    const QString requestUrl = reply->url().toString();
+    reply->deleteLater();
+
+    if (responseData.isEmpty()) {
+        finishM3u8ResolveFailure(requestId, QStringLiteral("网络响应为空: %1").arg(requestUrl));
+        return;
+    }
+
+    if (stage == M3u8ResolveStage::FetchInfo) {
+        QJsonParseError infoParseError;
+        QJsonDocument infoDoc = QJsonDocument::fromJson(responseData, &infoParseError);
+        if (infoParseError.error == QJsonParseError::NoError && infoDoc.isObject()) {
+            const QJsonObject rootObj = infoDoc.object();
+            const QString playChannel = rootObj["play_channel"].toString();
+            if (playChannel.contains(QStringLiteral("CCTV-4K"), Qt::CaseInsensitive)) {
+                QString hlsUrl = rootObj["hls_url"].toString();
+                if (hlsUrl.isEmpty()) {
+                    finishM3u8ResolveFailure(requestId, QStringLiteral("CCTV-4K视频hls_url为空"));
+                    return;
+                }
+
+                hlsUrl.replace(QStringLiteral("main"), QStringLiteral("4000"));
+                m_m3u8ResolveStage = M3u8ResolveStage::Fetch4KPlaylist;
+                m_pendingMasterPlaylistUrl = hlsUrl;
+                startM3u8NetworkRequest(requestId, QUrl(hlsUrl));
+                return;
+            }
+        }
+
+        const QJsonObject manifestObj = parseJsonObject(responseData, "manifest");
+        QString hlsH5eUrl = manifestObj["hls_enc2_url"].toString();
+        if (hlsH5eUrl.isEmpty()) {
+            finishM3u8ResolveFailure(requestId, QStringLiteral("无法获取hls_enc2_url"));
+            return;
+        }
+
+        m_pendingMasterPlaylistUrl = normalizeEncryptedM3u8Url(hlsH5eUrl);
+        m_m3u8ResolveStage = M3u8ResolveStage::FetchMasterPlaylist;
+        startM3u8NetworkRequest(requestId, QUrl(m_pendingMasterPlaylistUrl));
+        return;
+    }
+
+    if (stage == M3u8ResolveStage::Fetch4KPlaylist) {
+        QStringList tsList = buildTsUrlsFromPlaylistData(responseData, requestUrl);
+        if (tsList.isEmpty()) {
+            finishM3u8ResolveFailure(requestId, QStringLiteral("未解析到CCTV-4K TS切片"));
+            return;
+        }
+
+        finishM3u8ResolveSuccess(requestId, tsList, true);
+        return;
+    }
+
+    if (stage == M3u8ResolveStage::FetchMasterPlaylist) {
+        QHash<QString, QString> qualityUrls = parseM3U8QualityUrls(responseData, m_pendingMasterPlaylistUrl);
+        if (qualityUrls.isEmpty()) {
+            finishM3u8ResolveFailure(requestId, QStringLiteral("解析M3U8质量信息失败"));
+            return;
+        }
+
+        QString selectedQuality = selectQuality(m_pendingQuality, qualityUrls);
+        if (selectedQuality.isEmpty()) {
+            finishM3u8ResolveFailure(requestId, QStringLiteral("选择质量失败"));
+            return;
+        }
+
+        QString m3u8Host = QUrl(m_pendingMasterPlaylistUrl).host();
+        QString fullM3u8Url = "https://" + m3u8Host + qualityUrls[selectedQuality];
+        m_m3u8ResolveStage = M3u8ResolveStage::FetchVariantPlaylist;
+        startM3u8NetworkRequest(requestId, QUrl(fullM3u8Url));
+        return;
+    }
+
+    if (stage == M3u8ResolveStage::FetchVariantPlaylist) {
+        QStringList tsList = buildTsUrlsFromPlaylistData(responseData, requestUrl);
+        if (tsList.isEmpty()) {
+            finishM3u8ResolveFailure(requestId, QStringLiteral("未解析到TS切片"));
+            return;
+        }
+
+        finishM3u8ResolveSuccess(requestId, tsList, false);
+        return;
+    }
+
+    finishM3u8ResolveFailure(requestId, QStringLiteral("未知的M3U8解析阶段"));
+}
+
+void APIService::finishM3u8ResolveSuccess(quint64 requestId, const QStringList& urls, bool is4K)
+{
+    if (requestId != m_activeM3u8ResolveId || requestId == 0) {
+        return;
+    }
+
+    m_lastM3U8ResultWas4K = is4K;
+    m_activeM3u8ResolveId = 0;
+    m_m3u8ResolveStage = M3u8ResolveStage::None;
+    m_pendingGuid.clear();
+    m_pendingQuality.clear();
+    m_pendingMasterPlaylistUrl.clear();
+
+    emit encryptM3U8UrlsResolved(urls, is4K);
+}
+
+void APIService::finishM3u8ResolveFailure(quint64 requestId, const QString& errorMessage)
+{
+    if (requestId != m_activeM3u8ResolveId || requestId == 0) {
+        return;
+    }
+
+    m_lastM3U8ResultWas4K = false;
+    m_activeM3u8ResolveId = 0;
+    m_m3u8ResolveStage = M3u8ResolveStage::None;
+    m_pendingGuid.clear();
+    m_pendingQuality.clear();
+    m_pendingMasterPlaylistUrl.clear();
+
+    qWarning() << errorMessage;
+    emit encryptM3U8UrlsFailed(errorMessage);
+}
+
+QString APIService::normalizeEncryptedM3u8Url(QString hlsH5eUrl) const
+{
+    QRegularExpression re("https://[^/]+/asp/enc2/");
+    QRegularExpressionMatch match = re.match(hlsH5eUrl);
+
+    if (match.hasMatch()) {
+        hlsH5eUrl.replace(match.captured(0), "https://drm.cntv.vod.dnsv1.com/asp/enc2/");
+    } else {
+        qWarning() << "无法替换CDN，使用默认CDN";
+    }
+
+    return hlsH5eUrl;
 }
 
 QStringList APIService::getTsFileList(const QString& qualityPath, const QString& baseUrl)

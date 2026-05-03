@@ -8,6 +8,8 @@ Import::Import(QWidget* parent)
 	ui.label->setText(QString("请输入视频播放页链接"));
 
 	connect(ui.buttonBox, &QDialogButtonBox::accepted, this, &Import::ImportProgrammeFromUrl);
+	connect(&APIService::instance(), &APIService::playColumnInfoResolved, this, &Import::handlePlayColumnInfoResolved);
+	connect(&APIService::instance(), &APIService::playColumnInfoFailed, this, &Import::handlePlayColumnInfoFailed);
 }
 
 Import::~Import()
@@ -17,17 +19,28 @@ Import::~Import()
 
 void Import::ImportProgrammeFromUrl()
 {
-	auto result = APIService::instance().getPlayColumnInfo(ui.lineEdit->text());
-	if (result == nullptr || result->size() != 3 || result->at(0).isEmpty())
+	setBusy(true);
+	m_pendingPlayColumnInfoRequestId = APIService::instance().startGetPlayColumnInfo(ui.lineEdit->text());
+}
+
+void Import::handlePlayColumnInfoResolved(quint64 requestId, const QStringList& data)
+{
+	if (requestId != m_pendingPlayColumnInfoRequestId) {
+		return;
+	}
+
+	setBusy(false);
+	if (data.size() != 3 || data.at(0).isEmpty())
 	{
 		qWarning() << "获取数据失败";
 		return;
 	}
+
 	// 构建JSON数据
 	QJsonObject results{
-		{"name", result->at(0)},
-		{"itemid", result->at(1)},
-		{"columnid", result->at(2)},
+		{"name", data.at(0)},
+		{"itemid", data.at(1)},
+		{"columnid", data.at(2)},
 	};
 	// 压缩编码为base64存储
 	QByteArray jsonData = QJsonDocument(results).toJson(QJsonDocument::Compact);
@@ -78,5 +91,23 @@ void Import::ImportProgrammeFromUrl()
 	g_settings->sync();
 
 	qInfo() << "成功存储节目:" << newId;
+
+	accept();
+}
+
+void Import::handlePlayColumnInfoFailed(quint64 requestId, const QString& errorMessage)
+{
+	if (requestId != m_pendingPlayColumnInfoRequestId) {
+		return;
+	}
+
+	setBusy(false);
+	qWarning() << errorMessage;
+}
+
+void Import::setBusy(bool busy)
+{
+	ui.lineEdit->setEnabled(!busy);
+	ui.buttonBox->setEnabled(!busy);
 }
 
