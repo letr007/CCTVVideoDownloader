@@ -65,12 +65,12 @@ QString decryptTaskHash(const QString& name)
     return QString(QCryptographicHash::hash(name.toUtf8(), QCryptographicHash::Sha256).toHex());
 }
 
-QString coordinatorTaskHash(const QString& title, const QString& jobId)
+QString coordinatorTaskHash(const QString& title, const QString& requestUrl)
 {
     QString identity = title;
-    if (!jobId.isEmpty()) {
+    if (!requestUrl.isEmpty()) {
         identity += QStringLiteral("\n");
-        identity += jobId;
+        identity += requestUrl;
     }
     return QString(QCryptographicHash::hash(identity.toUtf8(), QCryptographicHash::Sha256).toHex());
 }
@@ -5635,7 +5635,7 @@ void CoreRegressionTests::downloadCoordinator_apiServiceResolveSuccess_startsDow
         QStringLiteral("https://drm.cntv.vod.dnsv1.com/video/720/0002.ts")
     }));
     QCOMPARE(downloadStage.lastSaveDir(),
-        QDir(QStringLiteral("C:/fake/api-success")).filePath(coordinatorTaskHash(QStringLiteral("节目API成功"), QStringLiteral("job-api-success"))));
+        QDir(QStringLiteral("C:/fake/api-success")).filePath(coordinatorTaskHash(QStringLiteral("节目API成功"), guid)));
 
     const auto finishedJob = qvariant_cast<DownloadJob>(jobFinishedSpy.takeFirst().at(0));
     QCOMPARE(finishedJob.state, DownloadJobState::Completed);
@@ -6162,7 +6162,7 @@ void CoreRegressionTests::downloadCoordinator_ownedDownloadStage_recoveryFailure
     QCOMPARE(finishedJob.state, DownloadJobState::Completed);
     QCOMPARE(finishedJob.errorCategory, DownloadErrorCategory::Unknown);
 
-    const QString taskDir = QDir(savePath).filePath(coordinatorTaskHash(QStringLiteral("节目补拉成功"), QStringLiteral("job-owned-recovery")));
+    const QString taskDir = QDir(savePath).filePath(coordinatorTaskHash(QStringLiteral("节目补拉成功"), guid));
     QFile recoveredFile(QDir(taskDir).filePath(QStringLiteral("0001.ts")));
     QVERIFY(recoveredFile.open(QIODevice::ReadOnly));
     QCOMPARE(recoveredFile.readAll(), QByteArray("coordinator-recovered-segment"));
@@ -6243,17 +6243,22 @@ void CoreRegressionTests::downloadCoordinator_ownedDownloadStage_duplicateSameTi
     FakeCoordinatorDirectFinalizeStage directFinalizeStage;
     DownloadCoordinator coordinator(&apiService, &concatStage, &decryptStage, &directFinalizeStage);
 
-    const QString guid = QStringLiteral("coordinator-owned-duplicate-guid");
-    QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do"));
-    QUrlQuery infoQuery;
-    infoQuery.addQueryItem(QStringLiteral("pid"), guid);
-    infoUrl.setQuery(infoQuery);
+    const QString firstGuid = QStringLiteral("coordinator-owned-duplicate-guid-a");
+    const QString secondGuid = QStringLiteral("coordinator-owned-duplicate-guid-b");
+    QUrl firstInfoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do"));
+    QUrlQuery firstInfoQuery;
+    firstInfoQuery.addQueryItem(QStringLiteral("pid"), firstGuid);
+    firstInfoUrl.setQuery(firstInfoQuery);
+    QUrl secondInfoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do"));
+    QUrlQuery secondInfoQuery;
+    secondInfoQuery.addQueryItem(QStringLiteral("pid"), secondGuid);
+    secondInfoUrl.setQuery(secondInfoQuery);
 
     const QUrl masterUrl(QStringLiteral("https://drm.cntv.vod.dnsv1.com/asp/enc2/master.m3u8"));
     const QUrl playlistUrl(QStringLiteral("https://drm.cntv.vod.dnsv1.com/video/720/index.m3u8"));
     const QUrl shardUrl(QStringLiteral("https://drm.cntv.vod.dnsv1.com/video/720/0001.ts"));
     const QByteArray shardBody("duplicate-workspace-segment");
-    for (int i = 0; i < 2; ++i) {
+    for (const QUrl& infoUrl : { firstInfoUrl, secondInfoUrl }) {
         manager.queueSuccess(infoUrl, QByteArray(R"({"manifest":{"hls_enc2_url":"https://media.example/asp/enc2/master.m3u8"}})"));
         manager.queueSuccess(masterUrl,
             QByteArray("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1228800\n/video/720/index.m3u8\n"));
@@ -6284,8 +6289,8 @@ void CoreRegressionTests::downloadCoordinator_ownedDownloadStage_duplicateSameTi
 
     const QString savePath = QDir(m_tempDir->path()).filePath(QStringLiteral("coordinator-owned-duplicate"));
     const QString title = QStringLiteral("重复节目");
-    const DownloadJob firstJob = makeCoordinatorJob(QStringLiteral("job-duplicate-a"), guid, title, QStringLiteral("2"), savePath);
-    const DownloadJob secondJob = makeCoordinatorJob(QStringLiteral("job-duplicate-b"), guid, title, QStringLiteral("2"), savePath);
+    const DownloadJob firstJob = makeCoordinatorJob(QStringLiteral("job-duplicate-a"), firstGuid, title, QStringLiteral("2"), savePath);
+    const DownloadJob secondJob = makeCoordinatorJob(QStringLiteral("job-duplicate-b"), secondGuid, title, QStringLiteral("2"), savePath);
     QVERIFY(coordinator.startBatch({ firstJob, secondJob }));
 
     QTRY_VERIFY_WITH_TIMEOUT(batchFinishedSpy.count() == 1, 4000);
@@ -6294,8 +6299,8 @@ void CoreRegressionTests::downloadCoordinator_ownedDownloadStage_duplicateSameTi
     QCOMPARE(manager.requestCount(), 8);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
 
-    const QString firstTaskDir = QDir(savePath).filePath(coordinatorTaskHash(title, QStringLiteral("job-duplicate-a")));
-    const QString secondTaskDir = QDir(savePath).filePath(coordinatorTaskHash(title, QStringLiteral("job-duplicate-b")));
+    const QString firstTaskDir = QDir(savePath).filePath(coordinatorTaskHash(title, firstGuid));
+    const QString secondTaskDir = QDir(savePath).filePath(coordinatorTaskHash(title, secondGuid));
     QVERIFY(firstTaskDir != secondTaskDir);
     QVERIFY(QFileInfo::exists(QDir(firstTaskDir).filePath(QStringLiteral("0001.ts"))));
     QVERIFY(QFileInfo::exists(QDir(secondTaskDir).filePath(QStringLiteral("0001.ts"))));
@@ -6322,7 +6327,7 @@ void CoreRegressionTests::downloadCoordinator_ownedDecryptStage_teardownWhileAct
 
     const QString title = QStringLiteral("节目解密销毁中");
     const QString savePath = QDir(m_tempDir->path()).filePath(QStringLiteral("coordinator-owned-decrypt-teardown"));
-    const QString taskDir = QDir(savePath).filePath(coordinatorTaskHash(title, QStringLiteral("job-owned-decrypt-teardown")));
+    const QString taskDir = QDir(savePath).filePath(coordinatorTaskHash(title, QStringLiteral("guid-owned-decrypt-teardown")));
     QVERIFY(QDir().mkpath(taskDir));
     QVERIFY(createFakeTsFile(QDir(taskDir).filePath(QStringLiteral("result.ts")), 4, 777));
 
@@ -6402,7 +6407,7 @@ void CoreRegressionTests::downloadCoordinator_ownedConcatStage_mergesTaskDirecto
 
     const QString title = QStringLiteral("节目真实拼接");
     const QString savePath = QDir(m_tempDir->path()).filePath(QStringLiteral("coordinator-owned-concat"));
-    const QString taskDir = QDir(savePath).filePath(coordinatorTaskHash(title, QStringLiteral("job-owned-concat")));
+    const QString taskDir = QDir(savePath).filePath(coordinatorTaskHash(title, QStringLiteral("guid-owned-concat")));
     QVERIFY(QDir().mkpath(taskDir));
     QVERIFY(createFakeTsFile(QDir(taskDir).filePath(QStringLiteral("0001.ts")), 2, 0));
     QVERIFY(createFakeTsFile(QDir(taskDir).filePath(QStringLiteral("0002.ts")), 2, 256));
@@ -6441,7 +6446,7 @@ void CoreRegressionTests::downloadCoordinator_ownedDecryptStage_completesJob()
 
     const QString title = QStringLiteral("节目真实解密");
     const QString savePath = QDir(m_tempDir->path()).filePath(QStringLiteral("coordinator-owned-decrypt"));
-    const QString taskDir = QDir(savePath).filePath(coordinatorTaskHash(title, QStringLiteral("job-owned-decrypt")));
+    const QString taskDir = QDir(savePath).filePath(coordinatorTaskHash(title, QStringLiteral("guid-owned-decrypt")));
     QVERIFY(QDir().mkpath(taskDir));
     QVERIFY(createFakeTsFile(QDir(taskDir).filePath(QStringLiteral("result.ts")), 4, 256));
 
@@ -6494,7 +6499,7 @@ void CoreRegressionTests::downloadCoordinator_ownedDirectFinalizeStage_completes
 
     const QString title = QStringLiteral("节目真实4K收尾");
     const QString savePath = QDir(m_tempDir->path()).filePath(QStringLiteral("coordinator-owned-direct-finalize"));
-    const QString taskDir = QDir(savePath).filePath(coordinatorTaskHash(title, QStringLiteral("job-owned-direct-finalize")));
+    const QString taskDir = QDir(savePath).filePath(coordinatorTaskHash(title, QStringLiteral("guid-owned-direct-finalize")));
     QVERIFY(QDir().mkpath(taskDir));
     QVERIFY(createFakeTsFile(QDir(taskDir).filePath(QStringLiteral("result.ts")), 4, 601));
 

@@ -24,12 +24,12 @@
 
 namespace {
 
-QString hashedTaskDirectory(const QString& title, const QString& savePath, const QString& jobId)
+QString hashedTaskDirectory(const QString& title, const QString& savePath, const QString& requestUrl)
 {
     QString identity = title;
-    if (!jobId.isEmpty()) {
+    if (!requestUrl.isEmpty()) {
         identity += QStringLiteral("\n");
-        identity += jobId;
+        identity += requestUrl;
     }
 
     const QString nameHash = QString(
@@ -1697,7 +1697,7 @@ DownloadErrorCategory DownloadCoordinator::classifyDirectFinalizeFailure(const Q
 
 QString DownloadCoordinator::taskDirectoryForJob(const DownloadJob& job) const
 {
-    return hashedTaskDirectory(job.request.videoTitle, job.request.savePath, job.id);
+    return hashedTaskDirectory(job.request.videoTitle, job.request.savePath, job.request.url);
 }
 
 QString DownloadCoordinator::currentJobTaskDirectory() const
