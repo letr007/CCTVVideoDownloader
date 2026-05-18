@@ -19,55 +19,6 @@
 #include <QMutexLocker>
 #include <utility>
 
-namespace {
-
-QString buildPlainHlsQualityPath(const QString& masterUrl, const QString& qualityPathName)
-{
-    QUrl url(masterUrl);
-    QStringList pathSegments = url.path().split(QLatin1Char('/'), Qt::KeepEmptyParts);
-    if (pathSegments.isEmpty() || pathSegments.last() != QStringLiteral("main.m3u8")) {
-        return QString();
-    }
-
-    int mainSegmentIndex = -1;
-    for (int i = 0; i < pathSegments.size() - 1; ++i) {
-        if (pathSegments.at(i) == QStringLiteral("main")) {
-            mainSegmentIndex = i;
-            break;
-        }
-    }
-
-    if (mainSegmentIndex < 0) {
-        return QString();
-    }
-
-    pathSegments[mainSegmentIndex] = qualityPathName;
-    pathSegments.last() = qualityPathName + QStringLiteral(".m3u8");
-    return pathSegments.join(QLatin1Char('/'));
-}
-
-QHash<QString, QString> synthesizePlainHlsQualityUrls(const QString& masterUrl)
-{
-    const QList<QPair<QString, QString>> qualityPathNames = {
-        { QStringLiteral("1"), QStringLiteral("2000") },
-        { QStringLiteral("2"), QStringLiteral("1200") },
-        { QStringLiteral("3"), QStringLiteral("850") },
-        { QStringLiteral("4"), QStringLiteral("450") }
-    };
-
-    QHash<QString, QString> qualityUrls;
-    for (const auto& qualityPathName : qualityPathNames) {
-        const QString qualityUrl = buildPlainHlsQualityPath(masterUrl, qualityPathName.second);
-        if (!qualityUrl.isEmpty()) {
-            qualityUrls.insert(qualityPathName.first, qualityUrl);
-        }
-    }
-
-    return qualityUrls;
-}
-
-} // namespace
-
 // 静态成员初始化
 QPointer<APIService> APIService::m_instance = nullptr;
 QMutex APIService::m_instanceMutex;
@@ -1230,15 +1181,6 @@ void APIService::handleM3u8ReplyFinished(quint64 requestId)
 
     if (stage == M3u8ResolveStage::FetchMasterPlaylist) {
         QHash<QString, QString> qualityUrls = parseM3U8QualityUrls(responseData, m_pendingMasterPlaylistUrl);
-        if (m_pendingM3U8ResultDirectFinalize) {
-            const QHash<QString, QString> synthesizedQualityUrls = synthesizePlainHlsQualityUrls(m_pendingMasterPlaylistUrl);
-            for (auto it = synthesizedQualityUrls.cbegin(); it != synthesizedQualityUrls.cend(); ++it) {
-                if (!qualityUrls.contains(it.key())) {
-                    qualityUrls.insert(it.key(), it.value());
-                }
-            }
-            qInfo() << "普通HLS质量选项:" << qualityUrls.keys().join(QStringLiteral(", "));
-        }
         if (qualityUrls.isEmpty()) {
             finishM3u8ResolveFailure(requestId, QStringLiteral("解析M3U8质量信息失败"));
             return;
