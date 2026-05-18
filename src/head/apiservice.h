@@ -156,7 +156,6 @@ private:
 
     QMutex m_mutex;
     bool m_lastM3U8ResultWas4K = false;
-    bool m_pendingM3U8ResultDirectFinalize = false;
     QNetworkAccessManager m_networkAccessManager;
     QPointer<QNetworkReply> m_pendingM3u8Reply;
     quint64 m_activeM3u8ResolveId = 0;

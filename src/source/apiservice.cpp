@@ -880,7 +880,6 @@ void APIService::startGetEncryptM3U8Urls(const QString& GUID, const QString& qua
     }
 
     m_lastM3U8ResultWas4K = false;
-    m_pendingM3U8ResultDirectFinalize = false;
     m_pendingGuid = GUID;
     m_pendingQuality = quality;
     m_pendingMasterPlaylistUrl.clear();
@@ -910,7 +909,6 @@ void APIService::cancelGetEncryptM3U8Urls()
     m_pendingQuality.clear();
     m_pendingMasterPlaylistUrl.clear();
     m_lastM3U8ResultWas4K = false;
-    m_pendingM3U8ResultDirectFinalize = false;
 
     emit encryptM3U8UrlsCancelled();
 
@@ -1128,27 +1126,15 @@ void APIService::handleM3u8ReplyFinished(quint64 requestId)
             const QJsonObject rootObj = infoDoc.object();
             const QString playChannel = rootObj["play_channel"].toString();
             if (playChannel.contains(QStringLiteral("CCTV-4K"), Qt::CaseInsensitive)) {
-                QString fourKHlsUrl = rootObj["hls_url"].toString();
-                if (fourKHlsUrl.isEmpty()) {
+                QString hlsUrl = rootObj["hls_url"].toString();
+                if (hlsUrl.isEmpty()) {
                     finishM3u8ResolveFailure(requestId, QStringLiteral("CCTV-4K视频hls_url为空"));
                     return;
                 }
 
-                fourKHlsUrl.replace(QStringLiteral("main"), QStringLiteral("4000"));
+                hlsUrl.replace(QStringLiteral("main"), QStringLiteral("4000"));
                 m_m3u8ResolveStage = M3u8ResolveStage::Fetch4KPlaylist;
-                m_pendingMasterPlaylistUrl = fourKHlsUrl;
-                startM3u8NetworkRequest(requestId, QUrl(fourKHlsUrl));
-                return;
-            }
-
-            const QString isProtected = rootObj["is_protected"].toString();
-            const QString hlsUrl = rootObj["hls_url"].toString();
-
-            if (isProtected == QStringLiteral("0") && !hlsUrl.isEmpty()) {
-                qInfo() << "非加密视频，使用普通HLS URL:" << hlsUrl;
-                m_pendingM3U8ResultDirectFinalize = true;
                 m_pendingMasterPlaylistUrl = hlsUrl;
-                m_m3u8ResolveStage = M3u8ResolveStage::FetchMasterPlaylist;
                 startM3u8NetworkRequest(requestId, QUrl(hlsUrl));
                 return;
             }
@@ -1162,7 +1148,6 @@ void APIService::handleM3u8ReplyFinished(quint64 requestId)
         }
 
         m_pendingMasterPlaylistUrl = normalizeEncryptedM3u8Url(hlsH5eUrl);
-        m_pendingM3U8ResultDirectFinalize = false;
         m_m3u8ResolveStage = M3u8ResolveStage::FetchMasterPlaylist;
         startM3u8NetworkRequest(requestId, QUrl(m_pendingMasterPlaylistUrl));
         return;
@@ -1206,7 +1191,7 @@ void APIService::handleM3u8ReplyFinished(quint64 requestId)
             return;
         }
 
-        finishM3u8ResolveSuccess(requestId, tsList, m_pendingM3U8ResultDirectFinalize);
+        finishM3u8ResolveSuccess(requestId, tsList, false);
         return;
     }
 
@@ -1225,7 +1210,6 @@ void APIService::finishM3u8ResolveSuccess(quint64 requestId, const QStringList& 
     m_pendingGuid.clear();
     m_pendingQuality.clear();
     m_pendingMasterPlaylistUrl.clear();
-    m_pendingM3U8ResultDirectFinalize = false;
 
     emit encryptM3U8UrlsResolved(urls, is4K);
 }
@@ -1242,7 +1226,6 @@ void APIService::finishM3u8ResolveFailure(quint64 requestId, const QString& erro
     m_pendingGuid.clear();
     m_pendingQuality.clear();
     m_pendingMasterPlaylistUrl.clear();
-    m_pendingM3U8ResultDirectFinalize = false;
 
     qWarning() << errorMessage;
     emit encryptM3U8UrlsFailed(errorMessage);
