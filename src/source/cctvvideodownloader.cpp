@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <QResizeEvent>
 #include <QStatusBar>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include <QSizePolicy>
 
@@ -73,8 +75,12 @@ void CCTVVideoDownloader::signalConnect()
     connect(ui.tableWidget_List, &QTableWidget::cellClicked, this, &CCTVVideoDownloader::isVideoSelected); // 刷新信息
     connect(ui.pushButton, &QPushButton::clicked, this, &CCTVVideoDownloader::openDownloadDialog); // 下载
     connect(ui.btn_select_all, &QPushButton::clicked, this, &CCTVVideoDownloader::toggleSelectAllVideos); // 全选视频
+    connect(ui.btn_import, &QPushButton::clicked, this, &CCTVVideoDownloader::onImportLinkSubmitted); // 内联导入按钮
+    connect(ui.lineEdit_import, &QLineEdit::returnPressed, this, &CCTVVideoDownloader::onImportLinkSubmitted); // 输入框回车导入
     connect(&APIService::instance(), &APIService::browseVideoListResolved, this, &CCTVVideoDownloader::handleBrowseVideoListResolved);
     connect(&APIService::instance(), &APIService::imageResolved, this, &CCTVVideoDownloader::handlePreviewImageResolved);
+    connect(&APIService::instance(), &APIService::playColumnInfoResolved, this, &CCTVVideoDownloader::handleInlineImportColumnInfoResolved);
+    connect(&APIService::instance(), &APIService::playColumnInfoFailed, this, &CCTVVideoDownloader::handleInlineImportColumnInfoFailed);
 }
 
 void CCTVVideoDownloader::flashProgrammeList()
@@ -454,6 +460,102 @@ void CCTVVideoDownloader::onCoordinatorBatchFinished(int completedJobs, int fail
         .arg(totalJobs);
     statusBar()->showMessage(message, 8000);
     qInfo() << message;
+}
+
+void CCTVVideoDownloader::onImportLinkSubmitted()
+{
+    QString url = ui.lineEdit_import->text().trimmed();
+    if (url.isEmpty()) {
+        statusBar()->showMessage(QStringLiteral("请输入节目链接"), 3000);
+        return;
+    }
+
+    qInfo() << "内联导入节目链接:" << url;
+    statusBar()->showMessage(QStringLiteral("正在导入节目..."), 0);
+    ui.lineEdit_import->setEnabled(false);
+    ui.btn_import->setEnabled(false);
+    m_pendingInlineImportRequestId = APIService::instance().startGetPlayColumnInfo(url);
+}
+
+void CCTVVideoDownloader::handleInlineImportColumnInfoResolved(quint64 requestId, const QStringList& data)
+{
+    if (requestId != m_pendingInlineImportRequestId) {
+        return;
+    }
+
+    ui.lineEdit_import->setEnabled(true);
+    ui.btn_import->setEnabled(true);
+
+    if (data.size() != 3 || data.at(0).isEmpty()) {
+        statusBar()->showMessage(QStringLiteral("导入失败：未获取到有效节目信息"), 5000);
+        qWarning() << "内联导入获取数据失败";
+        return;
+    }
+
+    // 构建JSON数据
+    QJsonObject results{
+        {"name", data.at(0)},
+        {"itemid", data.at(1)},
+        {"columnid", data.at(2)},
+    };
+    QByteArray jsonData = QJsonDocument(results).toJson(QJsonDocument::Compact);
+    QString currentData = jsonData.toBase64();
+
+    // 检查重复
+    g_settings->sync();
+    g_settings->beginGroup("programme");
+    bool isDuplicate = false;
+    const QStringList existingKeys = g_settings->childKeys();
+    for (const QString& key : existingKeys) {
+        if (g_settings->value(key).toString() == currentData) {
+            isDuplicate = true;
+            break;
+        }
+    }
+
+    if (isDuplicate) {
+        g_settings->endGroup();
+        statusBar()->showMessage(QStringLiteral("该节目已存在，无需重复导入"), 3000);
+        qInfo() << "内联导入跳过重复数据";
+        ui.lineEdit_import->clear();
+        return;
+    }
+
+    // 自增ID
+    int newId = 1;
+    if (!existingKeys.isEmpty()) {
+        bool ok;
+        int maxId = 0;
+        for (const QString& key : existingKeys) {
+            int currentId = key.toInt(&ok);
+            if (ok && currentId > maxId) {
+                maxId = currentId;
+            }
+        }
+        newId = maxId + 1;
+    }
+
+    g_settings->setValue(QString::number(newId), currentData);
+    g_settings->endGroup();
+    g_settings->sync();
+
+    qInfo() << "内联导入成功，节目ID:" << newId << "名称:" << data.at(0);
+
+    statusBar()->showMessage(QStringLiteral("导入成功：%1").arg(data.at(0)), 5000);
+    ui.lineEdit_import->clear();
+    flashProgrammeList();
+}
+
+void CCTVVideoDownloader::handleInlineImportColumnInfoFailed(quint64 requestId, const QString& errorMessage)
+{
+    if (requestId != m_pendingInlineImportRequestId) {
+        return;
+    }
+
+    ui.lineEdit_import->setEnabled(true);
+    ui.btn_import->setEnabled(true);
+    statusBar()->showMessage(QStringLiteral("导入失败：%1").arg(errorMessage), 5000);
+    qWarning() << "内联导入失败:" << errorMessage;
 }
 
 void CCTVVideoDownloader::resizeEvent(QResizeEvent* event)
