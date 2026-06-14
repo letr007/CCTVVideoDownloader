@@ -84,6 +84,25 @@
            </spacer>
           </item>
           <item>
+           <widget class="QPushButton" name="btn_import">
+            <property name="minimumSize">
+             <size>
+              <width>40</width>
+              <height>25</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>40</width>
+              <height>25</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>导入</string>
+            </property>
+           </widget>
+          </item>
+          <item>
            <widget class="QPushButton" name="flash_program">
             <property name="minimumSize">
              <size>
@@ -109,6 +128,23 @@
               <width>20</width>
               <height>20</height>
              </size>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="importLinkLayout">
+          <property name="spacing">
+           <number>4</number>
+          </property>
+          <item>
+           <widget class="QLineEdit" name="lineEdit_import">
+            <property name="placeholderText">
+             <string>粘贴节目链接，回车导入</string>
+            </property>
+            <property name="clearButtonEnabled">
+             <bool>true</bool>
             </property>
            </widget>
           </item>

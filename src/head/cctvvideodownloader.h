@@ -49,6 +49,12 @@ public:
 
     void toggleSelectAllVideos();
 
+    void onImportLinkSubmitted();
+
+    void handleInlineImportColumnInfoResolved(quint64 requestId, const QStringList& data);
+
+    void handleInlineImportColumnInfoFailed(quint64 requestId, const QString& errorMessage);
+
 protected:
     void resizeEvent(QResizeEvent* event) override;
 
@@ -65,6 +71,7 @@ private:
     QPixmap m_previewPixmap;
     quint64 m_pendingVideoListRequestId = 0;
     quint64 m_pendingImageRequestId = 0;
+    quint64 m_pendingInlineImportRequestId = 0;
     bool m_pendingVideoListShowHighlights = false;
     QString m_pendingPreviewImageUrl;
     inline static std::optional<std::tuple<QString, QString>> SELECTED_ID;
