@@ -62,6 +62,8 @@ private slots:
     void onCoordinatorBatchFinished(int completedJobs, int failedJobs, int cancelledJobs, int totalJobs, bool stoppedByFatalError);
 
 private:
+    void updateImportAvailability();
+    bool isInlineImportPending() const;
     void handleBrowseVideoListResolved(quint64 requestId, const QMap<int, VideoItem>& videos);
     void handlePreviewImageResolved(quint64 requestId, const QString& url, const QImage& image);
     void renderVideoList(bool showHighlights);
@@ -72,6 +74,7 @@ private:
     quint64 m_pendingVideoListRequestId = 0;
     quint64 m_pendingImageRequestId = 0;
     quint64 m_pendingInlineImportRequestId = 0;
+    bool m_importDialogActive = false;
     bool m_pendingVideoListShowHighlights = false;
     QString m_pendingPreviewImageUrl;
     inline static std::optional<std::tuple<QString, QString>> SELECTED_ID;

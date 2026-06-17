@@ -357,10 +357,20 @@ void CCTVVideoDownloader::openSaveDir()
 
 void CCTVVideoDownloader::openImportDialog()
 {
+    if (isInlineImportPending()) {
+        statusBar()->showMessage(QStringLiteral("请等待内联导入完成"), 3000);
+        qInfo() << "内联导入进行中，忽略打开导入对话框请求";
+        return;
+    }
+
     qInfo() << "打开导入对话框";
+    m_importDialogActive = true;
+    updateImportAvailability();
     Import importDialog(this);
     connect(&importDialog, &Import::importFinished, this, &CCTVVideoDownloader::flashProgrammeList);
     importDialog.exec();
+    m_importDialogActive = false;
+    updateImportAvailability();
     qInfo() << "导入对话框已关闭";
 }
 
@@ -462,8 +472,31 @@ void CCTVVideoDownloader::onCoordinatorBatchFinished(int completedJobs, int fail
     qInfo() << message;
 }
 
+bool CCTVVideoDownloader::isInlineImportPending() const
+{
+    return m_pendingInlineImportRequestId != 0;
+}
+
+void CCTVVideoDownloader::updateImportAvailability()
+{
+    const bool inlineImportEnabled = !m_importDialogActive && !isInlineImportPending();
+    ui.lineEdit_import->setEnabled(inlineImportEnabled);
+    ui.btn_import->setEnabled(inlineImportEnabled);
+    ui.actionimport->setEnabled(!isInlineImportPending());
+}
+
 void CCTVVideoDownloader::onImportLinkSubmitted()
 {
+    if (m_importDialogActive) {
+        statusBar()->showMessage(QStringLiteral("请先关闭导入对话框"), 3000);
+        return;
+    }
+
+    if (isInlineImportPending()) {
+        statusBar()->showMessage(QStringLiteral("正在导入节目..."), 3000);
+        return;
+    }
+
     QString url = ui.lineEdit_import->text().trimmed();
     if (url.isEmpty()) {
         statusBar()->showMessage(QStringLiteral("请输入节目链接"), 3000);
@@ -472,9 +505,8 @@ void CCTVVideoDownloader::onImportLinkSubmitted()
 
     qInfo() << "内联导入节目链接:" << url;
     statusBar()->showMessage(QStringLiteral("正在导入节目..."), 0);
-    ui.lineEdit_import->setEnabled(false);
-    ui.btn_import->setEnabled(false);
     m_pendingInlineImportRequestId = APIService::instance().startGetPlayColumnInfo(url);
+    updateImportAvailability();
 }
 
 void CCTVVideoDownloader::handleInlineImportColumnInfoResolved(quint64 requestId, const QStringList& data)
@@ -483,8 +515,8 @@ void CCTVVideoDownloader::handleInlineImportColumnInfoResolved(quint64 requestId
         return;
     }
 
-    ui.lineEdit_import->setEnabled(true);
-    ui.btn_import->setEnabled(true);
+    m_pendingInlineImportRequestId = 0;
+    updateImportAvailability();
 
     if (data.size() != 3 || data.at(0).isEmpty()) {
         statusBar()->showMessage(QStringLiteral("导入失败：未获取到有效节目信息"), 5000);
@@ -552,8 +584,8 @@ void CCTVVideoDownloader::handleInlineImportColumnInfoFailed(quint64 requestId, 
         return;
     }
 
-    ui.lineEdit_import->setEnabled(true);
-    ui.btn_import->setEnabled(true);
+    m_pendingInlineImportRequestId = 0;
+    updateImportAvailability();
     statusBar()->showMessage(QStringLiteral("导入失败：%1").arg(errorMessage), 5000);
     qWarning() << "内联导入失败:" << errorMessage;
 }
