@@ -1130,6 +1130,7 @@ private slots:
     void downloadCoordinator_ownedDirectFinalizeStage_completes4kJob();
 
     void cctvVideoDownloader_openDownloadDialog_withoutSelection_showsWarningAndDoesNotStartBatch();
+    void cctvVideoDownloader_importGuards_preventRaceBetweenInlineAndDialog();
     void downloadProgressWindow_show_opensNonBlockingWindow();
     void downloadProgressWindow_usesChineseStringsAndLegacyShardTable();
     void downloadProgressWindow_shardUpdates_populateLegacyModelRows();
@@ -6558,6 +6559,35 @@ void CoreRegressionTests::cctvVideoDownloader_openDownloadDialog_withoutSelectio
     QVERIFY(warningCall > emptySelectionBranch);
     QVERIFY(openProgressWindow > warningCall);
     QVERIFY(startCoordinator > warningCall);
+}
+
+void CoreRegressionTests::cctvVideoDownloader_importGuards_preventRaceBetweenInlineAndDialog()
+{
+    const QString sourcePath = QDir(QStringLiteral(PROJECT_SOURCE_DIR))
+        .filePath(QStringLiteral("src/source/cctvvideodownloader.cpp"));
+    QFile sourceFile(sourcePath);
+    QVERIFY2(sourceFile.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(sourcePath));
+
+    const QString source = QString::fromUtf8(sourceFile.readAll());
+
+    QVERIFY(source.contains(QStringLiteral("if (m_importDialogActive)")));
+    QVERIFY(source.contains(QStringLiteral("if (isInlineImportPending())")));
+    QVERIFY(source.contains(QStringLiteral("m_pendingInlineImportRequestId = 0;")));
+    QVERIFY(source.contains(QStringLiteral("updateImportAvailability();")));
+    QVERIFY(source.contains(QStringLiteral("m_importDialogActive = true;")));
+    QVERIFY(source.contains(QStringLiteral("m_importDialogActive = false;")));
+    QVERIFY(source.contains(QStringLiteral("ui.actionimport->setEnabled(!isInlineImportPending());")));
+    QVERIFY(source.contains(QStringLiteral("const bool inlineImportEnabled = !m_importDialogActive && !isInlineImportPending();")));
+
+    const int openImportGuard = source.indexOf(QStringLiteral("if (isInlineImportPending()) {"));
+    const int dialogExec = source.indexOf(QStringLiteral("importDialog.exec();"));
+    QVERIFY(openImportGuard >= 0);
+    QVERIFY(dialogExec > openImportGuard);
+
+    const int submitGuard = source.indexOf(QStringLiteral("if (m_importDialogActive) {"));
+    const int startInlineRequest = source.indexOf(QStringLiteral("m_pendingInlineImportRequestId = APIService::instance().startGetPlayColumnInfo(url);"));
+    QVERIFY(submitGuard >= 0);
+    QVERIFY(startInlineRequest > submitGuard);
 }
 
 void CoreRegressionTests::downloadProgressWindow_show_opensNonBlockingWindow()
