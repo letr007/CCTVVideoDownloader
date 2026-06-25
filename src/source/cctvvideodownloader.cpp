@@ -12,6 +12,7 @@
 #include <QStatusBar>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMenu>
 
 #include <QSizePolicy>
 
@@ -81,6 +82,11 @@ void CCTVVideoDownloader::signalConnect()
     connect(&APIService::instance(), &APIService::imageResolved, this, &CCTVVideoDownloader::handlePreviewImageResolved);
     connect(&APIService::instance(), &APIService::playColumnInfoResolved, this, &CCTVVideoDownloader::handleInlineImportColumnInfoResolved);
     connect(&APIService::instance(), &APIService::playColumnInfoFailed, this, &CCTVVideoDownloader::handleInlineImportColumnInfoFailed);
+    ui.tableWidget_Config->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    ui.tableWidget_Config->setSelectionBehavior(QAbstractItemView::SelectRows);
+    ui.tableWidget_Config->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui.tableWidget_Config, &QTableWidget::customContextMenuRequested,
+        this, &CCTVVideoDownloader::onProgrammeContextMenuRequested);
 }
 
 void CCTVVideoDownloader::flashProgrammeList()
@@ -88,7 +94,7 @@ void CCTVVideoDownloader::flashProgrammeList()
     qInfo() << "刷新节目列表";
     
     // 读取配置文件
-    QList<QJsonObject> programmes = readProgrammeFromConfig();
+    QList<QPair<QString, QJsonObject>> programmes = readProgrammeFromConfig();
     qInfo() << "从配置读取到" << programmes.size() << "个节目";
 
     // 获取表格控件
@@ -99,7 +105,7 @@ void CCTVVideoDownloader::flashProgrammeList()
 
     // 填充表格数据
     for (int row = 0; row < programmes.size(); ++row) {
-        const QJsonObject& programme = programmes[row];
+        const auto& [key, programme] = programmes[row];
 
         // 创建表格项
         QTableWidgetItem* nameItem = new QTableWidgetItem(programme["name"].toString());
@@ -112,6 +118,7 @@ void CCTVVideoDownloader::flashProgrammeList()
         itemIdItem->setFlags(itemIdItem->flags() & ~Qt::ItemIsEditable);
 
         // 加入表格
+        nameItem->setData(Qt::UserRole, key);
         table->setItem(row, 0, nameItem);
         table->setItem(row, 1, columnIdItem);
         table->setItem(row, 2, itemIdItem);
@@ -121,6 +128,61 @@ void CCTVVideoDownloader::flashProgrammeList()
     table->resizeColumnsToContents();
     
     qInfo() << "节目列表刷新完成，显示" << programmes.size() << "个节目";
+}
+
+void CCTVVideoDownloader::onProgrammeContextMenuRequested(const QPoint& pos)
+{
+    QTableWidget* table = ui.tableWidget_Config;
+    QModelIndex index = table->indexAt(pos);
+    if (!index.isValid()) {
+        return;
+    }
+
+    if (!table->selectionModel()->isRowSelected(index.row(), QModelIndex())) {
+        table->clearSelection();
+        table->selectRow(index.row());
+        table->setCurrentCell(index.row(), index.column());
+    }
+
+    QMenu menu(table);
+    QAction* deleteAct = menu.addAction(tr("删除节目"));
+    QAction* chosen = menu.exec(table->viewport()->mapToGlobal(pos));
+    if (chosen == deleteAct) {
+        deleteSelectedProgrammes();
+    }
+}
+
+void CCTVVideoDownloader::deleteSelectedProgrammes()
+{
+    QTableWidget* table = ui.tableWidget_Config;
+    QStringList keysToRemove;
+    for (const auto& row : table->selectionModel()->selectedRows()) {
+        QTableWidgetItem* nameItem = table->item(row.row(), 0);
+        if (nameItem) {
+            keysToRemove << nameItem->data(Qt::UserRole).toString();
+        }
+    }
+    keysToRemove.removeDuplicates();
+    if (keysToRemove.isEmpty()) {
+        return;
+    }
+
+    QString msg = tr("确认删除选中的 %1 个节目？\n删除后需重新导入才能恢复。")
+                      .arg(keysToRemove.size());
+    auto btn = QMessageBox::question(this, tr("删除节目"), msg,
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (btn != QMessageBox::Yes) {
+        return;
+    }
+
+    g_settings->beginGroup("programme");
+    for (const QString& key : keysToRemove) {
+        g_settings->remove(key);
+    }
+    g_settings->endGroup();
+    g_settings->sync();
+
+    flashProgrammeList();
 }
 
 void CCTVVideoDownloader::flashVideoList()

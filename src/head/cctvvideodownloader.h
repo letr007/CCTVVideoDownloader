@@ -12,6 +12,7 @@
 #include <QDesktopServices>
 #include <QMessageBox>
 #include <QCheckBox>
+#include <QPoint>
 #include <QPixmap>
 
 class QResizeEvent;
@@ -60,6 +61,8 @@ protected:
 
 private slots:
     void onCoordinatorBatchFinished(int completedJobs, int failedJobs, int cancelledJobs, int totalJobs, bool stoppedByFatalError);
+    void onProgrammeContextMenuRequested(const QPoint& pos);
+    void deleteSelectedProgrammes();
 
 private:
     void updateImportAvailability();

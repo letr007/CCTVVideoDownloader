@@ -36,11 +36,11 @@ extern void initGlobalSettings()
 	}
 }
 
-extern QList<QJsonObject> readProgrammeFromConfig()
+extern QList<QPair<QString, QJsonObject>> readProgrammeFromConfig()
 {
 	qInfo() << "从配置读取节目列表";
 	
-	QList<QJsonObject> results;
+	QList<QPair<QString, QJsonObject>> results;
 
 	// 读取文件数据
 	g_settings->sync();
@@ -58,7 +58,7 @@ extern QList<QJsonObject> readProgrammeFromConfig()
 		{
 			qWarning() << "Base64解码失败 key:" << key;
 			g_settings->endGroup();
-			return QList<QJsonObject>();
+			return QList<QPair<QString, QJsonObject>>();
 		}
 		// 转换为Json
 		QJsonParseError error;
@@ -67,10 +67,10 @@ extern QList<QJsonObject> readProgrammeFromConfig()
 		{
 			qWarning() << "Json解析错误:" << error.errorString();
 			g_settings->endGroup();
-			return QList<QJsonObject>();
+			return QList<QPair<QString, QJsonObject>>();
 		}
 
-		results.append(doc.object());
+		results.append({key, doc.object()});
 	}
 	g_settings->endGroup();
 	

@@ -6,10 +6,11 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QPair>
 
 extern std::unique_ptr<QSettings> g_settings;
 
-extern QList<QJsonObject> readProgrammeFromConfig();
+extern QList<QPair<QString, QJsonObject>> readProgrammeFromConfig();
 extern std::tuple<QString, QString> readDisplayMinAndMax();
 extern QString readQuality();
 extern QString readSavePath();
