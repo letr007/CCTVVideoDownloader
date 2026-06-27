@@ -3476,8 +3476,11 @@ void CoreRegressionTests::decryptWorker_invalidCboxOutput_rejectsAndDoesNotPubli
     const QString stagedOutputPath = QDir(savePath).filePath("result.ts");
     QVERIFY(createFakeTsFile(resultTsPath, 4, 256));
 
-    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [](const DecryptProcessRequest& request) {
+    const QString outputPath = QDir(savePath).filePath("output.txt");
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest& request) {
         createFileWithContents(request.arguments.at(1), createFakeMp4Bytes());
+        // cbox 运行后通常会留下 output.txt 诊断日志，此处模拟该副产物。
+        createFileWithContents(outputPath, QByteArrayLiteral("invalid output diagnostic"));
 
         DecryptProcessResult result;
         result.started = true;
@@ -3497,6 +3500,8 @@ void CoreRegressionTests::decryptWorker_invalidCboxOutput_rejectsAndDoesNotPubli
     QVERIFY(!QFileInfo::exists(stagedOutputPath));
     QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("invalid-cbox-output-video.ts")));
     QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("invalid-cbox-output-video.mp4")));
+    // 与 process_failed 一致：cbox 已执行但产物异常时，保留 output.txt 供排查。
+    QVERIFY(QFileInfo::exists(outputPath));
 
     const auto arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toBool(), false);
