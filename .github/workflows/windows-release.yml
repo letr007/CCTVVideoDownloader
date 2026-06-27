@@ -4,9 +4,15 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      BUILD_CONFIG: Release
 
     steps:
       - name: Checkout
@@ -28,21 +34,23 @@ jobs:
           -G "Visual Studio 17 2022"
           -A x64
           -DCMAKE_PREFIX_PATH="${env:QT_ROOT_DIR}"
+          -DCMAKE_CONFIGURATION_TYPES="${env:BUILD_CONFIG}"
 
       - name: Build Release
         shell: pwsh
-        run: cmake --build build --config Release
+        run: cmake --build build --config "${env:BUILD_CONFIG}"
 
       - name: Verify build outputs
         shell: pwsh
         run: |
-          if (-not (Test-Path "build/Release/CCTVVideoDownloader.exe")) {
-            throw "Missing build/Release/CCTVVideoDownloader.exe"
+          $buildDir = "build/${env:BUILD_CONFIG}"
+          if (-not (Test-Path "$buildDir/CCTVVideoDownloader.exe")) {
+            throw "Missing $buildDir/CCTVVideoDownloader.exe"
           }
 
-          $decryptDir = "build/Release/decrypt"
+          $decryptDir = "$buildDir/decrypt"
           if (-not (Test-Path $decryptDir)) {
-            throw "Missing build/Release/decrypt"
+            throw "Missing $buildDir/decrypt"
           }
 
           Write-Output "Build outputs verified."
@@ -59,8 +67,8 @@ jobs:
           }
 
           New-Item -ItemType Directory -Path $packageDir | Out-Null
-          Copy-Item "build/Release/CCTVVideoDownloader.exe" $packageDir
-          Copy-Item "build/Release/decrypt" $packageDir -Recurse
+          Copy-Item "build/${env:BUILD_CONFIG}/CCTVVideoDownloader.exe" $packageDir
+          Copy-Item "build/${env:BUILD_CONFIG}/decrypt" $packageDir -Recurse
 
           Compress-Archive -Path "$packageDir/*" -DestinationPath $zipPath
 

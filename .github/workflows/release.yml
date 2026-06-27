@@ -11,6 +11,9 @@ permissions:
 jobs:
   release:
     runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      BUILD_CONFIG: Release
 
     steps:
       - name: Checkout
@@ -34,20 +37,22 @@ jobs:
           -G "Visual Studio 17 2022"
           -A x64
           -DCMAKE_PREFIX_PATH="${env:QT_ROOT_DIR}"
+          -DCMAKE_CONFIGURATION_TYPES="${env:BUILD_CONFIG}"
 
       - name: Build Release
         shell: pwsh
-        run: cmake --build build --config Release
+        run: cmake --build build --config "${env:BUILD_CONFIG}"
 
       - name: Verify build outputs
         shell: pwsh
         run: |
-          if (-not (Test-Path "build/Release/CCTVVideoDownloader.exe")) {
-            throw "Missing build/Release/CCTVVideoDownloader.exe"
+          $buildDir = "build/${env:BUILD_CONFIG}"
+          if (-not (Test-Path "$buildDir/CCTVVideoDownloader.exe")) {
+            throw "Missing $buildDir/CCTVVideoDownloader.exe"
           }
 
-          if (-not (Test-Path "build/Release/decrypt")) {
-            throw "Missing build/Release/decrypt"
+          if (-not (Test-Path "$buildDir/decrypt")) {
+            throw "Missing $buildDir/decrypt"
           }
 
       - name: Prepare release metadata
@@ -74,8 +79,8 @@ jobs:
           }
 
           New-Item -ItemType Directory -Path $packageDir | Out-Null
-          Copy-Item "build/Release/CCTVVideoDownloader.exe" $packageDir
-          Copy-Item "build/Release/decrypt" $packageDir -Recurse
+          Copy-Item "build/${env:BUILD_CONFIG}/CCTVVideoDownloader.exe" $packageDir
+          Copy-Item "build/${env:BUILD_CONFIG}/decrypt" $packageDir -Recurse
 
       - name: Deploy Qt runtime
         shell: pwsh

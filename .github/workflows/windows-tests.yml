@@ -12,9 +12,15 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: windows-2022
+    timeout-minutes: 20
+    env:
+      BUILD_CONFIG: Release
 
     steps:
       - name: Checkout
@@ -35,11 +41,12 @@ jobs:
           cmake -S . -B build-test -G "Visual Studio 17 2022" -A x64
           -DCMAKE_PREFIX_PATH="${env:QT_ROOT_DIR}"
           -DBUILD_TESTING=ON
+          -DCMAKE_CONFIGURATION_TYPES="${env:BUILD_CONFIG}"
 
       - name: Build test target
         shell: pwsh
-        run: cmake --build build-test --config Debug --target core_regression_tests
+        run: cmake --build build-test --config "${env:BUILD_CONFIG}" --target core_regression_tests --parallel
 
       - name: Run regression tests
         shell: pwsh
-        run: ctest --test-dir build-test --build-config Debug --output-on-failure -R core_regression_tests
+        run: ctest --test-dir build-test --build-config "${env:BUILD_CONFIG}" --output-on-failure -R core_regression_tests

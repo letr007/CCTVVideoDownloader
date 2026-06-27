@@ -45,7 +45,38 @@ QString cappedDiagnosticText(const QString& text)
     return trimmed;
 }
 
-QString preferredProcessDiagnostic(const DecryptProcessResult& result)
+QString readProcessDiagnosticFile(const QString& directoryPath, const QString& fileName)
+{
+    QFile file(QDir(directoryPath).filePath(fileName));
+    if (!file.exists() || !file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    const QString text = cappedDiagnosticText(QString::fromLocal8Bit(file.read(4096)));
+    if (text.isEmpty()) {
+        return {};
+    }
+
+    return QStringLiteral("[%1] %2").arg(fileName, text);
+}
+
+QString processDiagnosticFiles(const QString& directoryPath)
+{
+    QStringList diagnostics;
+    const QString outputTxt = readProcessDiagnosticFile(directoryPath, QStringLiteral("output.txt"));
+    if (!outputTxt.isEmpty()) {
+        diagnostics.append(outputTxt);
+    }
+
+    const QString udrmLog = readProcessDiagnosticFile(directoryPath, QStringLiteral("udrmencrypt.log"));
+    if (!udrmLog.isEmpty()) {
+        diagnostics.append(udrmLog);
+    }
+
+    return cappedDiagnosticText(diagnostics.join(QStringLiteral("\n")));
+}
+
+QString preferredProcessDiagnostic(const DecryptProcessResult& result, const QString& diagnosticDirectory)
 {
     const QString stderrText = cappedDiagnosticText(result.stderrText);
     if (!stderrText.isEmpty()) {
@@ -57,7 +88,23 @@ QString preferredProcessDiagnostic(const DecryptProcessResult& result)
         return stdoutText;
     }
 
-	return QStringLiteral("cbox 退出失败");
+    const QString fileDiagnostics = processDiagnosticFiles(diagnosticDirectory);
+    if (!fileDiagnostics.isEmpty()) {
+        return fileDiagnostics;
+    }
+
+    return QStringLiteral("cbox 退出失败");
+}
+
+QString processExitCodeLabel(int exitCode)
+{
+    if (exitCode >= 0) {
+        return QString::number(exitCode);
+    }
+
+    return QStringLiteral("%1/0x%2")
+        .arg(exitCode)
+        .arg(QString::number(static_cast<quint32>(exitCode), 16).toUpper().rightJustified(8, QLatin1Char('0')));
 }
 
 bool isCancellationRequested(const std::function<bool()>& cancellationRequested)
@@ -93,11 +140,22 @@ bool restoreConvertedInputToTs(const QString& cboxPath, const QString& tsPath)
     return true;
 }
 
-void cleanupProcessFailureArtifacts(const QString& savePath, bool removeCopiedLicense)
+// 清理 cbox 进程在保存目录中产生的临时产物（output.txt、udrmencrypt.log），
+// 并按需移除本次运行复制的许可证文件。成功、失败、取消等所有路径都通过它统一清理，
+// 避免出现某条路径遗漏某个文件的情况。
+// preserveProcessDiagnostics=true 时保留 output.txt/udrmencrypt.log 供诊断排查。
+void cleanupProcessArtifacts(const QString& savePath, bool removeCopiedLicense, bool preserveProcessDiagnostics = false)
 {
-    const QString outputTxtPath = QDir(savePath).filePath("output.txt");
-    if (QFile::exists(outputTxtPath) && !QFile::remove(outputTxtPath)) {
-        qWarning() << "清理 output.txt 失败:" << outputTxtPath;
+    if (!preserveProcessDiagnostics) {
+        const QString outputTxtPath = QDir(savePath).filePath("output.txt");
+        if (QFile::exists(outputTxtPath) && !QFile::remove(outputTxtPath)) {
+            qWarning() << "清理 output.txt 失败:" << outputTxtPath;
+        }
+
+        const QString udrmLogPath = QDir(savePath).filePath("udrmencrypt.log");
+        if (QFile::exists(udrmLogPath) && !QFile::remove(udrmLogPath)) {
+            qWarning() << "清理 udrmencrypt.log 失败:" << udrmLogPath;
+        }
     }
 
     if (!removeCopiedLicense) {
@@ -399,7 +457,7 @@ void DecryptWorker::doDecrypt()
 		if (!restoreConvertedInputToTs(cboxPath, stagingInputPath)) {
 			qWarning() << "回滚 input.cbox -> result.ts 失败:" << cboxPath << stagingInputPath;
 		}
-		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+		cleanupProcessArtifacts(trimmedSavePath, licenseCopiedByThisRun);
 		emit decryptFinished(false, QStringLiteral("cancelled"));
 		return;
 	}
@@ -411,7 +469,7 @@ void DecryptWorker::doDecrypt()
 		if (!restoreConvertedInputToTs(cboxPath, stagingInputPath)) {
 			qWarning() << "回滚 input.cbox -> result.ts 失败:" << cboxPath << stagingInputPath;
 		}
-		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+		cleanupProcessArtifacts(trimmedSavePath, licenseCopiedByThisRun);
 		emit decryptFinished(false, errorString.isEmpty()
 			? QStringLiteral("解密失败 [code=start_failed]: 无法启动cbox")
 			: QStringLiteral("解密失败 [code=start_failed]: 无法启动cbox: ") + errorString);
@@ -424,21 +482,22 @@ void DecryptWorker::doDecrypt()
 		if (!restoreConvertedInputToTs(cboxPath, stagingInputPath)) {
 			qWarning() << "回滚 input.cbox -> result.ts 失败:" << cboxPath << stagingInputPath;
 		}
-		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+		cleanupProcessArtifacts(trimmedSavePath, licenseCopiedByThisRun);
 		emit decryptFinished(false, QStringLiteral("解密失败 [code=timeout]: cbox 超时 %1 ms").arg(request.timeoutMs));
 		return;
 	}
 
 	if (!processResult.timedOut && (processResult.exitCode != 0 || processResult.exitStatus != QProcess::NormalExit))
 	{
-		const QString diagnostic = preferredProcessDiagnostic(processResult);
+        const QString diagnostic = preferredProcessDiagnostic(processResult, trimmedSavePath);
+        const QString exitCodeLabel = processExitCodeLabel(processResult.exitCode);
 		qCritical() << "CBOX解密失败，退出码:" << processResult.exitCode << "错误信息:" << diagnostic;
 		if (!restoreConvertedInputToTs(cboxPath, stagingInputPath)) {
 			qWarning() << "回滚 input.cbox -> result.ts 失败:" << cboxPath << stagingInputPath;
 		}
-		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+		cleanupProcessArtifacts(trimmedSavePath, licenseCopiedByThisRun, true);
 		emit decryptFinished(false, QStringLiteral("解密失败 [code=process_failed; exit_code=%1]: %2")
-			.arg(processResult.exitCode)
+			.arg(exitCodeLabel)
 			.arg(diagnostic));
 		return;
 	}
@@ -453,7 +512,7 @@ void DecryptWorker::doDecrypt()
 		if (!restoreConvertedInputToTs(cboxPath, stagingInputPath)) {
 			qWarning() << "回滚 input.cbox -> result.ts 失败:" << cboxPath << stagingInputPath;
 		}
-		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+		cleanupProcessArtifacts(trimmedSavePath, licenseCopiedByThisRun, true);
 		emit decryptFinished(false, QStringLiteral("解密失败 [code=invalid_cbox_output]: [%1] %2")
 			.arg(validation.code, validation.message));
 		return;
@@ -465,7 +524,7 @@ void DecryptWorker::doDecrypt()
 		if (!restoreConvertedInputToTs(cboxPath, stagingInputPath)) {
 			qWarning() << "回滚 input.cbox -> result.ts 失败:" << cboxPath << stagingInputPath;
 		}
-		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+		cleanupProcessArtifacts(trimmedSavePath, licenseCopiedByThisRun);
 		emit decryptFinished(false, QStringLiteral("cancelled"));
 		return;
 	}
@@ -477,13 +536,13 @@ void DecryptWorker::doDecrypt()
 		cancellationRequested);
 	if (!finalizeResult.ok) {
 		if (finalizeResult.code == QStringLiteral("cancelled") || cancellationRequested()) {
-			cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+			cleanupProcessArtifacts(trimmedSavePath, licenseCopiedByThisRun);
 			emit decryptFinished(false, QStringLiteral("cancelled"));
 			return;
 		}
 
 		qCritical() << "MediaFinalizer 发布失败:" << finalizeResult.code << finalizeResult.message;
-		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+		cleanupProcessArtifacts(trimmedSavePath, licenseCopiedByThisRun);
 		emit decryptFinished(false, QStringLiteral("解密失败 [code=%1]: %2")
 			.arg(finalizeResult.code, finalizeResult.message));
 		return;
@@ -505,10 +564,7 @@ void DecryptWorker::doDecrypt()
     }
 
     qInfo() << "清理临时文件";
-	QFile::remove(QDir(trimmedSavePath).filePath("output.txt"));
-	if (licenseCopiedByThisRun) {
-		QFile::remove(QDir(trimmedSavePath).filePath("UDRM_LICENSE.v1.0"));
-	}
+	cleanupProcessArtifacts(trimmedSavePath, licenseCopiedByThisRun);
 
     qInfo() << "视频解密全部完成，输出文件:" << finalPath;
 	emit decryptFinished(true, "解密完成，输出 " + m_name);
