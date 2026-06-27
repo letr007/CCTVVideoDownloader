@@ -4,9 +4,13 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: windows-2022
+    timeout-minutes: 30
     env:
       BUILD_CONFIG: Release
 
