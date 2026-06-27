@@ -1,7 +1,7 @@
-name: Windows Tests
+name: Cross-platform Tests
 
 # CI responsibility split:
-# - windows-tests.yml: configure with BUILD_TESTING=ON, build tests, run ctest
+# - windows-tests.yml: configure with BUILD_TESTING=ON, build tests, run regression coverage
 # - windows-release.yml: configure/build/package release binaries
 # - release.yml: tag-based GitHub release creation
 # - Merge/release gating must be enforced by GitHub required checks / branch protection,
@@ -14,24 +14,66 @@ on:
 
 jobs:
   test:
-    runs-on: windows-2022
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
     env:
       BUILD_CONFIG: Release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows Release tests
+            os: windows-2022
+            qt_host: windows
+            qt_arch: win64_msvc2022_64
+          - name: macOS Release smoke tests
+            os: macos-15
+            qt_host: mac
+            qt_arch: clang_64
+            test_command: >
+              ./build-test/tests/core_regression_tests
+              decryptWorker_processFailed_prefersStderrAndPreservesDiagnostics
+              decryptWorker_processFailed_fallsBackToDiagnosticFileAndFormatsNtStatus
+              decryptWorker_processFailed_preservesPreExistingLicense
+          - name: Linux Release smoke tests
+            os: ubuntu-24.04
+            qt_host: linux
+            qt_arch: linux_gcc_64
+            test_command: >
+              ./build-test/tests/core_regression_tests
+              decryptWorker_processFailed_prefersStderrAndPreservesDiagnostics
+              decryptWorker_processFailed_fallsBackToDiagnosticFileAndFormatsNtStatus
+              decryptWorker_processFailed_preservesPreExistingLicense
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Linux Qt runtime dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev \
+            libxkbcommon-x11-0 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-render-util0
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.0'
-          host: 'windows'
+          host: ${{ matrix.qt_host }}
           target: 'desktop'
-          arch: 'win64_msvc2022_64'
+          arch: ${{ matrix.qt_arch }}
           cache: 'true'
 
-      - name: Configure CMake for tests
+      - name: Configure CMake for tests (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: >-
           cmake -S . -B build-test -G "Visual Studio 17 2022" -A x64
@@ -39,10 +81,33 @@ jobs:
           -DBUILD_TESTING=ON
           -DCMAKE_CONFIGURATION_TYPES="${env:BUILD_CONFIG}"
 
-      - name: Build test target
-        shell: pwsh
-        run: cmake --build build-test --config "${env:BUILD_CONFIG}" --target core_regression_tests
+      - name: Configure CMake for tests (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: >-
+          cmake -S . -B build-test
+          -DCMAKE_BUILD_TYPE="$BUILD_CONFIG"
+          -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR"
+          -DBUILD_TESTING=ON
 
-      - name: Run regression tests
+      - name: Build test target (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cmake --build build-test --config "${env:BUILD_CONFIG}" --target core_regression_tests --parallel
+
+      - name: Build test target (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: cmake --build build-test --config "$BUILD_CONFIG" --target core_regression_tests --parallel
+
+      - name: Run regression tests (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: ctest --test-dir build-test --build-config "${env:BUILD_CONFIG}" --output-on-failure -R core_regression_tests
+
+      - name: Run smoke tests (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ${{ matrix.test_command }}
