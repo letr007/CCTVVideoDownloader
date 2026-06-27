@@ -109,6 +109,7 @@ if (WIN32)
     if (WINDEPLOYQT_EXECUTABLE)
         add_custom_command(TARGET CCTVVideoDownloader POST_BUILD
             COMMAND "${WINDEPLOYQT_EXECUTABLE}"
+                --release
                 --no-translations
                 --no-system-d3d-compiler
                 --no-opengl-sw

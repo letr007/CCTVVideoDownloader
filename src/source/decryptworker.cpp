@@ -45,7 +45,38 @@ QString cappedDiagnosticText(const QString& text)
     return trimmed;
 }
 
-QString preferredProcessDiagnostic(const DecryptProcessResult& result)
+QString readProcessDiagnosticFile(const QString& directoryPath, const QString& fileName)
+{
+    QFile file(QDir(directoryPath).filePath(fileName));
+    if (!file.exists() || !file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    const QString text = cappedDiagnosticText(QString::fromLocal8Bit(file.read(4096)));
+    if (text.isEmpty()) {
+        return {};
+    }
+
+    return QStringLiteral("[%1] %2").arg(fileName, text);
+}
+
+QString processDiagnosticFiles(const QString& directoryPath)
+{
+    QStringList diagnostics;
+    const QString outputTxt = readProcessDiagnosticFile(directoryPath, QStringLiteral("output.txt"));
+    if (!outputTxt.isEmpty()) {
+        diagnostics.append(outputTxt);
+    }
+
+    const QString udrmLog = readProcessDiagnosticFile(directoryPath, QStringLiteral("udrmencrypt.log"));
+    if (!udrmLog.isEmpty()) {
+        diagnostics.append(udrmLog);
+    }
+
+    return cappedDiagnosticText(diagnostics.join(QStringLiteral("\n")));
+}
+
+QString preferredProcessDiagnostic(const DecryptProcessResult& result, const QString& diagnosticDirectory)
 {
     const QString stderrText = cappedDiagnosticText(result.stderrText);
     if (!stderrText.isEmpty()) {
@@ -57,7 +88,23 @@ QString preferredProcessDiagnostic(const DecryptProcessResult& result)
         return stdoutText;
     }
 
-	return QStringLiteral("cbox 退出失败");
+    const QString fileDiagnostics = processDiagnosticFiles(diagnosticDirectory);
+    if (!fileDiagnostics.isEmpty()) {
+        return fileDiagnostics;
+    }
+
+    return QStringLiteral("cbox 退出失败");
+}
+
+QString processExitCodeLabel(int exitCode)
+{
+    if (exitCode >= 0) {
+        return QString::number(exitCode);
+    }
+
+    return QStringLiteral("%1/0x%2")
+        .arg(exitCode)
+        .arg(QString::number(static_cast<quint32>(exitCode), 16).toUpper().rightJustified(8, QLatin1Char('0')));
 }
 
 bool isCancellationRequested(const std::function<bool()>& cancellationRequested)
@@ -93,11 +140,18 @@ bool restoreConvertedInputToTs(const QString& cboxPath, const QString& tsPath)
     return true;
 }
 
-void cleanupProcessFailureArtifacts(const QString& savePath, bool removeCopiedLicense)
+void cleanupProcessFailureArtifacts(const QString& savePath, bool removeCopiedLicense, bool preserveProcessDiagnostics = false)
 {
-    const QString outputTxtPath = QDir(savePath).filePath("output.txt");
-    if (QFile::exists(outputTxtPath) && !QFile::remove(outputTxtPath)) {
-        qWarning() << "清理 output.txt 失败:" << outputTxtPath;
+    if (!preserveProcessDiagnostics) {
+        const QString outputTxtPath = QDir(savePath).filePath("output.txt");
+        if (QFile::exists(outputTxtPath) && !QFile::remove(outputTxtPath)) {
+            qWarning() << "清理 output.txt 失败:" << outputTxtPath;
+        }
+
+        const QString udrmLogPath = QDir(savePath).filePath("udrmencrypt.log");
+        if (QFile::exists(udrmLogPath) && !QFile::remove(udrmLogPath)) {
+            qWarning() << "清理 udrmencrypt.log 失败:" << udrmLogPath;
+        }
     }
 
     if (!removeCopiedLicense) {
@@ -431,14 +485,15 @@ void DecryptWorker::doDecrypt()
 
 	if (!processResult.timedOut && (processResult.exitCode != 0 || processResult.exitStatus != QProcess::NormalExit))
 	{
-		const QString diagnostic = preferredProcessDiagnostic(processResult);
+        const QString diagnostic = preferredProcessDiagnostic(processResult, trimmedSavePath);
+        const QString exitCodeLabel = processExitCodeLabel(processResult.exitCode);
 		qCritical() << "CBOX解密失败，退出码:" << processResult.exitCode << "错误信息:" << diagnostic;
 		if (!restoreConvertedInputToTs(cboxPath, stagingInputPath)) {
 			qWarning() << "回滚 input.cbox -> result.ts 失败:" << cboxPath << stagingInputPath;
 		}
-		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun);
+		cleanupProcessFailureArtifacts(trimmedSavePath, licenseCopiedByThisRun, true);
 		emit decryptFinished(false, QStringLiteral("解密失败 [code=process_failed; exit_code=%1]: %2")
-			.arg(processResult.exitCode)
+			.arg(exitCodeLabel)
 			.arg(diagnostic));
 		return;
 	}

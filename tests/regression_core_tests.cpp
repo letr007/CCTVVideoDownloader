@@ -1054,8 +1054,9 @@ private slots:
     void decryptWorker_outputUnwritable_emitsPreflightErrorBeforeProcessStart();
     void decryptWorker_startFailed_emitsStructuredProcessStartError();
     void decryptWorker_timedOut_emitsStructuredTimeoutError();
-    void decryptWorker_processFailed_prefersStderrAndCleansUpArtifacts();
+    void decryptWorker_processFailed_prefersStderrAndPreservesDiagnostics();
     void decryptWorker_processFailed_fallsBackToStdoutDiagnostic();
+    void decryptWorker_processFailed_fallsBackToDiagnosticFileAndFormatsNtStatus();
     void decryptWorker_processFailed_truncatesLongDiagnostic();
     void decryptWorker_processFailed_restoresTempResultMp4();
     void decryptWorker_processFailed_preservesPreExistingLicense();
@@ -3054,7 +3055,7 @@ void CoreRegressionTests::decryptWorker_timedOut_emitsStructuredTimeoutError()
     QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=timeout]: cbox 超时 50 ms"));
 }
 
-void CoreRegressionTests::decryptWorker_processFailed_prefersStderrAndCleansUpArtifacts()
+void CoreRegressionTests::decryptWorker_processFailed_prefersStderrAndPreservesDiagnostics()
 {
     DecryptWorker worker;
     QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
@@ -3097,7 +3098,7 @@ void CoreRegressionTests::decryptWorker_processFailed_prefersStderrAndCleansUpAr
     QVERIFY(QFileInfo::exists(tempTaskPath));
     QVERIFY(QFileInfo::exists(QDir(tempTaskPath).filePath("result.ts")));
     QVERIFY(!QFileInfo::exists(QDir(tempTaskPath).filePath("input.cbox")));
-    QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("output.txt")));
+    QVERIFY(QFileInfo::exists(QDir(savePath).filePath("output.txt")));
     QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("UDRM_LICENSE.v1.0")));
 
     const auto arguments = spy.takeFirst();
@@ -3144,6 +3145,53 @@ void CoreRegressionTests::decryptWorker_processFailed_fallsBackToStdoutDiagnosti
     const auto arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toBool(), false);
     QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密失败 [code=process_failed; exit_code=9]: stdout fallback diagnostic"));
+}
+
+void CoreRegressionTests::decryptWorker_processFailed_fallsBackToDiagnosticFileAndFormatsNtStatus()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath("decrypt_process_failed_file_diagnostic");
+    QVERIFY(QDir().mkpath(savePath));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    const QString name = QStringLiteral("process-failed-file-diagnostic-video");
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
+
+    const QString outputPath = QDir(savePath).filePath("output.txt");
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest&) {
+        createFileWithContents(outputPath, QByteArrayLiteral("drm diagnostic from output file"));
+
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = -1073741819;
+        result.exitStatus = QProcess::CrashExit;
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(QFileInfo::exists(QDir(tempTaskPath).filePath("result.ts")));
+    QVERIFY(!QFileInfo::exists(QDir(tempTaskPath).filePath("input.cbox")));
+    QVERIFY(QFileInfo::exists(outputPath));
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), false);
+    QCOMPARE(arguments.at(1).toString(),
+        QString::fromUtf8("解密失败 [code=process_failed; exit_code=-1073741819/0xC0000005]: [output.txt] drm diagnostic from output file"));
 }
 
 void CoreRegressionTests::decryptWorker_processFailed_truncatesLongDiagnostic()
@@ -3288,7 +3336,7 @@ void CoreRegressionTests::decryptWorker_processFailed_preservesPreExistingLicens
     QVERIFY(outputCreated);
     QVERIFY(QFileInfo::exists(resultMp4Path));
     QVERIFY(!QFileInfo::exists(inputCboxPath));
-    QVERIFY(!QFileInfo::exists(QDir(savePath).filePath("output.txt")));
+    QVERIFY(QFileInfo::exists(QDir(savePath).filePath("output.txt")));
     QVERIFY(QFileInfo::exists(licenseTarget));
 
     QFile preservedLicense(licenseTarget);
