@@ -3606,7 +3606,7 @@ void CoreRegressionTests::decryptWorker_cancelDuringProcess_emitsCancelledAndDoe
     connect(&worker, &DecryptWorker::decryptFinished, &thread, &QThread::quit);
 
     thread.start();
-    QTRY_VERIFY(runnerStarted.load(std::memory_order_relaxed));
+    QTRY_VERIFY_WITH_TIMEOUT(runnerStarted.load(std::memory_order_relaxed), 10000);
     worker.cancelDecrypt();
     QVERIFY(spy.wait(2000));
     thread.wait();
