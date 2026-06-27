@@ -49,4 +49,4 @@ jobs:
 
       - name: Run regression tests
         shell: pwsh
-        run: ctest --test-dir build-test --build-config "${env:BUILD_CONFIG}" --output-on-failure --repeat until-pass:3 -R core_regression_tests
+        run: ctest --test-dir build-test --build-config "${env:BUILD_CONFIG}" --output-on-failure -R core_regression_tests
