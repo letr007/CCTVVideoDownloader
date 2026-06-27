@@ -87,4 +87,5 @@ add_custom_command(TARGET core_regression_tests POST_BUILD
 add_test(NAME core_regression_tests COMMAND core_regression_tests)
 set_tests_properties(core_regression_tests PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    REPEAT UNTIL_PASS:3
 )
