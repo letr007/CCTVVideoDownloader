@@ -12,9 +12,13 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: windows-2022
+    timeout-minutes: 20
     env:
       BUILD_CONFIG: Release
 

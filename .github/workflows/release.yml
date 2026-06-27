@@ -11,6 +11,7 @@ permissions:
 jobs:
   release:
     runs-on: windows-2022
+    timeout-minutes: 30
     env:
       BUILD_CONFIG: Release
 
