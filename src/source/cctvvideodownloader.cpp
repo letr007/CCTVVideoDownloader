@@ -170,7 +170,7 @@ void CCTVVideoDownloader::deleteSelectedProgrammes()
     QString msg = tr("确认删除选中的 %1 个节目？\n删除后需重新导入才能恢复。")
                       .arg(keysToRemove.size());
     auto btn = QMessageBox::question(this, tr("删除节目"), msg,
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
     if (btn != QMessageBox::Yes) {
         return;
     }
