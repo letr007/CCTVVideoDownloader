@@ -159,6 +159,13 @@ QSharedPointer<QStringList> APIService::getPlayColumnInfo(const QString& url) {
     QString columnId = safeMatch(regexPatterns[2], html);
     QString guid = safeMatch(regexPatterns[3], html);
 
+    const QString videoCenterId = safeMatch(QRegularExpression(R"(\bvideoCenterId\s*:\s*["']([0-9a-fA-F]{32})["'])"), html).trimmed();
+    if (url.contains(QStringLiteral("news.cctv.cn"), Qt::CaseInsensitive) && !videoCenterId.isEmpty()) {
+        const QString videoId = safeMatch(QRegularExpression(R"(\bvideoId\s*:\s*["']([^"']+)["'])"), html).trimmed();
+        itemId = videoId.isEmpty() ? videoCenterId : videoId;
+        columnId = videoCenterId;
+    }
+
     if (title.isEmpty() || itemId.isEmpty() || columnId.isEmpty()) {
         QRegularExpression lmUrlRegex(R"(tv\.cctv\.com/lm/([^/?#]+))");
         auto lmUrlMatch = lmUrlRegex.match(url);
@@ -235,6 +242,49 @@ QMap<int, VideoItem> APIService::getVideoList(
     }
 	qInfo() << "生成的日期列表:" << dateList;
 
+    auto isCntvGuid = [](const QString& value) {
+        return QRegularExpression(QStringLiteral("^[0-9a-fA-F]{32}$")).match(value).hasMatch();
+    };
+
+    auto appendSingleVideoByGuid = [&](const QString& serviceId, const QString& guid, const QString& logLabel, QMap<int, VideoItem>& target) {
+        QUrl videoInfoUrl("https://zy.api.cntv.cn/video/videoinfoByGuid");
+        QUrlQuery query;
+        query.addQueryItem("serviceId", serviceId);
+        query.addQueryItem("guid", guid);
+        videoInfoUrl.setQuery(query);
+
+        qInfo() << "尝试通过" << logLabel << "接口获取单视频信息:" << videoInfoUrl.toString();
+        QByteArray responseData = sendNetworkRequest(videoInfoUrl);
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(responseData, &parseError);
+        if (parseError.error == QJsonParseError::NoError && doc.isObject()) {
+            QJsonObject videoObj = doc.object();
+            QString title = videoObj["title"].toString();
+            if (!title.isEmpty()) {
+                VideoItem videoItem;
+                videoItem.guid = videoObj["vid"].toString();
+                videoItem.title = title;
+                videoItem.brief = videoObj["brief"].toString();
+                videoItem.image = videoObj["img"].toString();
+                videoItem.time = videoObj["time"].toString();
+                if (videoItem.guid.isEmpty()) {
+                    videoItem.guid = guid;
+                }
+                target.insert(0, videoItem);
+                qInfo() << "通过" << logLabel << "接口获取到视频信息 - 标题:" << videoItem.title << "GUID:" << videoItem.guid;
+                return true;
+            }
+        }
+        return false;
+    };
+
+    if (item_id.startsWith(QStringLiteral("VIDE"), Qt::CaseInsensitive) && isCntvGuid(column_id)) {
+        QMap<int, VideoItem> singleVideoResult;
+        if (appendSingleVideoByGuid(QStringLiteral("tvcctv"), column_id, QStringLiteral("tvcctv"), singleVideoResult)) {
+            return singleVideoResult;
+        }
+    }
+
     // 先尝试栏目方式获取
     QMap<int, VideoItem> result = fetchVideoData(column_id, dateList, FetchType::Column);
 
@@ -258,33 +308,7 @@ QMap<int, VideoItem> APIService::getVideoList(
     }
 
     if (result.isEmpty()) {
-        QUrl videoInfoUrl("https://zy.api.cntv.cn/video/videoinfoByGuid");
-        QUrlQuery query;
-        query.addQueryItem("serviceId", "cctv4k");
-        query.addQueryItem("guid", column_id);
-        videoInfoUrl.setQuery(query);
-
-        qInfo() << "尝试通过CCTV-4K接口获取单视频信息:" << videoInfoUrl.toString();
-        QByteArray responseData = sendNetworkRequest(videoInfoUrl);
-        QJsonParseError parseError;
-        QJsonDocument doc = QJsonDocument::fromJson(responseData, &parseError);
-        if (parseError.error == QJsonParseError::NoError && doc.isObject()) {
-            QJsonObject videoObj = doc.object();
-            QString title = videoObj["title"].toString();
-            if (!title.isEmpty()) {
-                VideoItem videoItem;
-                videoItem.guid = videoObj["vid"].toString();
-                videoItem.title = title;
-                videoItem.brief = videoObj["brief"].toString();
-                videoItem.image = videoObj["img"].toString();
-                videoItem.time = videoObj["time"].toString();
-                if (videoItem.guid.isEmpty()) {
-                    videoItem.guid = column_id;
-                }
-                result.insert(0, videoItem);
-                qInfo() << "通过CCTV-4K接口获取到视频信息 - 标题:" << videoItem.title << "GUID:" << videoItem.guid;
-            }
-        }
+        appendSingleVideoByGuid(QStringLiteral("cctv4k"), column_id, QStringLiteral("CCTV-4K"), result);
     }
 
     if (result.isEmpty()) {

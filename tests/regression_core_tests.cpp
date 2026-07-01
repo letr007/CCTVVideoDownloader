@@ -1150,6 +1150,8 @@ private slots:
     void apiservice_processTopicVideoData_marksFragments();
     void apiservice_parseM3U8QualityUrls_and_selectQuality_chooseHighestForZero();
     void apiservice_getPlayColumnInfo_usesGuidFallbackForCctv4k();
+    void apiservice_getPlayColumnInfo_extractsNewsArticleVideoCenterId();
+    void apiservice_getVideoList_usesTvcctvSingleVideoLookup();
     void apiservice_getVideoList_usesCctv4kGuidFallback();
     void apiservice_startGetPlayColumnInfo_asyncSuccess_emitsResolvedData();
     void apiservice_startGetBrowseVideoList_asyncSuccess_preservesHighlightAndFragmentBrowseSemantics();
@@ -3773,6 +3775,63 @@ var guid = '4k-guid-001';
     QCOMPARE(result->at(0), QString("CCTV-4K"));
     QCOMPARE(result->at(1), QString("4k-guid-001"));
     QCOMPARE(result->at(2), QString("4k-guid-001"));
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::apiservice_getPlayColumnInfo_extractsNewsArticleVideoCenterId()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl url(QStringLiteral("https://news.cctv.cn/2026/06/28/ARTIjYR3vK99sMNjxITajoyS260628.shtml"));
+    const QByteArray html = R"(
+<html><head><script>
+var commentTitle = "NewsSingleVideo";
+var itemid1="ARTIjYR3vK99sMNjxITajoyS260628";
+var column_id = "TOPC1558678001929702";
+var playerParas = { videoCenterId: "6ef3fbbea4924a0a87a8cb12b76cc109", videoId: "VIDE100215108600" };
+</script></head></html>
+)";
+
+    manager.queueSuccess(url, html);
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    auto result = apiService.getPlayColumnInfo(url.toString());
+
+    QVERIFY(!result.isNull());
+    QCOMPARE(result->size(), 3);
+    QCOMPARE(result->at(0), QString("NewsSingleVideo"));
+    QCOMPARE(result->at(1), QString("VIDE100215108600"));
+    QCOMPARE(result->at(2), QString("6ef3fbbea4924a0a87a8cb12b76cc109"));
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::apiservice_getVideoList_usesTvcctvSingleVideoLookup()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QString guid = QStringLiteral("6ef3fbbea4924a0a87a8cb12b76cc109");
+    const QString itemId = QStringLiteral("VIDE100215108600");
+    const QString date = QStringLiteral("202606");
+
+    QUrl videoInfoUrl(QStringLiteral("https://zy.api.cntv.cn/video/videoinfoByGuid"));
+    QUrlQuery videoInfoQuery;
+    videoInfoQuery.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("tvcctv"));
+    videoInfoQuery.addQueryItem(QStringLiteral("guid"), guid);
+    videoInfoUrl.setQuery(videoInfoQuery);
+    manager.queueSuccess(videoInfoUrl, QByteArray(R"({"vid":"6ef3fbbea4924a0a87a8cb12b76cc109","title":"News Single Video","brief":"brief","img":"image.jpg","time":"2026-06-28"})"));
+
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const auto videos = apiService.getVideoList(guid, itemId, date, date);
+
+    QCOMPARE(videos.size(), 1);
+    QCOMPARE(videos.value(0).guid, guid);
+    QCOMPARE(videos.value(0).title, QString("News Single Video"));
+    QCOMPARE(videos.value(0).brief, QString("brief"));
+    QCOMPARE(videos.value(0).image, QString("image.jpg"));
+    QCOMPARE(videos.value(0).time, QString("2026-06-28"));
     QCOMPARE(manager.requestCount(), 1);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
 }
