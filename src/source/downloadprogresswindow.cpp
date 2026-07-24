@@ -28,8 +28,9 @@ DownloadProgressWindow::DownloadProgressWindow(DownloadCoordinator* coordinator,
 
 DownloadProgressWindow::~DownloadProgressWindow()
 {
+    // m_coordinator is a QPointer: it may already be destroyed during app teardown.
     if (m_coordinator) {
-        disconnect(m_coordinator, nullptr, this, nullptr);
+        disconnect(m_coordinator.data(), nullptr, this, nullptr);
     }
 }
 
@@ -136,6 +137,9 @@ void DownloadProgressWindow::buildUi()
 
 void DownloadProgressWindow::connectCoordinator()
 {
+    if (!m_coordinator) {
+        return;
+    }
     connect(m_coordinator, &DownloadCoordinator::busyChanged,
         this, &DownloadProgressWindow::onCoordinatorBusyChanged);
     connect(m_coordinator, &DownloadCoordinator::batchStarted,

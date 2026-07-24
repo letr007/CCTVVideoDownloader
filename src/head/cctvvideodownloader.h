@@ -13,6 +13,7 @@
 #include <QMessageBox>
 #include <QCheckBox>
 #include <QPoint>
+#include <QPointer>
 #include <QPixmap>
 
 class QResizeEvent;
@@ -84,5 +85,5 @@ private:
     inline static QMap<int, VideoItem> VIDEOS;
 
     DownloadCoordinator* m_downloadCoordinator = nullptr;
-    DownloadProgressWindow* m_downloadProgressWindow = nullptr;
+    QPointer<DownloadProgressWindow> m_downloadProgressWindow;
 };

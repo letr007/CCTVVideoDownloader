@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #ifndef LOGGER_H
 #define LOGGER_H
 
@@ -15,18 +15,20 @@ class Logger : public QObject
 public:
     static Logger* instance();
     void init(const QString& logFilePath = "app.log");
+    // Safe for aboutToQuit: uninstalls handler and closes the log file only.
+    // Does not delete the singleton (avoids destructor re-entrancy / double free).
     void cleanup();
     void setLogLevel(const int& level);
     bool shouldLog(QtMsgType type) const;
 
 private:
     Logger(QObject* parent = nullptr);
-    ~Logger();
+    ~Logger() override;
 
     static void messageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg);
     void writeToFile(const QString& message);
     void outputToConsole(const QString& message);
-    int logLevelToInt(const QString& level) const;
+    void detachStreamAndCloseFile();
 
     QFile m_logFile;
     QTextStream m_textStream;

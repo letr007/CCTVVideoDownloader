@@ -59,6 +59,16 @@ CCTVVideoDownloader::CCTVVideoDownloader(QWidget* parent)
 
 CCTVVideoDownloader::~CCTVVideoDownloader()
 {
+    // Stop late async API/coordinator callbacks into this window while Qt is
+    // destroying children (DownloadCoordinator / DownloadEngine, etc.).
+    if (m_downloadCoordinator) {
+        disconnect(m_downloadCoordinator, nullptr, this, nullptr);
+    }
+    disconnect(&APIService::instance(), nullptr, this, nullptr);
+    if (m_downloadProgressWindow) {
+        m_downloadProgressWindow->hide();
+        m_downloadProgressWindow = nullptr; // owned by Qt parent tree / WA_DeleteOnClose
+    }
 }
 
 void CCTVVideoDownloader::signalConnect()

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <QPointer>
 
 #ifdef CORE_REGRESSION_TESTS
 #include <functional>
@@ -62,7 +63,7 @@ private:
     QString stageText(DownloadJobStage stage) const;
     QString messageText(const QString& message) const;
 
-    DownloadCoordinator* m_coordinator;
+    QPointer<DownloadCoordinator> m_coordinator;
     bool m_batchActive = false;
 
 #ifdef CORE_REGRESSION_TESTS
