@@ -1191,7 +1191,9 @@ void CoreRegressionTests::init()
     QVERIFY2(m_tempDir->isValid(), "Temporary directory must be valid");
     QVERIFY(QDir::setCurrent(m_tempDir->path()));
     g_settings.reset();
-    QFile::remove(defaultConfigFilePath());
+    const QString configPath = defaultConfigFilePath();
+    QFile::remove(configPath);
+    QDir(QFileInfo(configPath).absolutePath()).removeRecursively();
 }
 
 void CoreRegressionTests::cleanup()
@@ -1199,10 +1201,11 @@ void CoreRegressionTests::cleanup()
     APIService::instance().cancelGetEncryptM3U8Urls();
     APIServiceTestAdapter::clearTestNetworkAccessManager(APIService::instance());
     g_settings.reset();
-    QFile::remove(defaultConfigFilePath());
+    const QString configPath = defaultConfigFilePath();
+    QFile::remove(configPath);
+    QDir(QFileInfo(configPath).absolutePath()).removeRecursively();
     QVERIFY(QDir::setCurrent(m_originalCurrentPath));
     m_tempDir.reset();
-    QStandardPaths::setTestModeEnabled(false);
 }
 
 void CoreRegressionTests::initializeSettingsSandbox()
@@ -7231,6 +7234,13 @@ var guid = 'close-persist-guid';
     QCOMPARE(manager.unexpectedRequestCount(), 0);
 }
 
-QTEST_MAIN(CoreRegressionTests)
+int main(int argc, char* argv[])
+{
+    // Enable Qt test locations before QCoreApplication initializes AppData/AppConfig paths.
+    QStandardPaths::setTestModeEnabled(true);
+    QApplication app(argc, argv);
+    CoreRegressionTests tc;
+    return QTest::qExec(&tc, argc, argv);
+}
 
 #include "regression_core_tests.moc"
