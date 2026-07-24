@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-#include "ffmpegcliremuxer.h"
+#include "libavremuxer.h"
 
 #include <QObject>
 #include <QString>
@@ -22,7 +22,7 @@ DirectMediaFinalizeResult finalizeDirectTsTask(const QString& title,
 	const std::function<bool()>& cancellationRequested = {}
 #ifdef CORE_REGRESSION_TESTS
 	,
-	const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& testProcessRunner = {},
+	const std::function<RemuxProcessResult(const RemuxProcessRequest&)>& testProcessRunner = {},
 	const QString& testDecryptAssetsDir = QString()
 #endif
 	);
@@ -55,12 +55,12 @@ private:
 	QString m_taskDirectory;
 
 #ifdef CORE_REGRESSION_TESTS
-	void setTestProcessRunner(const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& runner);
+	void setTestProcessRunner(const std::function<RemuxProcessResult(const RemuxProcessRequest&)>& runner);
 	void clearTestProcessRunner();
 	void setTestDecryptAssetsDir(const QString& decryptAssetsDir);
 	void clearTestDecryptAssetsDir();
 
-	std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)> m_testProcessRunner;
+	std::function<RemuxProcessResult(const RemuxProcessRequest&)> m_testProcessRunner;
 	QString m_testDecryptAssetsDir;
 #endif
 };

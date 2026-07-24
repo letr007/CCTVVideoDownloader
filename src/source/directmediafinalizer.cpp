@@ -13,7 +13,7 @@ DirectMediaFinalizeResult finalizeDirectTsTask(const QString& title,
 	const std::function<bool()>& cancellationRequested
 #ifdef CORE_REGRESSION_TESTS
 	,
-	const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& testProcessRunner,
+	const std::function<RemuxProcessResult(const RemuxProcessRequest&)>& testProcessRunner,
 	const QString& testDecryptAssetsDir
 #endif
 	)
@@ -109,7 +109,7 @@ void DirectFinalizeWorker::doWork(const QString& title, const QString& savePath,
 }
 
 #ifdef CORE_REGRESSION_TESTS
-void DirectFinalizeWorker::setTestProcessRunner(const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& runner)
+void DirectFinalizeWorker::setTestProcessRunner(const std::function<RemuxProcessResult(const RemuxProcessRequest&)>& runner)
 {
 	m_testProcessRunner = runner;
 }

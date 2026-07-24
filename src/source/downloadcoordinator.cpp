@@ -937,7 +937,7 @@ public:
     }
 
 #ifdef CORE_REGRESSION_TESTS
-    void setTestProcessRunner(const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& runner)
+    void setTestProcessRunner(const std::function<RemuxProcessResult(const RemuxProcessRequest&)>& runner)
     {
         m_testProcessRunner = runner;
     }
@@ -990,7 +990,7 @@ private:
     QString m_resultMessage;
     QString m_resultFinalPath;
 #ifdef CORE_REGRESSION_TESTS
-    std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)> m_testProcessRunner;
+    std::function<RemuxProcessResult(const RemuxProcessRequest&)> m_testProcessRunner;
     QString m_testDecryptAssetsDir;
 #endif
 };
@@ -1789,7 +1789,7 @@ void DownloadCoordinator::setTestDecryptStageLifecycleObserver(const std::functi
     }
 }
 
-void DownloadCoordinator::setTestDirectFinalizeProcessRunner(const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& runner)
+void DownloadCoordinator::setTestDirectFinalizeProcessRunner(const std::function<RemuxProcessResult(const RemuxProcessRequest&)>& runner)
 {
     auto* productionStage = dynamic_cast<ProductionCoordinatorDirectFinalizeStage*>(m_directFinalizeStage);
     if (productionStage != nullptr) {

@@ -19,8 +19,8 @@ class QNetworkRequest;
 class DownloadCoordinatorTestAdapter;
 struct DecryptProcessRequest;
 struct DecryptProcessResult;
-struct FfmpegCliProcessRequest;
-struct FfmpegCliProcessResult;
+struct RemuxProcessRequest;
+struct RemuxProcessResult;
 #endif
 
 Q_DECLARE_METATYPE(DownloadJob)
@@ -123,7 +123,7 @@ private:
     void clearTestDecryptAssetsDir();
     void setTestDecryptStageShutdownWaitMs(int waitMs);
     void setTestDecryptStageLifecycleObserver(const std::function<void(const QString&)>& observer);
-    void setTestDirectFinalizeProcessRunner(const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& runner);
+    void setTestDirectFinalizeProcessRunner(const std::function<RemuxProcessResult(const RemuxProcessRequest&)>& runner);
     void clearTestDirectFinalizeProcessRunner();
     void setTestDirectFinalizeAssetsDir(const QString& decryptAssetsDir);
     void clearTestDirectFinalizeAssetsDir();
