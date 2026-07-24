@@ -35,26 +35,29 @@
 ### 环境要求
 
 - CMake 3.21+
-- Visual Studio 2022
-- Qt 6.8.0（`msvc2022_64`）
+- Qt 6（Core / Gui / Widgets / Network）
+- C++17 编译器（Windows: MSVC 2022；macOS/Linux: 系统工具链）
+- 系统 `ffmpeg`（用于 MP4 remux，需在 `PATH` 中）
 
-### 配置
+加密流使用原生 `hls_h5e` 解密（`src/crypto/cctv_h5e_decrypt.*`），不再依赖 Windows 专用的 `cbox.exe` / UDRM 二进制。
 
-```powershell
+### 配置（示例）
+
+```bash
+# macOS / Linux
+cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="/path/to/qt"
+
+# Windows (VS 2022)
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="qt的msvc路径"
 ```
 
 ### 构建
 
-```powershell
+```bash
 cmake --build build --config Release
 ```
 
-构建完成后，可执行文件默认位于：
-
-```text
-build/Release/CCTVVideoDownloader.exe
-```
+构建完成后，可执行文件位于 `build/`（或 `build/Release/`，视生成器而定）。
 
 ## :beers:帮助与反馈
 
