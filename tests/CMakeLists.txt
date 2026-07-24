@@ -59,7 +59,6 @@ target_include_directories(core_regression_tests
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/head
         ${PROJECT_SOURCE_DIR}/src/crypto
-        ${FFMPEG_MIN_INCLUDE_DIR}
 )
 
 target_link_libraries(core_regression_tests
@@ -68,7 +67,7 @@ target_link_libraries(core_regression_tests
         Qt6::Widgets
         Qt6::Test
         Qt6::Network
-        ffmpeg_min
+        FFmpegMin::ffmpeg_min
     )
 
 target_compile_definitions(core_regression_tests

@@ -16,6 +16,7 @@ set(CMAKE_AUTOUIC_SEARCH_PATHS
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network)
 
 # Minimal static FFmpeg for in-process TS->MP4 remux (no system ffmpeg CLI).
+# Provides FFmpegMin::ffmpeg_min (and alias ffmpeg_min).
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(FindFFmpegMin)
 
@@ -93,16 +94,16 @@ target_include_directories(CCTVVideoDownloader
         ${CMAKE_CURRENT_SOURCE_DIR}/src/head
         ${CMAKE_CURRENT_SOURCE_DIR}/src/resources
         ${CMAKE_CURRENT_SOURCE_DIR}/src/crypto
-        ${FFMPEG_MIN_INCLUDE_DIR}
 )
 
+# Includes and whole-archive static libs come from the imported target.
 target_link_libraries(CCTVVideoDownloader
     PRIVATE
         Qt6::Core
         Qt6::Gui
         Qt6::Widgets
         Qt6::Network
-        ffmpeg_min
+        FFmpegMin::ffmpeg_min
 )
 
 if (MSVC)
@@ -128,4 +129,3 @@ if (WIN32)
         message(WARNING "windeployqt not found; the built executable may miss Qt runtime DLLs.")
     endif()
 endif()
-
