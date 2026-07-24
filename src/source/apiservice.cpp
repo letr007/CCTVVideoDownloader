@@ -1165,9 +1165,16 @@ void APIService::handleM3u8ReplyFinished(quint64 requestId)
         }
 
         const QJsonObject manifestObj = parseJsonObject(responseData, "manifest");
-        QString hlsH5eUrl = manifestObj["hls_enc2_url"].toString();
+        // Prefer native-decryptable hls_h5e stream; keep enc2 only as last-resort fallback.
+        QString hlsH5eUrl = manifestObj["hls_h5e_url"].toString();
         if (hlsH5eUrl.isEmpty()) {
-            finishM3u8ResolveFailure(requestId, QStringLiteral("无法获取hls_enc2_url"));
+            hlsH5eUrl = manifestObj["hls_enc_url"].toString();
+        }
+        if (hlsH5eUrl.isEmpty()) {
+            hlsH5eUrl = manifestObj["hls_enc2_url"].toString();
+        }
+        if (hlsH5eUrl.isEmpty()) {
+            finishM3u8ResolveFailure(requestId, QStringLiteral("无法获取hls_h5e_url"));
             return;
         }
 
@@ -1257,13 +1264,11 @@ void APIService::finishM3u8ResolveFailure(quint64 requestId, const QString& erro
 
 QString APIService::normalizeEncryptedM3u8Url(QString hlsH5eUrl) const
 {
-    QRegularExpression re("https://[^/]+/asp/enc2/");
-    QRegularExpressionMatch match = re.match(hlsH5eUrl);
-
+    // hls_h5e hosts are already usable; only rewrite legacy enc2 CDN hosts if still present.
+    QRegularExpression re(QStringLiteral("https://[^/]+/asp/enc2/"));
+    const QRegularExpressionMatch match = re.match(hlsH5eUrl);
     if (match.hasMatch()) {
-        hlsH5eUrl.replace(match.captured(0), "https://drm.cntv.vod.dnsv1.com/asp/enc2/");
-    } else {
-        qWarning() << "无法替换CDN，使用默认CDN";
+        hlsH5eUrl.replace(match.captured(0), QStringLiteral("https://drm.cntv.vod.dnsv1.com/asp/enc2/"));
     }
 
     return hlsH5eUrl;

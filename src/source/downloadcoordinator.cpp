@@ -1000,8 +1000,6 @@ namespace {
 bool isSharedEnvironmentCode(const QString& value)
 {
     return value == QStringLiteral("ffmpeg_missing")
-        || value == QStringLiteral("cbox_missing")
-        || value == QStringLiteral("license_missing")
         || value == QStringLiteral("output_directory_unavailable")
         || value == QStringLiteral("output_unwritable");
 }
@@ -1014,8 +1012,6 @@ bool messageHasSharedEnvironmentCode(const QString& message)
 
     static const QStringList codes = {
         QStringLiteral("ffmpeg_missing"),
-        QStringLiteral("cbox_missing"),
-        QStringLiteral("license_missing"),
         QStringLiteral("output_directory_unavailable"),
         QStringLiteral("output_unwritable")
     };
