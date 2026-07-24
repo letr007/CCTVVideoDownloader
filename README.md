@@ -39,9 +39,9 @@
 - C++17 编译器（Windows: MSVC 2022；macOS/Linux: 系统工具链）
 - 最小静态 FFmpeg 库（用于进程内 TS→MP4 remux；先构建 `third_party/ffmpeg-min`）
 
-加密流使用原生 `hls_h5e` 解密（`src/crypto/cctv_h5e_decrypt.*`），MP4 封装使用内联 libav（`LibavRemuxer`），不再依赖系统 `ffmpeg` CLI / `cbox.exe` / UDRM 二进制。
+### 最小 FFmpeg
 
-### 最小 FFmpeg（进程内 remux）
+用于进程内 remux
 
 ```bash
 # macOS / Linux
@@ -52,9 +52,7 @@
 powershell -ExecutionPolicy Bypass -File scripts/build-ffmpeg-min-windows.ps1
 ```
 
-CI 矩阵见 `.github/workflows/ci.yml`（macOS / Ubuntu / Windows）。
-
-### 配置（示例）
+### 示例配置
 
 ```bash
 # macOS / Linux
