@@ -24,9 +24,14 @@ function Test-Cmd([string]$Name) {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
-if (-not (Test-Cmd "cl") -and -not (Test-Cmd "cl.exe")) {
+$MsvcCl = Get-Command cl.exe -ErrorAction SilentlyContinue
+if (-not $MsvcCl) {
+    $MsvcCl = Get-Command cl -ErrorAction SilentlyContinue
+}
+if (-not $MsvcCl) {
     throw "cl.exe not on PATH. Run from an MSVC x64 developer environment (e.g. ilammy/msvc-dev-cmd)."
 }
+$MsvcBin = Split-Path -Parent $MsvcCl.Source
 
 if ([string]::IsNullOrWhiteSpace($Msys2Root)) {
     throw "MSYS2_ROOT is required. On GitHub Actions, set it from steps.msys2.outputs.msys2-location; locally pass -Msys2Root <MSYS2 root>."
@@ -43,14 +48,15 @@ if (-not (Test-Path $Msys2Make)) {
 
 $env:FFVER = $FfVer
 Write-Host "Using MSYS2 bash: $Msys2Bash"
-Write-Host "Using MSVC cl: $((Get-Command cl -ErrorAction SilentlyContinue).Source)"
+Write-Host "Using MSVC cl: $($MsvcCl.Source)"
 
-# Use the known MSYS2 shell and put its tools first. This keeps configure,
-# cygpath, and make in one POSIX runtime instead of mixing Git Bash with MSYS2.
-# Pass the Windows path through the environment, then convert it in MSYS2 rather
-# than relying on Git Bash-style drive-path parsing or fragile inline escaping.
-$env:FFMPEG_MIN_BUILDER_ROOT = $Root.Path
-& $Msys2Bash -lc 'set -e; export PATH=/usr/bin:/bin:$PATH; cd "$(cygpath -u "$FFMPEG_MIN_BUILDER_ROOT")"; ./scripts/build-ffmpeg-min.sh'
+# Keep the MSVC bin directory ahead of MSYS2 so configure --toolchain=msvc
+# resolves cl/link/lib from Visual Studio, while make and POSIX helpers come
+# from the one authoritative MSYS2 installation. Pass paths as positional
+# arguments; this avoids fragile nested PowerShell/Bash command substitution.
+$RootPath = $Root.Path
+$BuilderPath = $Builder
+& $Msys2Bash -c 'set -e; msvc_bin="$(cygpath -u "$3")"; export PATH="$msvc_bin:/usr/bin:/bin:$PATH"; printf "Using shell tools: cl=%s link=%s make=%s\n" "$(command -v cl)" "$(command -v link)" "$(command -v make)"; cd "$(cygpath -u "$1")"; exec "$(cygpath -u "$2")"' bash $RootPath $BuilderPath $MsvcBin
 if ($LASTEXITCODE -ne 0) {
     throw "build-ffmpeg-min.sh failed with exit code $LASTEXITCODE"
 }

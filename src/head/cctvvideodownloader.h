@@ -5,8 +5,8 @@
 #include "config.h"
 #include "apiservice.h"
 
-#include <Tuple>
-#include <Optional>
+#include <tuple>
+#include <optional>
 #include <QSettings>
 #include <QRegularExpression>
 #include <QDesktopServices>

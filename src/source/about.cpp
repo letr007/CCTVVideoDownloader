@@ -3,7 +3,7 @@
 #include <QMovie>
 #include <QSize>
 #include <QUrl>
-#include <QDesktopservices>
+#include <QDesktopServices>
 
 About::About(QWidget* parent) : QDialog(parent)
 {
