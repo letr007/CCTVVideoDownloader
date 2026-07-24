@@ -151,29 +151,13 @@ void createDecryptAssets(const QString& assetsDirPath, bool includeFfmpeg = true
     }
 }
 
-QString bundledFfmpegPath()
-{
-    // Historical name: now means "a path that should not resolve as a real ffmpeg binary".
-    return QDir(QCoreApplication::applicationDirPath()).filePath("decrypt/ffmpeg.exe");
-}
-
 QByteArray createRemuxableTsFixtureBytes()
 {
-    static const QByteArray encoded =
-        "R0AREABC8CUAAcEAAP8B/wAB/IAUSBIBBkZGbXBlZwlTZXJ2aWNlMDF3fEPK////////////////////"
-        "////////////////////////////////////////////////////////////////////////////////"
-        "////////////////////////////////////////////////////////////////////////////////"
-        "//////////9HQAAQAACwDQABwQAAAAHwACqxBLL/////////////////////////////////////////"
-        "////////////////////////////////////////////////////////////////////////////////"
-        "////////////////////////////////////////////////////////////////////////////////"
-        "/////////////////////0dQABAAArAXAAHBAADhAPAAAuEA8AAD4QHwAPZKA1X/////////////////"
-        "////////////////////////////////////////////////////////////////////////////////"
-        "////////////////////////////////////////////////////////////////////////////////"
-        "////////////////////////////////R0EAMAdQAAB7DH4AAAAB4AAAgMAKMQAH9IERAAfYYQAAAbMU"
-        "APAj///gGAAAAbUUigABAAAAAAG4AAgAQAAAAQAAD//4AAABtY//80GAAAABARP5RSlL9wvNuUpSIuUp"
-        "SIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUpSIuUp"
-        "SIuUpSIgAAABAhP5RSlL9wvNuUpSIuUpSIuUpSIuUpQ=";
-    return QByteArray::fromBase64(encoded);
+    QFile fixture(QStringLiteral(PROJECT_SOURCE_DIR "/tests/fixtures/remuxable-h264-aac.ts"));
+    if (!fixture.open(QIODevice::ReadOnly)) {
+        return {};
+    }
+    return fixture.readAll();
 }
 
 DownloadJob makeCoordinatorJob(const QString& id,
@@ -1085,8 +1069,7 @@ private slots:
     void cctvVideoDownloader_cctv4kTsSelection_finalizesStagedTs();
     void cctvVideoDownloader_cctv4kMp4Selection_remuxesStagedTs();
     void mediaFinalizer_publishTs_validatesAndUsesUniqueName();
-    void mediaFinalizer_remuxesToMp4ThroughBundledCli();
-    void mediaFinalizer_missingBundledFfmpeg_reportsFailure();
+    void mediaFinalizer_remuxesToMp4WithEmbeddedLibav();
     void mediaFinalizer_remuxTimeout_reportsFailureAndDoesNotPublishMp4();
     void mediaFinalizer_remuxCancel_reportsCancelledAndDoesNotPublishMp4();
     void mediaFinalizer_remuxProcessFailure_reportsDiagnostic();
@@ -2869,9 +2852,11 @@ void CoreRegressionTests::decryptWorker_missingLicense_emitsPreflightErrorBefore
 
     QCOMPARE(spy.count(), 1);
     const auto arguments = spy.takeFirst();
-    // Either success after native decrypt, or structured native failure — never license_missing.
+    // Either success after native decrypt, or structured native failure — never
+    // the legacy license_missing classification. The fixture path itself includes
+    // "missing_license", so do not assert on a generic substring.
     QVERIFY(arguments.at(1).toString().contains(QStringLiteral("code=")) || arguments.at(0).toBool());
-    QVERIFY(!arguments.at(1).toString().contains(QStringLiteral("license")));
+    QVERIFY(!arguments.at(1).toString().contains(QStringLiteral("code=license_missing")));
 }
 
 void CoreRegressionTests::decryptWorker_outputUnwritable_emitsPreflightErrorBeforeProcessStart()
@@ -4681,7 +4666,7 @@ void CoreRegressionTests::mediaFinalizer_publishTs_validatesAndUsesUniqueName()
     QVERIFY(validation.ok);
 }
 
-void CoreRegressionTests::mediaFinalizer_remuxesToMp4ThroughBundledCli()
+void CoreRegressionTests::mediaFinalizer_remuxesToMp4WithEmbeddedLibav()
 {
 
     QTemporaryDir tempDir;
@@ -4711,29 +4696,6 @@ void CoreRegressionTests::mediaFinalizer_remuxesToMp4ThroughBundledCli()
 
     const MediaContainerValidationResult validation = MediaContainerValidator::validateFile(result.finalPath, MediaContainerType::Mp4);
     QVERIFY(validation.ok);
-}
-
-void CoreRegressionTests::mediaFinalizer_missingBundledFfmpeg_reportsFailure()
-{
-    MediaFinalizer finalizer;
-    QTemporaryDir assetsDir;
-    QVERIFY(assetsDir.isValid());
-    // Empty assets dir and no system path injection: resolveFfmpegProgram fails when test dir is set empty of ffmpeg.
-    MediaFinalizerTestAdapter::setTestDecryptAssetsDir(finalizer, assetsDir.path());
-
-    const QString saveDir = QDir(m_tempDir->path()).filePath("finalizer_missing_ffmpeg");
-    QVERIFY(QDir().mkpath(saveDir));
-    const QString staging = QDir(saveDir).filePath("stage.ts");
-    QVERIFY(createFileWithContents(staging, createRemuxableTsFixtureBytes()));
-
-    const MediaFinalizeResult result = finalizer.finalize(
-        staging,
-        QStringLiteral("missing-ffmpeg-title"),
-        saveDir,
-        MediaContainerType::Mp4);
-
-    QCOMPARE(result.ok, false);
-    QCOMPARE(result.code, QStringLiteral("ffmpeg_missing"));
 }
 
 void CoreRegressionTests::mediaFinalizer_remuxTimeout_reportsFailureAndDoesNotPublishMp4()
@@ -6192,7 +6154,9 @@ void CoreRegressionTests::downloadCoordinator_ownedDownloadStage_cancelDuringDow
         QByteArray("#EXTM3U\n#EXTINF:2.0,\n0001.ts\n"));
 
     const QUrl shardUrl(QStringLiteral("https://media.example/video/720/0001.ts"));
-    manager.queueSuccess(shardUrl, QByteArray("slow-segment"), 200);
+    // Keep the shard request pending long enough for cancelCurrent() to abort it
+    // deterministically on slower CI workers.
+    manager.queueSuccess(shardUrl, QByteArray("slow-segment"), 1000);
 
     APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
     DownloadCoordinatorTestAdapter::setTestDownloadReplyFactory(coordinator, [&manager](const QNetworkRequest& request) {
@@ -6219,11 +6183,17 @@ void CoreRegressionTests::downloadCoordinator_ownedDownloadStage_cancelDuringDow
     QVERIFY(pendingReply != nullptr);
     QCOMPARE(manager.requestedUrls().constLast(), shardUrl);
 
+    std::atomic_bool shardAbortObserved{ false };
+    QObject::connect(pendingReply, &FakeNetworkReply::abortCalled, [&shardAbortObserved]() {
+        shardAbortObserved.store(true, std::memory_order_relaxed);
+    });
+
     coordinator.cancelCurrent();
 
-    QVERIFY(batchFinishedSpy.wait(3000));
+    QTRY_VERIFY_WITH_TIMEOUT(shardAbortObserved.load(std::memory_order_relaxed), 3000);
+    // The event loop used by QTRY above can already have delivered this signal.
+    QTRY_COMPARE_WITH_TIMEOUT(batchFinishedSpy.count(), 1, 3000);
     QCOMPARE(jobFinishedSpy.count(), 1);
-    QVERIFY(pendingReply->wasAborted());
     QCOMPARE(concatStage.startCount(), 0);
 
     const auto finishedJob = qvariant_cast<DownloadJob>(jobFinishedSpy.takeFirst().at(0));

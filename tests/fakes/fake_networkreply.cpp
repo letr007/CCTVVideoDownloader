@@ -26,7 +26,10 @@ FakeNetworkReply::FakeNetworkReply(const QNetworkRequest& request,
 
 void FakeNetworkReply::abort()
 {
-    m_aborted = true;
+    if (!m_aborted) {
+        m_aborted = true;
+        emit abortCalled();
+    }
 
     if (m_finished) {
         return;

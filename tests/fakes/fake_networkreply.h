@@ -28,6 +28,11 @@ public:
     bool wasAborted() const;
     bool hasStarted() const;
 
+signals:
+    // A durable observation point for cross-thread cancellation tests. The
+    // task owns and may delete the reply before the coordinator finishes.
+    void abortCalled();
+
 public slots:
     void start();
 
