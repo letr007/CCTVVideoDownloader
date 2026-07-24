@@ -375,3 +375,6 @@ cmake_install.cmake
 compile_commands.json
 CTestTestfile.cmake
 Testing/
+
+# Local third-party builds (FFmpeg min etc.)
+third_party/

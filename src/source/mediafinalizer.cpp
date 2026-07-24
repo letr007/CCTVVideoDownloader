@@ -37,7 +37,7 @@ void MediaFinalizer::setProcessTimeoutMs(int timeoutMs)
 }
 
 #ifdef CORE_REGRESSION_TESTS
-void MediaFinalizer::setTestProcessRunner(const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& runner)
+void MediaFinalizer::setTestProcessRunner(const std::function<RemuxProcessResult(const RemuxProcessRequest&)>& runner)
 {
 	m_remuxer.setTestProcessRunner(runner);
 }
@@ -128,7 +128,7 @@ MediaFinalizeResult MediaFinalizer::finalize(const QString& stagingTsPath,
 			MediaContainerType::Mp4);
 	}
 
-	const FfmpegCliRemuxResult remuxResult = m_remuxer.remuxTsToMp4(trimmedStagingPath, tempMp4Path, cancellationRequested);
+	const LibavRemuxResult remuxResult = m_remuxer.remuxTsToMp4(trimmedStagingPath, tempMp4Path, cancellationRequested);
 	if (!remuxResult.ok) {
 		if (QFile::exists(tempMp4Path)) {
 			QFile::remove(tempMp4Path);

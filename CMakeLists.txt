@@ -15,6 +15,10 @@ set(CMAKE_AUTOUIC_SEARCH_PATHS
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network)
 
+# Minimal static FFmpeg for in-process TS->MP4 remux (no system ffmpeg CLI).
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(FindFFmpegMin)
+
 if (BUILD_TESTING)
     find_package(Qt6 REQUIRED COMPONENTS Test)
     include(CTest)
@@ -39,7 +43,7 @@ set(PROJECT_SOURCES
     src/source/logger.cpp
     src/source/mediacontainervalidator.cpp
     src/source/mediafinalizer.cpp
-    src/source/ffmpegcliremuxer.cpp
+    src/source/libavremuxer.cpp
     src/source/main.cpp
     src/source/setting.cpp
     src/source/tsmerger.cpp
@@ -63,7 +67,7 @@ set(PROJECT_SOURCES
     src/head/logger.h
     src/head/mediacontainervalidator.h
     src/head/mediafinalizer.h
-    src/head/ffmpegcliremuxer.h
+    src/head/libavremuxer.h
     src/head/setting.h
     src/head/tsmerger.h
 
@@ -89,6 +93,7 @@ target_include_directories(CCTVVideoDownloader
         ${CMAKE_CURRENT_SOURCE_DIR}/src/head
         ${CMAKE_CURRENT_SOURCE_DIR}/src/resources
         ${CMAKE_CURRENT_SOURCE_DIR}/src/crypto
+        ${FFMPEG_MIN_INCLUDE_DIR}
 )
 
 target_link_libraries(CCTVVideoDownloader
@@ -97,6 +102,7 @@ target_link_libraries(CCTVVideoDownloader
         Qt6::Gui
         Qt6::Widgets
         Qt6::Network
+        ffmpeg_min
 )
 
 if (MSVC)

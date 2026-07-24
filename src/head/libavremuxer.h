@@ -1,11 +1,13 @@
-﻿#pragma once
+#pragma once
 
 #include <QProcess>
 #include <QString>
 #include <QStringList>
 #include <functional>
 
-struct FfmpegCliProcessRequest
+// Historical name retained: production path is in-process libav remux.
+// The process request/result types remain as a regression-test injection seam.
+struct RemuxProcessRequest
 {
 	QString program;
 	QStringList arguments;
@@ -14,7 +16,7 @@ struct FfmpegCliProcessRequest
 	std::function<bool()> cancellationRequested;
 };
 
-struct FfmpegCliProcessResult
+struct RemuxProcessResult
 {
 	bool started = false;
 	bool timedOut = false;
@@ -26,16 +28,16 @@ struct FfmpegCliProcessResult
 	bool cancelled = false;
 };
 
-struct FfmpegCliRemuxResult
+struct LibavRemuxResult
 {
 	bool ok = false;
 	QString code;
 	QString message;
 	QString outputPath;
-	FfmpegCliProcessResult processResult;
+	RemuxProcessResult processResult;
 };
 
-class FfmpegCliRemuxer
+class LibavRemuxer
 {
 #ifdef CORE_REGRESSION_TESTS
 	friend class MediaFinalizerTestAdapter;
@@ -44,24 +46,22 @@ class FfmpegCliRemuxer
 
 public:
 	void setProcessTimeoutMs(int timeoutMs);
-	FfmpegCliRemuxResult remuxTsToMp4(const QString& inputTsPath,
+	LibavRemuxResult remuxTsToMp4(const QString& inputTsPath,
 		const QString& outputMp4TempPath,
 		const std::function<bool()>& cancellationRequested = {}) const;
 
 private:
-	QString resolveFfmpegProgram() const;
-
-	#ifdef CORE_REGRESSION_TESTS
-	void setTestProcessRunner(const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& runner);
+#ifdef CORE_REGRESSION_TESTS
+	void setTestProcessRunner(const std::function<RemuxProcessResult(const RemuxProcessRequest&)>& runner);
 	void clearTestProcessRunner();
 	void setTestDecryptAssetsDir(const QString& decryptAssetsDir);
 	void clearTestDecryptAssetsDir();
-	#endif
+#endif
 
 	int m_processTimeoutMs{30000};
 
-	#ifdef CORE_REGRESSION_TESTS
-	std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)> m_testProcessRunner;
+#ifdef CORE_REGRESSION_TESTS
+	std::function<RemuxProcessResult(const RemuxProcessRequest&)> m_testProcessRunner;
 	QString m_testDecryptAssetsDir;
-	#endif
+#endif
 };

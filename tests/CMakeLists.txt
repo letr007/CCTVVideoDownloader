@@ -29,7 +29,7 @@ qt_add_executable(core_regression_tests
     ${PROJECT_SOURCE_DIR}/src/source/decryptworker.cpp
     ${PROJECT_SOURCE_DIR}/src/crypto/cctv_h5e_decrypt.cpp
     ${PROJECT_SOURCE_DIR}/src/source/concatworker.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/ffmpegcliremuxer.cpp
+    ${PROJECT_SOURCE_DIR}/src/source/libavremuxer.cpp
     ${PROJECT_SOURCE_DIR}/src/source/mediacontainervalidator.cpp
     ${PROJECT_SOURCE_DIR}/src/source/mediafinalizer.cpp
     ${PROJECT_SOURCE_DIR}/src/source/tsmerger.cpp
@@ -48,7 +48,7 @@ qt_add_executable(core_regression_tests
     ${PROJECT_SOURCE_DIR}/src/head/downloadprogresswindow.h
     ${PROJECT_SOURCE_DIR}/src/head/decryptworker.h
     ${PROJECT_SOURCE_DIR}/src/head/concatworker.h
-    ${PROJECT_SOURCE_DIR}/src/head/ffmpegcliremuxer.h
+    ${PROJECT_SOURCE_DIR}/src/head/libavremuxer.h
     ${PROJECT_SOURCE_DIR}/src/head/mediacontainervalidator.h
     ${PROJECT_SOURCE_DIR}/src/head/mediafinalizer.h
     ${PROJECT_SOURCE_DIR}/src/head/tsmerger.h
@@ -59,6 +59,7 @@ target_include_directories(core_regression_tests
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/head
         ${PROJECT_SOURCE_DIR}/src/crypto
+        ${FFMPEG_MIN_INCLUDE_DIR}
 )
 
 target_link_libraries(core_regression_tests
@@ -67,6 +68,7 @@ target_link_libraries(core_regression_tests
         Qt6::Widgets
         Qt6::Test
         Qt6::Network
+        ffmpeg_min
     )
 
 target_compile_definitions(core_regression_tests

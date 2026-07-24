@@ -37,9 +37,16 @@
 - CMake 3.21+
 - Qt 6（Core / Gui / Widgets / Network）
 - C++17 编译器（Windows: MSVC 2022；macOS/Linux: 系统工具链）
-- 系统 `ffmpeg`（用于 MP4 remux，需在 `PATH` 中）
+- 最小静态 FFmpeg 库（用于进程内 TS→MP4 remux；先构建 `third_party/ffmpeg-min`）
 
-加密流使用原生 `hls_h5e` 解密（`src/crypto/cctv_h5e_decrypt.*`），不再依赖 Windows 专用的 `cbox.exe` / UDRM 二进制。
+加密流使用原生 `hls_h5e` 解密（`src/crypto/cctv_h5e_decrypt.*`），MP4 封装使用内联 libav（`LibavRemuxer`），不再依赖系统 `ffmpeg` CLI / `cbox.exe` / UDRM 二进制。
+
+### 最小 FFmpeg（macOS 示例）
+
+```bash
+./scripts/build-ffmpeg-min-macos.sh
+# 产出: third_party/ffmpeg-min/{include,lib}
+```
 
 ### 配置（示例）
 

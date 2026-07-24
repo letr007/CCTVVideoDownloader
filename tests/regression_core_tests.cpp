@@ -44,7 +44,7 @@
 #include "downloaddialog.h"
 #include "directmediafinalizer.h"
 #include "decryptworker.h"
-#include "ffmpegcliremuxer.h"
+#include "libavremuxer.h"
 #include "mediafinalizer.h"
 #include "mediacontainervalidator.h"
 #include "concatworker.h"
@@ -407,7 +407,7 @@ public:
     }
 
     static void setTestProcessRunner(MediaFinalizer& finalizer,
-        const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& runner)
+        const std::function<RemuxProcessResult(const RemuxProcessRequest&)>& runner)
     {
         finalizer.m_remuxer.setTestProcessRunner(runner);
     }
@@ -489,7 +489,7 @@ public:
     }
 
     static void setTestDirectFinalizeProcessRunner(DownloadCoordinator& coordinator,
-        const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& runner)
+        const std::function<RemuxProcessResult(const RemuxProcessRequest&)>& runner)
     {
         coordinator.setTestDirectFinalizeProcessRunner(runner);
     }
@@ -513,7 +513,7 @@ public:
 class DirectFinalizeWorkerTestAdapter {
 public:
     static void setTestProcessRunner(DirectFinalizeWorker& worker,
-        const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& runner)
+        const std::function<RemuxProcessResult(const RemuxProcessRequest&)>& runner)
     {
         worker.setTestProcessRunner(runner);
     }
@@ -4618,8 +4618,6 @@ void CoreRegressionTests::cctvVideoDownloader_cctv4kTsSelection_finalizesStagedT
 
 void CoreRegressionTests::cctvVideoDownloader_cctv4kMp4Selection_remuxesStagedTs()
 {
-    const QString ffmpegPath = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
-    QVERIFY2(!ffmpegPath.isEmpty(), "system ffmpeg not found in PATH");
 
     initializeSettingsSandbox();
 
@@ -4685,8 +4683,6 @@ void CoreRegressionTests::mediaFinalizer_publishTs_validatesAndUsesUniqueName()
 
 void CoreRegressionTests::mediaFinalizer_remuxesToMp4ThroughBundledCli()
 {
-    const QString ffmpegPath = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
-    QVERIFY2(!ffmpegPath.isEmpty(), "system ffmpeg not found in PATH");
 
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
@@ -4754,12 +4750,12 @@ void CoreRegressionTests::mediaFinalizer_remuxTimeout_reportsFailureAndDoesNotPu
     MediaFinalizer finalizer;
     bool runnerCalled = false;
     QString observedTempPath;
-    MediaFinalizerTestAdapter::setTestProcessRunner(finalizer, [&](const FfmpegCliProcessRequest& request) -> FfmpegCliProcessResult {
+    MediaFinalizerTestAdapter::setTestProcessRunner(finalizer, [&](const RemuxProcessRequest& request) -> RemuxProcessResult {
         runnerCalled = true;
         observedTempPath = request.arguments.last();
         const bool created = createFileWithContents(tempMp4Path, QByteArrayLiteral("partial mp4 bytes"));
 
-        FfmpegCliProcessResult result;
+        RemuxProcessResult result;
         result.started = true;
         result.timedOut = true;
         result.stderrText = QStringLiteral("synthetic ffmpeg timeout output");
@@ -4803,9 +4799,9 @@ void CoreRegressionTests::mediaFinalizer_remuxCancel_reportsCancelledAndDoesNotP
     std::atomic_bool cancelRequested{ false };
     MediaFinalizer finalizer;
     MediaFinalizerTestAdapter::setTestDecryptAssetsDir(finalizer, assetsDir.path());
-    MediaFinalizerTestAdapter::setTestProcessRunner(finalizer, [&](const FfmpegCliProcessRequest& request) -> FfmpegCliProcessResult {
+    MediaFinalizerTestAdapter::setTestProcessRunner(finalizer, [&](const RemuxProcessRequest& request) -> RemuxProcessResult {
         if (!createFileWithContents(request.arguments.last(), QByteArrayLiteral("partial mp4 bytes"))) {
-            FfmpegCliProcessResult result;
+            RemuxProcessResult result;
             result.errorString = QStringLiteral("failed to create synthetic remux temp file");
             return result;
         }
@@ -4816,7 +4812,7 @@ void CoreRegressionTests::mediaFinalizer_remuxCancel_reportsCancelledAndDoesNotP
             }
 
             if (request.cancellationRequested && request.cancellationRequested()) {
-                FfmpegCliProcessResult result;
+                RemuxProcessResult result;
                 result.started = true;
                 result.cancelled = true;
                 return result;
@@ -4825,7 +4821,7 @@ void CoreRegressionTests::mediaFinalizer_remuxCancel_reportsCancelledAndDoesNotP
             QThread::msleep(5);
         }
 
-        FfmpegCliProcessResult result;
+        RemuxProcessResult result;
         result.started = true;
         result.exitCode = 0;
         result.exitStatus = QProcess::NormalExit;
@@ -4857,8 +4853,8 @@ void CoreRegressionTests::mediaFinalizer_remuxProcessFailure_reportsDiagnostic()
     QVERIFY(createFakeTsFile(stagingPath, 4, 256));
 
     MediaFinalizer finalizer;
-    MediaFinalizerTestAdapter::setTestProcessRunner(finalizer, [](const FfmpegCliProcessRequest&) {
-        FfmpegCliProcessResult result;
+    MediaFinalizerTestAdapter::setTestProcessRunner(finalizer, [](const RemuxProcessRequest&) {
+        RemuxProcessResult result;
         result.started = true;
         result.exitCode = 9;
         result.stderrText = QStringLiteral("synthetic ffmpeg failure");
@@ -4887,8 +4883,8 @@ void CoreRegressionTests::mediaFinalizer_invalidRemuxedMp4_reportsValidationFail
     QVERIFY(createFakeTsFile(stagingPath, 4, 256));
 
     MediaFinalizer finalizer;
-    MediaFinalizerTestAdapter::setTestProcessRunner(finalizer, [](const FfmpegCliProcessRequest& request) {
-        FfmpegCliProcessResult result;
+    MediaFinalizerTestAdapter::setTestProcessRunner(finalizer, [](const RemuxProcessRequest& request) {
+        RemuxProcessResult result;
         result.started = true;
         result.exitCode = 0;
         result.exitStatus = QProcess::NormalExit;
@@ -4937,17 +4933,17 @@ void CoreRegressionTests::directFinalizeWorker_cancelDuringRemux_emitsCancelledA
     std::atomic_bool cancelRequested{ false };
     DirectMediaFinalizeResult finalizeResult;
 
-    const auto runner = [&](const FfmpegCliProcessRequest& request) -> FfmpegCliProcessResult {
+    const auto runner = [&](const RemuxProcessRequest& request) -> RemuxProcessResult {
         runnerStarted.store(true, std::memory_order_relaxed);
         if (!createFileWithContents(request.arguments.last(), QByteArrayLiteral("partial mp4 bytes"))) {
-            FfmpegCliProcessResult result;
+            RemuxProcessResult result;
             result.errorString = QStringLiteral("failed to create synthetic remux temp file");
             return result;
         }
 
         for (int i = 0; i < 200; ++i) {
             if (request.cancellationRequested && request.cancellationRequested()) {
-                FfmpegCliProcessResult result;
+                RemuxProcessResult result;
                 result.started = true;
                 result.cancelled = true;
                 return result;
@@ -4956,7 +4952,7 @@ void CoreRegressionTests::directFinalizeWorker_cancelDuringRemux_emitsCancelledA
             QThread::msleep(5);
         }
 
-        FfmpegCliProcessResult result;
+        RemuxProcessResult result;
         result.started = true;
         result.exitCode = 0;
         result.exitStatus = QProcess::NormalExit;
