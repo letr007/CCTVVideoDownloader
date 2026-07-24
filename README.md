@@ -41,12 +41,18 @@
 
 加密流使用原生 `hls_h5e` 解密（`src/crypto/cctv_h5e_decrypt.*`），MP4 封装使用内联 libav（`LibavRemuxer`），不再依赖系统 `ffmpeg` CLI / `cbox.exe` / UDRM 二进制。
 
-### 最小 FFmpeg（macOS 示例）
+### 最小 FFmpeg（进程内 remux）
 
 ```bash
-./scripts/build-ffmpeg-min-macos.sh
+# macOS / Linux
+./scripts/build-ffmpeg-min.sh
 # 产出: third_party/ffmpeg-min/{include,lib}
+
+# Windows (PowerShell, 需要 VS C++ 与 MSYS2/bash)
+powershell -ExecutionPolicy Bypass -File scripts/build-ffmpeg-min-windows.ps1
 ```
+
+CI 矩阵见 `.github/workflows/ci.yml`（macOS / Ubuntu / Windows）。
 
 ### 配置（示例）
 
