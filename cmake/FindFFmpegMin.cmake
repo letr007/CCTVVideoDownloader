@@ -86,8 +86,9 @@ add_library(FFmpegMin::ffmpeg_min ALIAS ffmpeg_min)
 target_include_directories(ffmpeg_min INTERFACE "${FFMPEG_MIN_INCLUDE_DIR}")
 
 # Codec/bsf registration tables live in archive members the linker may drop
-# unless each static archive is loaded wholly. Use whole-archive style link
-# options only (do not also plain-link the same .a — that duplicates symbols).
+# unless each static archive is loaded wholly. On MSVC, however, FFmpeg's
+# .a archives contain overlapping internal objects; /WHOLEARCHIVE pulls those
+# duplicates into the link. Let the MSVC linker select only referenced members.
 set(_FFMPEG_MIN_ARCHIVES
     "${FFMPEG_MIN_LIB_AVFORMAT}"
     "${FFMPEG_MIN_LIB_AVCODEC}"
@@ -98,9 +99,7 @@ endif()
 list(APPEND _FFMPEG_MIN_ARCHIVES "${FFMPEG_MIN_LIB_AVUTIL}")
 
 if (MSVC)
-    foreach(_archive IN LISTS _FFMPEG_MIN_ARCHIVES)
-        target_link_options(ffmpeg_min INTERFACE "/WHOLEARCHIVE:${_archive}")
-    endforeach()
+    target_link_libraries(ffmpeg_min INTERFACE ${_FFMPEG_MIN_ARCHIVES})
 elseif (APPLE)
     foreach(_archive IN LISTS _FFMPEG_MIN_ARCHIVES)
         target_link_options(ffmpeg_min INTERFACE "LINKER:-force_load,${_archive}")
