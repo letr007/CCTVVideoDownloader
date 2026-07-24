@@ -1,24 +1,58 @@
 ﻿#include "../head/config.h"
 
+#include <QDir>
+#include <QFileInfo>
+#include <QStandardPaths>
+
+namespace {
+
+QString writableConfigDirectory()
+{
+	QString directory = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+	if (directory.isEmpty()) {
+		directory = QDir(QDir::homePath()).filePath(QStringLiteral(".config/CCTVVideoDownloader"));
+	}
+	return QDir::cleanPath(directory);
+}
+
+} // namespace
+
 std::unique_ptr<QSettings> g_settings;
+
+QString defaultSaveDirectory()
+{
+	QString directory = QStandardPaths::writableLocation(QStandardPaths::MoviesLocation);
+	if (directory.isEmpty()) {
+		directory = QDir(QDir::homePath()).filePath(QStringLiteral("Videos"));
+	}
+	return QDir::cleanPath(directory);
+}
+
+QString defaultConfigFilePath()
+{
+	return QDir(writableConfigDirectory()).filePath(QStringLiteral("config.ini"));
+}
 
 extern void initGlobalSettings()
 {
 	qInfo() << "初始化全局设置";
-	
-	bool configExists = QFile::exists("config/config.ini");
+
+	const QString configPath = defaultConfigFilePath();
+	const QFileInfo configInfo(configPath);
+	if (!QDir().mkpath(configInfo.absolutePath())) {
+		qCritical() << "无法创建配置目录:" << configInfo.absolutePath();
+	}
+
+	const bool configExists = QFile::exists(configPath);
 	qInfo() << "配置文件存在:" << configExists;
-	
-	g_settings = std::make_unique<QSettings>(
-		"config/config.ini",
-		QSettings::IniFormat
-	);
+
+	g_settings = std::make_unique<QSettings>(configPath, QSettings::IniFormat);
 	// 如果文件不存在就填充初始值
 	if (!configExists)
 	{
 		qInfo() << "创建默认配置";
 		g_settings->beginGroup("settings");
-		g_settings->setValue("save_dir", "C:\\Video");
+		g_settings->setValue("save_dir", defaultSaveDirectory());
 		g_settings->setValue("thread_num", 1);
 		g_settings->setValue("transcode", true);
 		g_settings->setValue("date_beg", QDate::currentDate().toString("yyyyMM"));

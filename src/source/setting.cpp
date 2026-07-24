@@ -25,7 +25,7 @@ void Setting::setDefault()
 // 填充默认值
 {
 	g_settings->beginGroup("settings");
-	ui.lineEdit_file_save_path->setText(g_settings->value("save_dir", "C:\\Video").toString());
+	ui.lineEdit_file_save_path->setText(g_settings->value("save_dir", defaultSaveDirectory()).toString());
 	ui.spinBox_thread->setValue(g_settings->value("thread_num", 1).toInt());
 	const bool transcode = g_settings->value("transcode", true).toBool();
 	ui.radioButton_mp4->setChecked(transcode);

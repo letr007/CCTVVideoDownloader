@@ -10,6 +10,9 @@
 
 extern std::unique_ptr<QSettings> g_settings;
 
+QString defaultSaveDirectory();
+QString defaultConfigFilePath();
+
 extern QList<QPair<QString, QJsonObject>> readProgrammeFromConfig();
 extern std::tuple<QString, QString> readDisplayMinAndMax();
 extern QString readQuality();

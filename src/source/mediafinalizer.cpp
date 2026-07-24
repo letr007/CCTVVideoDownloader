@@ -179,9 +179,31 @@ MediaFinalizeResult MediaFinalizer::finalize(const QString& stagingTsPath,
 
 QString MediaFinalizer::sanitizedTitle(const QString& title) const
 {
-	QString sanitized = title;
-	sanitized.replace(QRegularExpression(R"([\\/:*?"<>|])"), QStringLiteral("_"));
-	return sanitized.trimmed();
+	QString sanitized;
+	sanitized.reserve(title.size());
+	for (const QChar character : title.trimmed()) {
+		const ushort unicode = character.unicode();
+		if (unicode < 0x20 || unicode == 0x7f || QStringLiteral("\\/:*?\"<>|").contains(character)) {
+			sanitized += QLatin1Char('_');
+		} else {
+			sanitized += character;
+		}
+	}
+
+	while (sanitized.endsWith(QLatin1Char(' ')) || sanitized.endsWith(QLatin1Char('.'))) {
+		sanitized.chop(1);
+	}
+	if (sanitized.isEmpty()) {
+		return QStringLiteral("untitled");
+	}
+
+	static const QRegularExpression windowsReservedName(
+		QStringLiteral(R"(^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$)"),
+		QRegularExpression::CaseInsensitiveOption);
+	if (windowsReservedName.match(sanitized).hasMatch()) {
+		sanitized.prepend(QLatin1Char('_'));
+	}
+	return sanitized;
 }
 
 QString MediaFinalizer::uniqueOutputPath(const QString& saveDir, const QString& baseName, const QString& suffix) const

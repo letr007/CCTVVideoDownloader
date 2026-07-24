@@ -385,6 +385,11 @@ public:
 
 class MediaFinalizerTestAdapter {
 public:
+    static QString sanitizedTitle(const MediaFinalizer& finalizer, const QString& title)
+    {
+        return finalizer.sanitizedTitle(title);
+    }
+
     static void setProcessTimeoutMs(MediaFinalizer& finalizer, int timeoutMs)
     {
         finalizer.setProcessTimeoutMs(timeoutMs);
@@ -1068,6 +1073,8 @@ private slots:
     void directMediaFinalizer_whitespaceTitle_usesProducerHashContract();
     void cctvVideoDownloader_cctv4kTsSelection_finalizesStagedTs();
     void cctvVideoDownloader_cctv4kMp4Selection_remuxesStagedTs();
+    void platformDefaults_useWritableStandardLocations();
+    void mediaFinalizer_sanitizesCrossPlatformFileNames();
     void mediaFinalizer_publishTs_validatesAndUsesUniqueName();
     void mediaFinalizer_remuxesToMp4WithEmbeddedLibav();
     void mediaFinalizer_remuxTimeout_reportsFailureAndDoesNotPublishMp4();
@@ -4636,6 +4643,35 @@ void CoreRegressionTests::cctvVideoDownloader_cctv4kMp4Selection_remuxesStagedTs
 
     const MediaContainerValidationResult validation = MediaContainerValidator::validateFile(finalPath, MediaContainerType::Mp4);
     QVERIFY(validation.ok);
+}
+
+void CoreRegressionTests::platformDefaults_useWritableStandardLocations()
+{
+    const QString saveDirectory = defaultSaveDirectory();
+    const QString configFilePath = defaultConfigFilePath();
+
+    QVERIFY(!saveDirectory.isEmpty());
+    QVERIFY(QDir::isAbsolutePath(saveDirectory));
+    QVERIFY(saveDirectory != QStringLiteral("C:\\Video"));
+    QVERIFY(!configFilePath.isEmpty());
+    QVERIFY(QDir::isAbsolutePath(configFilePath));
+    QCOMPARE(QFileInfo(configFilePath).fileName(), QStringLiteral("config.ini"));
+}
+
+void CoreRegressionTests::mediaFinalizer_sanitizesCrossPlatformFileNames()
+{
+    MediaFinalizer finalizer;
+
+    QCOMPARE(MediaFinalizerTestAdapter::sanitizedTitle(finalizer, QStringLiteral("中文 影片.mp4")),
+        QStringLiteral("中文 影片.mp4"));
+    QCOMPARE(MediaFinalizerTestAdapter::sanitizedTitle(finalizer, QStringLiteral("a/b:c*?\\\"<>|")),
+        QStringLiteral("a_b_c_______"));
+    QCOMPARE(MediaFinalizerTestAdapter::sanitizedTitle(finalizer, QStringLiteral("CON.txt")),
+        QStringLiteral("_CON.txt"));
+    QCOMPARE(MediaFinalizerTestAdapter::sanitizedTitle(finalizer, QStringLiteral("episode. ")),
+        QStringLiteral("episode"));
+    QCOMPARE(MediaFinalizerTestAdapter::sanitizedTitle(finalizer, QStringLiteral(" ")),
+        QStringLiteral("untitled"));
 }
 
 void CoreRegressionTests::mediaFinalizer_publishTs_validatesAndUsesUniqueName()
