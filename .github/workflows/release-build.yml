@@ -1,0 +1,189 @@
+name: Release Build
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-2022
+            qt_host: windows
+            qt_arch: win64_msvc2022_64
+            package_kind: windows
+          - name: macOS arm64
+            os: macos-14
+            qt_host: mac
+            qt_arch: clang_64
+            package_kind: macos
+          - name: Linux x86_64
+            os: ubuntu-22.04
+            qt_host: linux
+            qt_arch: linux_gcc_64
+            package_kind: linux
+
+    env:
+      BUILD_CONFIG: Release
+      FFVER: "7.1.1"
+      FFMPEG_MIN_ROOT: ${{ github.workspace }}/third_party/ffmpeg-min
+      PACKAGE_ID: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: matrix.package_kind == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build pkg-config yasm nasm zlib1g-dev libbz2-dev
+
+      - name: Install macOS build dependencies
+        if: matrix.package_kind == 'macos'
+        run: brew install ninja nasm pkg-config
+
+      - name: Setup MSVC
+        if: matrix.package_kind == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup MSYS2
+        if: matrix.package_kind == 'windows'
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            make
+            diffutils
+            pkgconf
+            tar
+            git
+            nasm
+          path-type: inherit
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.0"
+          host: ${{ matrix.qt_host }}
+          target: desktop
+          arch: ${{ matrix.qt_arch }}
+          cache: "true"
+
+      - name: Build minimal static FFmpeg (Unix)
+        if: matrix.package_kind != 'windows'
+        shell: bash
+        run: ./scripts/build-ffmpeg-min.sh
+
+      - name: Build minimal static FFmpeg (Windows)
+        if: matrix.package_kind == 'windows'
+        shell: pwsh
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: powershell -ExecutionPolicy Bypass -File scripts/build-ffmpeg-min-windows.ps1 -Msys2Root "$env:MSYS2_ROOT"
+
+      - name: Configure and build (Windows)
+        if: matrix.package_kind == 'windows'
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR" `
+            -DFFMPEG_MIN_ROOT="$env:FFMPEG_MIN_ROOT" `
+            -DCMAKE_CONFIGURATION_TYPES="$env:BUILD_CONFIG" `
+            -DBUILD_TESTING=OFF
+          cmake --build build --config "$env:BUILD_CONFIG" --parallel
+
+      - name: Package Windows x64
+        if: matrix.package_kind == 'windows'
+        shell: pwsh
+        run: |
+          $packageDir = "artifact/CCTVVideoDownloader"
+          $zipPath = "artifact/CCTVVideoDownloader.$env:PACKAGE_ID.win.x64.zip"
+          New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+          Copy-Item "build/$env:BUILD_CONFIG/CCTVVideoDownloader.exe" $packageDir
+          & "$env:QT_ROOT_DIR/bin/windeployqt.exe" --release --no-translations "$packageDir/CCTVVideoDownloader.exe"
+          $vcRuntimeDir = Join-Path $env:VCToolsRedistDir "x64\Microsoft.VC143.CRT"
+          foreach ($runtime in "MSVCP140.dll", "VCRUNTIME140.dll", "VCRUNTIME140_1.dll") {
+            $source = Join-Path $vcRuntimeDir $runtime
+            if (-not (Test-Path $source)) { throw "MSVC runtime missing from toolchain: $source" }
+            Copy-Item $source $packageDir
+          }
+          if (-not (Test-Path (Join-Path $packageDir "platforms/qwindows.dll"))) {
+            throw "windeployqt did not deploy the Windows platform plugin"
+          }
+          Compress-Archive -Path "$packageDir/*" -DestinationPath $zipPath
+          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile "artifact/vc_redist.x64.exe"
+
+      - name: Configure, build, and install (Unix)
+        if: matrix.package_kind != 'windows'
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE="${BUILD_CONFIG}" \
+            -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}" \
+            -DFFMPEG_MIN_ROOT="${FFMPEG_MIN_ROOT}" \
+            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/artifact/CCTVVideoDownloader" \
+            -DBUILD_TESTING=OFF
+          cmake --build build --parallel
+          cmake --install build
+
+      - name: Package macOS arm64
+        if: matrix.package_kind == 'macos'
+        shell: bash
+        run: |
+          app="artifact/CCTVVideoDownloader/CCTVVideoDownloader.app"
+          zip="artifact/CCTVVideoDownloader.${PACKAGE_ID}.macos.arm64.zip"
+          test -x "$app/Contents/MacOS/CCTVVideoDownloader"
+          test -d "$app/Contents/Frameworks/QtCore.framework"
+          test -f "$app/Contents/PlugIns/platforms/libqcocoa.dylib"
+          python3 - "$app" <<'PY'
+          import subprocess, sys, time
+          process = subprocess.Popen([f"{sys.argv[1]}/Contents/MacOS/CCTVVideoDownloader"])
+          time.sleep(5)
+          if process.poll() is not None:
+              raise SystemExit(f"macOS app exited with {process.returncode}")
+          process.terminate()
+          process.wait(timeout=5)
+          PY
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
+
+      - name: Package Linux x86_64
+        if: matrix.package_kind == 'linux'
+        shell: bash
+        run: |
+          package_dir="artifact/CCTVVideoDownloader"
+          archive="artifact/CCTVVideoDownloader.${PACKAGE_ID}.linux.x86_64.tar.gz"
+          test -x "$package_dir/bin/CCTVVideoDownloader"
+          find "$package_dir" -name 'libQt6Core.so*' -print -quit | grep -q .
+          find "$package_dir" -path '*/platforms/libqxcb.so' -print -quit | grep -q .
+          tar -C artifact -czf "$archive" CCTVVideoDownloader
+
+      - name: Upload useful release packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.package_kind }}
+          path: |
+            artifact/CCTVVideoDownloader.*.win.x64.zip
+            artifact/CCTVVideoDownloader.*.macos.arm64.zip
+            artifact/CCTVVideoDownloader.*.linux.x86_64.tar.gz
+            artifact/vc_redist.x64.exe
+          if-no-files-found: error

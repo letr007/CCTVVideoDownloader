@@ -1,8 +1,4 @@
-name: CI
-
-# Cross-platform configure/build matrix.
-# FFmpeg-min is built with the unified scripts/build-ffmpeg-min.sh entrypoint.
-# Platform-specific release packaging remains in windows-release.yml / release.yml.
+name: Test
 
 on:
   push:
@@ -12,11 +8,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: test-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  test:
     name: ${{ matrix.os }} / ${{ matrix.compiler }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -40,8 +36,6 @@ jobs:
             compiler: msvc
             qt_host: windows
             qt_arch: win64_msvc2022_64
-            c_compiler: cl
-            cxx_compiler: cl
 
     env:
       BUILD_CONFIG: Release
@@ -49,43 +43,25 @@ jobs:
       FFMPEG_MIN_ROOT: ${{ github.workspace }}/third_party/ffmpeg-min
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Linux build deps
+      - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            ninja-build \
-            pkg-config \
-            yasm \
-            nasm \
-            zlib1g-dev \
-            libbz2-dev
+          sudo apt-get install -y build-essential ninja-build pkg-config yasm nasm zlib1g-dev libbz2-dev
 
-      - name: Install macOS build deps
+      - name: Install macOS build dependencies
         if: runner.os == 'macOS'
-        run: |
-          brew install ninja nasm pkg-config
+        run: brew install ninja nasm pkg-config
 
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: "6.8.0"
-          host: ${{ matrix.qt_host }}
-          target: desktop
-          arch: ${{ matrix.qt_arch }}
-          cache: "true"
-
-      - name: Setup MSVC (Windows)
+      - name: Setup MSVC
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
-      - name: Setup MSYS2 (Windows)
+      - name: Setup MSYS2
         if: runner.os == 'Windows'
         id: msys2
         uses: msys2/setup-msys2@v2
@@ -101,38 +77,28 @@ jobs:
             nasm
           path-type: inherit
 
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.0"
+          host: ${{ matrix.qt_host }}
+          target: desktop
+          arch: ${{ matrix.qt_arch }}
+          cache: "true"
+
       - name: Build minimal static FFmpeg (Unix)
         if: runner.os != 'Windows'
         shell: bash
-        run: |
-          chmod +x scripts/build-ffmpeg-min.sh scripts/build-ffmpeg-min-macos.sh
-          ./scripts/build-ffmpeg-min.sh
-          test -f "${FFMPEG_MIN_ROOT}/include/libavcodec/avcodec.h"
-          test -f "${FFMPEG_MIN_ROOT}/include/libavformat/avformat.h"
-          ls -lh "${FFMPEG_MIN_ROOT}/lib"
+        run: ./scripts/build-ffmpeg-min.sh
 
       - name: Build minimal static FFmpeg (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
-        run: |
-          # Do not resolve generic bash from PATH: Git for Windows can win over
-          # MSYS2 and produces a configure Makefile that MSYS2 make cannot use.
-          $msys2Bash = Join-Path $env:MSYS2_ROOT "usr\bin\bash.exe"
-          if ([string]::IsNullOrWhiteSpace($env:MSYS2_ROOT) -or -not (Test-Path $msys2Bash)) {
-            throw "MSYS2 bash missing; setup-msys2 output was '$env:MSYS2_ROOT'"
-          }
-          if (-not (Get-Command cl -ErrorAction SilentlyContinue)) {
-            throw "cl.exe not on PATH after msvc-dev-cmd"
-          }
-          powershell -ExecutionPolicy Bypass -File scripts/build-ffmpeg-min-windows.ps1 -Msys2Root "$env:MSYS2_ROOT"
-          if (-not (Test-Path "$env:FFMPEG_MIN_ROOT\include\libavcodec\avcodec.h")) {
-            throw "ffmpeg-min headers missing under $env:FFMPEG_MIN_ROOT"
-          }
-          Get-ChildItem "$env:FFMPEG_MIN_ROOT\lib" | Format-Table Name, Length
+        run: powershell -ExecutionPolicy Bypass -File scripts/build-ffmpeg-min-windows.ps1 -Msys2Root "$env:MSYS2_ROOT"
 
-      - name: Configure CMake (Unix)
+      - name: Configure tests (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
@@ -142,77 +108,34 @@ jobs:
             -DCMAKE_CXX_COMPILER=${{ matrix.cxx_compiler }} \
             -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}" \
             -DFFMPEG_MIN_ROOT="${FFMPEG_MIN_ROOT}" \
-            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/package" \
-            -DBUILD_TESTING=OFF
+            -DBUILD_TESTING=ON
 
-      - name: Configure CMake (Windows)
+      - name: Configure tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          cmake -S . -B build `
-            -G "Visual Studio 17 2022" -A x64 `
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
             -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR" `
             -DFFMPEG_MIN_ROOT="$env:FFMPEG_MIN_ROOT" `
             -DCMAKE_CONFIGURATION_TYPES="$env:BUILD_CONFIG" `
-            -DBUILD_TESTING=OFF
+            -DBUILD_TESTING=ON
 
-      - name: Build (Unix)
+      - name: Build test target (Unix)
         if: runner.os != 'Windows'
         shell: bash
-        run: cmake --build build --config "${BUILD_CONFIG}" --parallel
+        run: cmake --build build --target core_regression_tests --parallel
 
-      - name: Build (Windows)
+      - name: Build test target (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: cmake --build build --config "$env:BUILD_CONFIG" --parallel
+        run: cmake --build build --config "$env:BUILD_CONFIG" --target core_regression_tests --parallel
 
-      - name: Verify binary (Unix)
+      - name: Run regression tests (Unix)
         if: runner.os != 'Windows'
         shell: bash
-        run: |
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            BIN="build/CCTVVideoDownloader"
-            if [[ ! -x "$BIN" && -x "build/CCTVVideoDownloader.app/Contents/MacOS/CCTVVideoDownloader" ]]; then
-              BIN="build/CCTVVideoDownloader.app/Contents/MacOS/CCTVVideoDownloader"
-            fi
-          else
-            BIN="build/CCTVVideoDownloader"
-          fi
-          test -x "$BIN"
-          ls -lh "$BIN"
-          file "$BIN" || true
+        run: ctest --test-dir build --output-on-failure -R core_regression_tests
 
-      - name: Verify binary (Windows)
+      - name: Run regression tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          $bin = "build/$env:BUILD_CONFIG/CCTVVideoDownloader.exe"
-          if (-not (Test-Path $bin)) { throw "Missing $bin" }
-          Get-Item $bin | Format-List FullName, Length
-
-      - name: Verify deployable install tree (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          cmake --install build
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            app="package/CCTVVideoDownloader.app"
-            test -x "$app/Contents/MacOS/CCTVVideoDownloader"
-            test -d "$app/Contents/Frameworks/QtCore.framework"
-            test -f "$app/Contents/PlugIns/platforms/libqcocoa.dylib"
-          else
-            test -x package/bin/CCTVVideoDownloader
-            find package -name 'libQt6Core.so*' -print -quit | grep -q .
-            find package -path '*/platforms/libqxcb.so' -print -quit | grep -q .
-          fi
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: CCTVVideoDownloader-${{ matrix.os }}-${{ matrix.compiler }}
-          path: |
-            build/CCTVVideoDownloader
-            build/CCTVVideoDownloader.app
-            build/Release/CCTVVideoDownloader.exe
-            build/${{ env.BUILD_CONFIG }}/CCTVVideoDownloader.exe
-          if-no-files-found: ignore
+        run: ctest --test-dir build --build-config "$env:BUILD_CONFIG" --output-on-failure -R core_regression_tests
