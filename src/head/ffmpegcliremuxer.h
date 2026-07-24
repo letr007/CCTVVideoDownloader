@@ -49,7 +49,7 @@ public:
 		const std::function<bool()>& cancellationRequested = {}) const;
 
 private:
-	QString decryptAssetsDir() const;
+	QString resolveFfmpegProgram() const;
 
 	#ifdef CORE_REGRESSION_TESTS
 	void setTestProcessRunner(const std::function<FfmpegCliProcessResult(const FfmpegCliProcessRequest&)>& runner);

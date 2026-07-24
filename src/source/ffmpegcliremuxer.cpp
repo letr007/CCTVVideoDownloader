@@ -7,6 +7,7 @@
 #include <QFileInfo>
 #include <QProcess>
 #include <QElapsedTimer>
+#include <QStandardPaths>
 
 namespace {
 
@@ -155,15 +156,35 @@ void FfmpegCliRemuxer::setProcessTimeoutMs(int timeoutMs)
 	m_processTimeoutMs = normalizeProcessTimeoutMs(timeoutMs);
 }
 
-QString FfmpegCliRemuxer::decryptAssetsDir() const
+QString FfmpegCliRemuxer::resolveFfmpegProgram() const
 {
 #ifdef CORE_REGRESSION_TESTS
 	if (!m_testDecryptAssetsDir.isEmpty()) {
-		return m_testDecryptAssetsDir;
+		const QDir assetsDir(m_testDecryptAssetsDir);
+		const QStringList candidates = {
+			assetsDir.filePath(QStringLiteral("ffmpeg")),
+			assetsDir.filePath(QStringLiteral("ffmpeg.exe"))
+		};
+		for (const QString& candidate : candidates) {
+			const QFileInfo info(candidate);
+			if (info.exists() && info.isFile()) {
+				return candidate;
+			}
+		}
+		return {};
 	}
 #endif
 
-	return QDir(QCoreApplication::applicationDirPath()).filePath("decrypt");
+	const QString fromPath = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+	if (!fromPath.isEmpty()) {
+		return fromPath;
+	}
+
+#ifdef Q_OS_WIN
+	return QStandardPaths::findExecutable(QStringLiteral("ffmpeg.exe"));
+#else
+	return {};
+#endif
 }
 
 FfmpegCliRemuxResult FfmpegCliRemuxer::remuxTsToMp4(const QString& inputTsPath,
@@ -193,11 +214,10 @@ FfmpegCliRemuxResult FfmpegCliRemuxer::remuxTsToMp4(const QString& inputTsPath,
 			QStringLiteral("Unable to create output directory: %1").arg(outputInfo.absolutePath()));
 	}
 
-	const QString ffmpegPath = QDir(decryptAssetsDir()).filePath("ffmpeg.exe");
-	const QFileInfo ffmpegInfo(ffmpegPath);
-	if (!ffmpegInfo.exists() || !ffmpegInfo.isFile()) {
+	const QString ffmpegPath = resolveFfmpegProgram();
+	if (ffmpegPath.isEmpty()) {
 		return failureResult(QStringLiteral("ffmpeg_missing"),
-			QStringLiteral("decrypt/ffmpeg.exe does not exist"));
+			QStringLiteral("system ffmpeg was not found in PATH"));
 	}
 
 	if (QFile::exists(trimmedOutputPath) && !QFile::remove(trimmedOutputPath)) {
@@ -246,15 +266,15 @@ FfmpegCliRemuxResult FfmpegCliRemuxer::remuxTsToMp4(const QString& inputTsPath,
 	if (!processResult.started) {
 		FfmpegCliRemuxResult result = failureResult(QStringLiteral("start_failed"),
 			cappedDiagnosticText(processResult.errorString).isEmpty()
-				? QStringLiteral("Unable to start ffmpeg.exe")
-				: QStringLiteral("Unable to start ffmpeg.exe: %1").arg(cappedDiagnosticText(processResult.errorString)));
+				? QStringLiteral("Unable to start ffmpeg")
+				: QStringLiteral("Unable to start ffmpeg: %1").arg(cappedDiagnosticText(processResult.errorString)));
 		result.processResult = processResult;
 		return result;
 	}
 
 	if (processResult.timedOut) {
 		FfmpegCliRemuxResult result = failureResult(QStringLiteral("timeout"),
-			QStringLiteral("ffmpeg.exe timed out after %1 ms").arg(request.timeoutMs));
+			QStringLiteral("ffmpeg timed out after %1 ms").arg(request.timeoutMs));
 		result.processResult = processResult;
 		return result;
 	}
