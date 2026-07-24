@@ -109,10 +109,13 @@ jobs:
             --no-translations `
             "$packageDir/CCTVVideoDownloader.exe"
 
+          $vcRuntimeDir = Join-Path $env:VCToolsRedistDir "x64\Microsoft.VC143.CRT"
           foreach ($runtime in "MSVCP140.dll", "VCRUNTIME140.dll", "VCRUNTIME140_1.dll") {
-            if (-not (Test-Path (Join-Path $packageDir $runtime))) {
-              throw "windeployqt did not deploy required VC runtime: $runtime"
+            $source = Join-Path $vcRuntimeDir $runtime
+            if (-not (Test-Path $source)) {
+              throw "MSVC runtime missing from toolchain: $source"
             }
+            Copy-Item $source $packageDir
           }
           if (-not (Test-Path (Join-Path $packageDir "platforms/qwindows.dll"))) {
             throw "windeployqt did not deploy the Windows platform plugin"

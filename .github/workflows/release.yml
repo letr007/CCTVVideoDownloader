@@ -75,10 +75,13 @@ jobs:
           New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
           Copy-Item "build/$env:BUILD_CONFIG/CCTVVideoDownloader.exe" $packageDir
           & "$env:QT_ROOT_DIR/bin/windeployqt.exe" --release --no-translations "$packageDir/CCTVVideoDownloader.exe"
+          $vcRuntimeDir = Join-Path $env:VCToolsRedistDir "x64\Microsoft.VC143.CRT"
           foreach ($runtime in "MSVCP140.dll", "VCRUNTIME140.dll", "VCRUNTIME140_1.dll") {
-            if (-not (Test-Path (Join-Path $packageDir $runtime))) {
-              throw "windeployqt did not deploy required VC runtime: $runtime"
+            $source = Join-Path $vcRuntimeDir $runtime
+            if (-not (Test-Path $source)) {
+              throw "MSVC runtime missing from toolchain: $source"
             }
+            Copy-Item $source $packageDir
           }
           if (-not (Test-Path (Join-Path $packageDir "platforms/qwindows.dll"))) {
             throw "windeployqt did not deploy the Windows platform plugin"
@@ -130,9 +133,10 @@ jobs:
             -DCMAKE_BUILD_TYPE="${BUILD_CONFIG}" \
             -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}" \
             -DFFMPEG_MIN_ROOT="${FFMPEG_MIN_ROOT}" \
+            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/artifact/CCTVVideoDownloader" \
             -DBUILD_TESTING=OFF
           cmake --build build --parallel
-          cmake --install build --prefix artifact/CCTVVideoDownloader
+          cmake --install build
 
       - name: Package macOS distribution
         shell: bash
@@ -187,9 +191,10 @@ jobs:
             -DCMAKE_BUILD_TYPE="${BUILD_CONFIG}" \
             -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}" \
             -DFFMPEG_MIN_ROOT="${FFMPEG_MIN_ROOT}" \
+            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/artifact/CCTVVideoDownloader" \
             -DBUILD_TESTING=OFF
           cmake --build build --parallel
-          cmake --install build --prefix artifact/CCTVVideoDownloader
+          cmake --install build
 
       - name: Package Linux distribution
         shell: bash

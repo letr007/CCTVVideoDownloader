@@ -142,6 +142,7 @@ jobs:
             -DCMAKE_CXX_COMPILER=${{ matrix.cxx_compiler }} \
             -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}" \
             -DFFMPEG_MIN_ROOT="${FFMPEG_MIN_ROOT}" \
+            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/package" \
             -DBUILD_TESTING=OFF
 
       - name: Configure CMake (Windows)
@@ -193,7 +194,7 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          cmake --install build --prefix package
+          cmake --install build
           if [[ "${{ runner.os }}" == "macOS" ]]; then
             app="package/CCTVVideoDownloader.app"
             test -x "$app/Contents/MacOS/CCTVVideoDownloader"
