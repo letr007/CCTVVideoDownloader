@@ -109,6 +109,21 @@ qt_add_executable(CCTVVideoDownloader
     ${PROJECT_SOURCES}
 )
 
+if (APPLE)
+    set(CCTV_VIDEO_DOWNLOADER_MAC_ICON
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/resources/CCTVVideoDownloader.icns"
+    )
+    target_sources(CCTVVideoDownloader PRIVATE "${CCTV_VIDEO_DOWNLOADER_MAC_ICON}")
+    set_source_files_properties("${CCTV_VIDEO_DOWNLOADER_MAC_ICON}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION "Resources"
+    )
+    set_target_properties(CCTVVideoDownloader PROPERTIES
+        MACOSX_BUNDLE_ICON_FILE "CCTVVideoDownloader.icns"
+        MACOSX_BUNDLE_BUNDLE_NAME "CCTVVideoDownloader"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.letr007.CCTVVideoDownloader"
+    )
+endif()
+
 target_include_directories(CCTVVideoDownloader
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src/head
