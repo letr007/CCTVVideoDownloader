@@ -88,6 +88,7 @@ set(PROJECT_SOURCES
 
 qt_add_executable(CCTVVideoDownloader
     WIN32
+    MACOSX_BUNDLE
     ${PROJECT_SOURCES}
 )
 
@@ -110,6 +111,21 @@ target_link_libraries(CCTVVideoDownloader
 
 if (MSVC)
     target_compile_options(CCTVVideoDownloader PRIVATE /utf-8)
+endif()
+
+# Native Qt deployment produces install trees for the macOS and Linux release
+# archives. Windows keeps its explicit windeployqt release staging below.
+if (APPLE OR (UNIX AND NOT APPLE))
+    install(TARGETS CCTVVideoDownloader
+        BUNDLE DESTINATION .
+        RUNTIME DESTINATION bin
+    )
+    qt_generate_deploy_app_script(
+        TARGET CCTVVideoDownloader
+        OUTPUT_SCRIPT CCTVVideoDownloader_DEPLOY_SCRIPT
+        NO_TRANSLATIONS
+    )
+    install(SCRIPT "${CCTVVideoDownloader_DEPLOY_SCRIPT}")
 endif()
 
 if (WIN32)

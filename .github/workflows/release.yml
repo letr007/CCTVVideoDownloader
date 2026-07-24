@@ -9,17 +9,17 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  package-windows:
+    name: Package Windows x64
     runs-on: windows-2022
     timeout-minutes: 90
     env:
       BUILD_CONFIG: Release
+      FFVER: "7.1.1"
+      FFMPEG_MIN_ROOT: ${{ github.workspace }}/third_party/ffmpeg-min
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -44,139 +44,194 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.0'
-          host: 'windows'
-          target: 'desktop'
-          arch: 'win64_msvc2022_64'
-          cache: 'true'
+          version: "6.8.0"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          cache: "true"
 
       - name: Build minimal static FFmpeg
         shell: pwsh
         env:
-          FFMPEG_MIN_ROOT: ${{ github.workspace }}/third_party/ffmpeg-min
-          FFVER: '7.1.1'
           MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
         run: |
-          $msys2Bash = Join-Path $env:MSYS2_ROOT "usr\bin\bash.exe"
-          if ([string]::IsNullOrWhiteSpace($env:MSYS2_ROOT) -or -not (Test-Path $msys2Bash)) {
-            throw "MSYS2 bash missing; setup-msys2 output was '$env:MSYS2_ROOT'"
-          }
-          if (-not (Get-Command cl -ErrorAction SilentlyContinue)) {
-            throw "cl.exe not on PATH after msvc-dev-cmd"
-          }
           powershell -ExecutionPolicy Bypass -File scripts/build-ffmpeg-min-windows.ps1 -Msys2Root "$env:MSYS2_ROOT"
-          if (-not (Test-Path "$env:FFMPEG_MIN_ROOT/include/libavcodec/avcodec.h")) {
-            throw "ffmpeg-min headers missing"
-          }
 
-      - name: Configure CMake
-        shell: pwsh
-        env:
-          FFMPEG_MIN_ROOT: ${{ github.workspace }}/third_party/ffmpeg-min
-        run: >-
-          cmake -S . -B build
-          -G "Visual Studio 17 2022"
-          -A x64
-          -DCMAKE_PREFIX_PATH="${env:QT_ROOT_DIR}"
-          -DFFMPEG_MIN_ROOT="${env:FFMPEG_MIN_ROOT}"
-          -DCMAKE_CONFIGURATION_TYPES="${env:BUILD_CONFIG}"
-          -DBUILD_TESTING=OFF
-
-      - name: Build Release
-        shell: pwsh
-        run: cmake --build build --config "${env:BUILD_CONFIG}"
-
-      - name: Verify build outputs
+      - name: Configure and build
         shell: pwsh
         run: |
-          $buildDir = "build/${env:BUILD_CONFIG}"
-          if (-not (Test-Path "$buildDir/CCTVVideoDownloader.exe")) {
-            throw "Missing $buildDir/CCTVVideoDownloader.exe"
-          }
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR" `
+            -DFFMPEG_MIN_ROOT="$env:FFMPEG_MIN_ROOT" `
+            -DCMAKE_CONFIGURATION_TYPES="$env:BUILD_CONFIG" `
+            -DBUILD_TESTING=OFF
+          cmake --build build --config "$env:BUILD_CONFIG" --parallel
 
-      - name: Prepare release metadata
-        id: meta
-        shell: pwsh
-        run: |
-          $tag = "${{ github.ref_name }}"
-          $tagWithoutV = $tag.Substring(1)
-          $zipName = "CCTVVideoDownloader.v$tagWithoutV.win.x64.zip"
-          $releaseName = "CCTVVideoDownloader V$tagWithoutV"
-
-          "tag_without_v=$tagWithoutV" >> $env:GITHUB_OUTPUT
-          "zip_name=$zipName" >> $env:GITHUB_OUTPUT
-          "release_name=$releaseName" >> $env:GITHUB_OUTPUT
-
-      - name: Stage release files
-        shell: pwsh
-        run: |
-          $artifactDir = "artifact"
-          $packageDir = Join-Path $artifactDir "CCTVVideoDownloader"
-
-          if (Test-Path $artifactDir) {
-            Remove-Item $artifactDir -Recurse -Force
-          }
-
-          New-Item -ItemType Directory -Path $packageDir | Out-Null
-          Copy-Item "build/${env:BUILD_CONFIG}/CCTVVideoDownloader.exe" $packageDir
-
-      - name: Deploy Qt runtime
+      - name: Package Windows distribution
         shell: pwsh
         run: |
           $packageDir = "artifact/CCTVVideoDownloader"
-          & "$env:QT_ROOT_DIR/bin/windeployqt.exe" `
-            --release `
-            --no-compiler-runtime `
-            --no-translations `
-            "$packageDir/CCTVVideoDownloader.exe"
-
-      - name: Download VC++ redistributable
-        shell: pwsh
-        run: |
-          Invoke-WebRequest `
-            -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" `
-            -OutFile "artifact/vc_redist.x64.exe"
-
-      - name: Create release zip
-        shell: pwsh
-        run: |
-          $packageDir = "artifact/CCTVVideoDownloader"
-          $zipPath = Join-Path "artifact" "${{ steps.meta.outputs.zip_name }}"
+          $zipPath = "artifact/CCTVVideoDownloader.${{ github.ref_name }}.win.x64.zip"
+          New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+          Copy-Item "build/$env:BUILD_CONFIG/CCTVVideoDownloader.exe" $packageDir
+          & "$env:QT_ROOT_DIR/bin/windeployqt.exe" --release --no-translations "$packageDir/CCTVVideoDownloader.exe"
+          foreach ($runtime in "MSVCP140.dll", "VCRUNTIME140.dll", "VCRUNTIME140_1.dll") {
+            if (-not (Test-Path (Join-Path $packageDir $runtime))) {
+              throw "windeployqt did not deploy required VC runtime: $runtime"
+            }
+          }
+          if (-not (Test-Path (Join-Path $packageDir "platforms/qwindows.dll"))) {
+            throw "windeployqt did not deploy the Windows platform plugin"
+          }
           Compress-Archive -Path "$packageDir/*" -DestinationPath $zipPath
+          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile "artifact/vc_redist.x64.exe"
 
-      - name: Generate release notes
-        id: notes
-        shell: pwsh
+      - name: Upload Windows assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: |
+            artifact/CCTVVideoDownloader.${{ github.ref_name }}.win.x64.zip
+            artifact/vc_redist.x64.exe
+          if-no-files-found: error
+
+  package-macos:
+    name: Package macOS arm64
+    runs-on: macos-14
+    timeout-minutes: 90
+    env:
+      BUILD_CONFIG: Release
+      FFVER: "7.1.1"
+      FFMPEG_MIN_ROOT: ${{ github.workspace }}/third_party/ffmpeg-min
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: brew install ninja nasm pkg-config
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.0"
+          host: mac
+          target: desktop
+          arch: clang_64
+          cache: "true"
+
+      - name: Build minimal static FFmpeg
+        shell: bash
+        run: ./scripts/build-ffmpeg-min.sh
+
+      - name: Configure, build, and install app bundle
+        shell: bash
         run: |
-          $tag = "${{ github.ref_name }}"
-          $changelogPath = "changelogs/$tag.md"
-          $notesPath = "artifact/release-notes.md"
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE="${BUILD_CONFIG}" \
+            -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}" \
+            -DFFMPEG_MIN_ROOT="${FFMPEG_MIN_ROOT}" \
+            -DBUILD_TESTING=OFF
+          cmake --build build --parallel
+          cmake --install build --prefix artifact/CCTVVideoDownloader
 
-          if (Test-Path $changelogPath) {
-            Copy-Item $changelogPath $notesPath
-            "source=changelog" >> $env:GITHUB_OUTPUT
-            "path=$notesPath" >> $env:GITHUB_OUTPUT
-            exit 0
-          }
+      - name: Package macOS distribution
+        shell: bash
+        run: |
+          app="artifact/CCTVVideoDownloader/CCTVVideoDownloader.app"
+          zip="artifact/CCTVVideoDownloader.${{ github.ref_name }}.macos.arm64.zip"
+          test -x "$app/Contents/MacOS/CCTVVideoDownloader"
+          test -d "$app/Contents/Frameworks/QtCore.framework"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
 
-          "source=generated" >> $env:GITHUB_OUTPUT
+      - name: Upload macOS asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: artifact/CCTVVideoDownloader.${{ github.ref_name }}.macos.arm64.zip
+          if-no-files-found: error
+
+  package-linux:
+    name: Package Linux x86_64
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      BUILD_CONFIG: Release
+      FFVER: "7.1.1"
+      FFMPEG_MIN_ROOT: ${{ github.workspace }}/third_party/ffmpeg-min
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build pkg-config yasm nasm zlib1g-dev libbz2-dev
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.0"
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          cache: "true"
+
+      - name: Build minimal static FFmpeg
+        shell: bash
+        run: ./scripts/build-ffmpeg-min.sh
+
+      - name: Configure, build, and install distribution
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE="${BUILD_CONFIG}" \
+            -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}" \
+            -DFFMPEG_MIN_ROOT="${FFMPEG_MIN_ROOT}" \
+            -DBUILD_TESTING=OFF
+          cmake --build build --parallel
+          cmake --install build --prefix artifact/CCTVVideoDownloader
+
+      - name: Package Linux distribution
+        shell: bash
+        run: |
+          package_dir="artifact/CCTVVideoDownloader"
+          archive="artifact/CCTVVideoDownloader.${{ github.ref_name }}.linux.x86_64.tar.gz"
+          test -x "$package_dir/bin/CCTVVideoDownloader"
+          find "$package_dir" -name 'libQt6Core.so*' -print -quit | grep -q .
+          find "$package_dir" -path '*/platforms/libqxcb.so' -print -quit | grep -q .
+          tar -C artifact -czf "$archive" CCTVVideoDownloader
+
+      - name: Upload Linux asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: artifact/CCTVVideoDownloader.${{ github.ref_name }}.linux.x86_64.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish release assets
+    needs: [package-windows, package-macos, package-linux]
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifact
+          merge-multiple: true
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd artifact
+          sha256sum CCTVVideoDownloader.*.zip CCTVVideoDownloader.*.tar.gz > SHA256SUMS
 
       - name: Create GitHub Release
-        if: steps.notes.outputs.source == 'changelog'
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ steps.meta.outputs.release_name }}
-          body_path: ${{ steps.notes.outputs.path }}
-          files: |
-            artifact/${{ steps.meta.outputs.zip_name }}
-            artifact/vc_redist.x64.exe
-
-      - name: Create GitHub Release with generated notes
-        if: steps.notes.outputs.source == 'generated'
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ steps.meta.outputs.release_name }}
-          files: |
-            artifact/${{ steps.meta.outputs.zip_name }}
-            artifact/vc_redist.x64.exe
           generate_release_notes: true
+          files: |
+            artifact/CCTVVideoDownloader.*.win.x64.zip
+            artifact/CCTVVideoDownloader.*.macos.arm64.zip
+            artifact/CCTVVideoDownloader.*.linux.x86_64.tar.gz
+            artifact/vc_redist.x64.exe
+            artifact/SHA256SUMS

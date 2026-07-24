@@ -189,6 +189,22 @@ jobs:
           if (-not (Test-Path $bin)) { throw "Missing $bin" }
           Get-Item $bin | Format-List FullName, Length
 
+      - name: Verify deployable install tree (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cmake --install build --prefix package
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            app="package/CCTVVideoDownloader.app"
+            test -x "$app/Contents/MacOS/CCTVVideoDownloader"
+            test -d "$app/Contents/Frameworks/QtCore.framework"
+            test -f "$app/Contents/PlugIns/platforms/libqcocoa.dylib"
+          else
+            test -x package/bin/CCTVVideoDownloader
+            find package -name 'libQt6Core.so*' -print -quit | grep -q .
+            find package -path '*/platforms/libqxcb.so' -print -quit | grep -q .
+          fi
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:

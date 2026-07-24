@@ -106,10 +106,17 @@ jobs:
 
           & "$env:QT_ROOT_DIR/bin/windeployqt.exe" `
             --release `
-            --no-compiler-runtime `
             --no-translations `
             "$packageDir/CCTVVideoDownloader.exe"
 
+          foreach ($runtime in "MSVCP140.dll", "VCRUNTIME140.dll", "VCRUNTIME140_1.dll") {
+            if (-not (Test-Path (Join-Path $packageDir $runtime))) {
+              throw "windeployqt did not deploy required VC runtime: $runtime"
+            }
+          }
+          if (-not (Test-Path (Join-Path $packageDir "platforms/qwindows.dll"))) {
+            throw "windeployqt did not deploy the Windows platform plugin"
+          }
           Compress-Archive -Path "$packageDir/*" -DestinationPath $zipPath
 
       - name: Upload artifact
