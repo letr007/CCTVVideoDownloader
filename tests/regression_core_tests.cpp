@@ -1211,8 +1211,12 @@ void CoreRegressionTests::cleanup()
 void CoreRegressionTests::initializeSettingsSandbox()
 {
     initGlobalSettings();
-    QVERIFY(QFileInfo::exists(defaultConfigFilePath()));
+    const QString configPath = defaultConfigFilePath();
+    QVERIFY2(QFileInfo::exists(configPath),
+        qPrintable(QStringLiteral("expected writable config at %1").arg(configPath)));
     QVERIFY(g_settings != nullptr);
+    QCOMPARE(QFileInfo(g_settings->fileName()).absoluteFilePath(),
+        QFileInfo(configPath).absoluteFilePath());
 }
 
 void CoreRegressionTests::initGlobalSettings_createsDefaults()
