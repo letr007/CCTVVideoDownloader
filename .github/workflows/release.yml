@@ -21,6 +21,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install MSYS2 tools for FFmpeg
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: >-
+            make
+            diffutils
+            pkgconf
+            tar
+            git
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -30,6 +46,15 @@ jobs:
           arch: 'win64_msvc2022_64'
           cache: 'true'
 
+      - name: Build minimal static FFmpeg
+        shell: pwsh
+        run: |
+          $env:Path = "C:\msys64\usr\bin;" + $env:Path
+          powershell -ExecutionPolicy Bypass -File scripts/build-ffmpeg-min-windows.ps1
+          if (-not (Test-Path "third_party/ffmpeg-min/include/libavformat/avformat.h")) {
+            throw "ffmpeg-min headers missing"
+          }
+
       - name: Configure CMake
         shell: pwsh
         run: >-
@@ -37,7 +62,9 @@ jobs:
           -G "Visual Studio 17 2022"
           -A x64
           -DCMAKE_PREFIX_PATH="${env:QT_ROOT_DIR}"
+          -DFFMPEG_MIN_ROOT="${env:GITHUB_WORKSPACE}/third_party/ffmpeg-min"
           -DCMAKE_CONFIGURATION_TYPES="${env:BUILD_CONFIG}"
+          -DBUILD_TESTING=OFF
 
       - name: Build Release
         shell: pwsh

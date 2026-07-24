@@ -10,22 +10,48 @@ permissions:
 jobs:
   build:
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 90
     env:
       BUILD_CONFIG: Release
+      FFVER: "7.1.1"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install MSYS2 tools for FFmpeg
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: >-
+            make
+            diffutils
+            pkgconf
+            tar
+            git
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.0'
-          host: 'windows'
-          target: 'desktop'
-          arch: 'win64_msvc2022_64'
-          cache: 'true'
+          version: "6.8.0"
+          host: "windows"
+          target: "desktop"
+          arch: "win64_msvc2022_64"
+          cache: "true"
+
+      - name: Build minimal static FFmpeg
+        shell: pwsh
+        run: |
+          $env:Path = "C:\msys64\usr\bin;" + $env:Path
+          powershell -ExecutionPolicy Bypass -File scripts/build-ffmpeg-min-windows.ps1
+          if (-not (Test-Path "third_party/ffmpeg-min/include/libavformat/avformat.h")) {
+            throw "ffmpeg-min headers missing"
+          }
 
       - name: Configure CMake
         shell: pwsh
@@ -34,11 +60,13 @@ jobs:
           -G "Visual Studio 17 2022"
           -A x64
           -DCMAKE_PREFIX_PATH="${env:QT_ROOT_DIR}"
+          -DFFMPEG_MIN_ROOT="${env:GITHUB_WORKSPACE}/third_party/ffmpeg-min"
           -DCMAKE_CONFIGURATION_TYPES="${env:BUILD_CONFIG}"
+          -DBUILD_TESTING=OFF
 
       - name: Build Release
         shell: pwsh
-        run: cmake --build build --config "${env:BUILD_CONFIG}"
+        run: cmake --build build --config "${env:BUILD_CONFIG}" --parallel
 
       - name: Verify build outputs
         shell: pwsh
@@ -47,7 +75,6 @@ jobs:
           if (-not (Test-Path "$buildDir/CCTVVideoDownloader.exe")) {
             throw "Missing $buildDir/CCTVVideoDownloader.exe"
           }
-
           Write-Output "Build outputs verified."
 
       - name: Create artifact zip
@@ -63,6 +90,13 @@ jobs:
 
           New-Item -ItemType Directory -Path $packageDir | Out-Null
           Copy-Item "build/${env:BUILD_CONFIG}/CCTVVideoDownloader.exe" $packageDir
+
+          # windeployqt for Qt runtime DLLs
+          & "$env:QT_ROOT_DIR/bin/windeployqt.exe" `
+            --release `
+            --no-compiler-runtime `
+            --no-translations `
+            "$packageDir/CCTVVideoDownloader.exe"
 
           Compress-Archive -Path "$packageDir/*" -DestinationPath $zipPath
 

@@ -1,12 +1,10 @@
 name: Windows Tests
 
 # CI responsibility split:
-# - windows-tests.yml: configure with BUILD_TESTING=ON, build tests, run ctest
-# - windows-release.yml: configure/build/package release binaries
-# - release.yml: tag-based GitHub release creation
-# - Merge/release gating must be enforced by GitHub required checks / branch protection,
-#   not by workflow filenames alone.
-# NOTE: Execution order and required-checks gating are controlled by repository branch protection settings, not workflow filenames.
+# - ci.yml: cross-platform configure/build matrix (macOS/Linux/Windows)
+# - windows-tests.yml: Windows regression tests (ctest)
+# - windows-release.yml: Windows release zip artifact
+# - release.yml: tag-based GitHub Release
 
 on:
   push:
@@ -18,28 +16,55 @@ permissions:
 jobs:
   test:
     runs-on: windows-2022
-    timeout-minutes: 20
+    timeout-minutes: 90
     env:
       BUILD_CONFIG: Release
+      FFVER: "7.1.1"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install MSYS2 tools for FFmpeg
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: >-
+            make
+            diffutils
+            pkgconf
+            tar
+            git
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.0'
-          host: 'windows'
-          target: 'desktop'
-          arch: 'win64_msvc2022_64'
-          cache: 'true'
+          version: "6.8.0"
+          host: "windows"
+          target: "desktop"
+          arch: "win64_msvc2022_64"
+          cache: "true"
+
+      - name: Build minimal static FFmpeg
+        shell: pwsh
+        run: |
+          $env:Path = "C:\msys64\usr\bin;" + $env:Path
+          powershell -ExecutionPolicy Bypass -File scripts/build-ffmpeg-min-windows.ps1
+          if (-not (Test-Path "third_party/ffmpeg-min/include/libavformat/avformat.h")) {
+            throw "ffmpeg-min headers missing"
+          }
 
       - name: Configure CMake for tests
         shell: pwsh
         run: >-
           cmake -S . -B build-test -G "Visual Studio 17 2022" -A x64
           -DCMAKE_PREFIX_PATH="${env:QT_ROOT_DIR}"
+          -DFFMPEG_MIN_ROOT="${env:GITHUB_WORKSPACE}/third_party/ffmpeg-min"
           -DBUILD_TESTING=ON
           -DCMAKE_CONFIGURATION_TYPES="${env:BUILD_CONFIG}"
 
