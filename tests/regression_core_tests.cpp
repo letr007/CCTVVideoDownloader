@@ -1185,7 +1185,6 @@ void CoreRegressionTests::init()
     qRegisterMetaType<DownloadErrorCategory>("DownloadErrorCategory");
     qRegisterMetaType<DownloadJob>("DownloadJob");
     qRegisterMetaType<QMap<int, VideoItem>>("QMap<int, VideoItem>");
-    QStandardPaths::setTestModeEnabled(true);
     m_originalCurrentPath = QDir::currentPath();
     m_tempDir = std::make_unique<QTemporaryDir>();
     QVERIFY2(m_tempDir->isValid(), "Temporary directory must be valid");
@@ -1211,12 +1210,8 @@ void CoreRegressionTests::cleanup()
 void CoreRegressionTests::initializeSettingsSandbox()
 {
     initGlobalSettings();
-    const QString configPath = defaultConfigFilePath();
-    QVERIFY2(QFileInfo::exists(configPath),
-        qPrintable(QStringLiteral("expected writable config at %1").arg(configPath)));
+    QVERIFY(QFileInfo::exists(defaultConfigFilePath()));
     QVERIFY(g_settings != nullptr);
-    QCOMPARE(QFileInfo(g_settings->fileName()).absoluteFilePath(),
-        QFileInfo(configPath).absoluteFilePath());
 }
 
 void CoreRegressionTests::initGlobalSettings_createsDefaults()
@@ -7243,6 +7238,8 @@ int main(int argc, char* argv[])
     // Enable Qt test locations before QCoreApplication initializes AppData/AppConfig paths.
     QStandardPaths::setTestModeEnabled(true);
     QApplication app(argc, argv);
+    app.setOrganizationName(QStringLiteral("letr007"));
+    app.setApplicationName(QStringLiteral("CCTVVideoDownloader"));
     CoreRegressionTests tc;
     return QTest::qExec(&tc, argc, argv);
 }

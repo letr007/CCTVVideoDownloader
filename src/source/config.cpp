@@ -4,72 +4,24 @@
 #include <QFileInfo>
 #include <QStandardPaths>
 
-namespace {
-
-bool ensureWritableDirectory(const QString& directory)
-{
-	if (directory.isEmpty()) {
-		return false;
-	}
-	QDir dir(directory);
-	if (!dir.exists() && !QDir().mkpath(directory)) {
-		return false;
-	}
-	return QFileInfo(directory).isWritable();
-}
-
-QString firstWritableDirectory(const QStringList& candidates)
-{
-	for (const QString& candidate : candidates) {
-		const QString cleaned = QDir::cleanPath(candidate);
-		if (ensureWritableDirectory(cleaned)) {
-			return cleaned;
-		}
-	}
-	return {};
-}
-
-QString writableConfigDirectory()
-{
-	QStringList candidates;
-	candidates << QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
-	candidates << QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-	candidates << QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-	candidates << QDir::tempPath();
-	candidates << QDir(QDir::homePath()).filePath(QStringLiteral(".config/CCTVVideoDownloader"));
-	candidates << QDir(QDir::currentPath()).filePath(QStringLiteral("config"));
-
-	const QString directory = firstWritableDirectory(candidates);
-	if (!directory.isEmpty()) {
-		return directory;
-	}
-	return QDir::cleanPath(QDir(QDir::tempPath()).filePath(QStringLiteral("CCTVVideoDownloader-config")));
-}
-
-} // namespace
-
 std::unique_ptr<QSettings> g_settings;
 
 QString defaultSaveDirectory()
 {
-	QStringList candidates;
-	candidates << QStandardPaths::writableLocation(QStandardPaths::MoviesLocation);
-	candidates << QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-	candidates << QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-	candidates << QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
-	candidates << QDir(QDir::homePath()).filePath(QStringLiteral("Videos"));
-	candidates << QDir::tempPath();
-
-	const QString directory = firstWritableDirectory(candidates);
-	if (!directory.isEmpty()) {
-		return directory;
+	QString directory = QStandardPaths::writableLocation(QStandardPaths::MoviesLocation);
+	if (directory.isEmpty()) {
+		directory = QDir(QDir::homePath()).filePath(QStringLiteral("Videos"));
 	}
-	return QDir::cleanPath(QDir::tempPath());
+	return QDir::cleanPath(directory);
 }
 
 QString defaultConfigFilePath()
 {
-	return QDir(writableConfigDirectory()).filePath(QStringLiteral("config.ini"));
+	QString directory = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+	if (directory.isEmpty()) {
+		directory = QDir(QDir::homePath()).filePath(QStringLiteral(".config/CCTVVideoDownloader"));
+	}
+	return QDir(directory).filePath(QStringLiteral("config.ini"));
 }
 
 extern void initGlobalSettings()
@@ -78,12 +30,11 @@ extern void initGlobalSettings()
 
 	const QString configPath = defaultConfigFilePath();
 	const QFileInfo configInfo(configPath);
-	if (!ensureWritableDirectory(configInfo.absolutePath())) {
+	if (!QDir().mkpath(configInfo.absolutePath())) {
 		qCritical() << "无法创建配置目录:" << configInfo.absolutePath();
 	}
 
 	const bool configExists = QFile::exists(configPath);
-	qInfo() << "配置文件路径:" << configPath;
 	qInfo() << "配置文件存在:" << configExists;
 
 	g_settings = std::make_unique<QSettings>(configPath, QSettings::IniFormat);
