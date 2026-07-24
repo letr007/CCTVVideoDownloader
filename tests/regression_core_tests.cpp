@@ -1185,11 +1185,13 @@ void CoreRegressionTests::init()
     qRegisterMetaType<DownloadErrorCategory>("DownloadErrorCategory");
     qRegisterMetaType<DownloadJob>("DownloadJob");
     qRegisterMetaType<QMap<int, VideoItem>>("QMap<int, VideoItem>");
+    QStandardPaths::setTestModeEnabled(true);
     m_originalCurrentPath = QDir::currentPath();
     m_tempDir = std::make_unique<QTemporaryDir>();
     QVERIFY2(m_tempDir->isValid(), "Temporary directory must be valid");
     QVERIFY(QDir::setCurrent(m_tempDir->path()));
     g_settings.reset();
+    QFile::remove(defaultConfigFilePath());
 }
 
 void CoreRegressionTests::cleanup()
@@ -1197,14 +1199,16 @@ void CoreRegressionTests::cleanup()
     APIService::instance().cancelGetEncryptM3U8Urls();
     APIServiceTestAdapter::clearTestNetworkAccessManager(APIService::instance());
     g_settings.reset();
+    QFile::remove(defaultConfigFilePath());
     QVERIFY(QDir::setCurrent(m_originalCurrentPath));
     m_tempDir.reset();
+    QStandardPaths::setTestModeEnabled(false);
 }
 
 void CoreRegressionTests::initializeSettingsSandbox()
 {
     initGlobalSettings();
-    QVERIFY(QFileInfo::exists(QDir(m_tempDir->path()).filePath("config/config.ini")));
+    QVERIFY(QFileInfo::exists(defaultConfigFilePath()));
     QVERIFY(g_settings != nullptr);
 }
 
@@ -1214,7 +1218,7 @@ void CoreRegressionTests::initGlobalSettings_createsDefaults()
 
     const auto [dateBeg, dateEnd] = readDisplayMinAndMax();
 
-    QCOMPARE(readSavePath(), QString("C:\\Video"));
+    QCOMPARE(readSavePath(), defaultSaveDirectory());
     QCOMPARE(readThreadNum(), 1);
     QCOMPARE(readTranscode(), true);
     QCOMPARE(readQuality(), QString("1"));
