@@ -32,6 +32,7 @@ jobs:
           arch: x64
 
       - name: Setup MSYS2
+        id: msys2
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -56,14 +57,17 @@ jobs:
 
       - name: Build minimal static FFmpeg
         shell: pwsh
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
         run: |
-          if (-not (Get-Command bash -ErrorAction SilentlyContinue)) {
-            throw "bash not on PATH after msys2/setup-msys2"
+          $msys2Bash = Join-Path $env:MSYS2_ROOT "usr\bin\bash.exe"
+          if ([string]::IsNullOrWhiteSpace($env:MSYS2_ROOT) -or -not (Test-Path $msys2Bash)) {
+            throw "MSYS2 bash missing; setup-msys2 output was '$env:MSYS2_ROOT'"
           }
           if (-not (Get-Command cl -ErrorAction SilentlyContinue)) {
             throw "cl.exe not on PATH after msvc-dev-cmd"
           }
-          powershell -ExecutionPolicy Bypass -File scripts/build-ffmpeg-min-windows.ps1
+          powershell -ExecutionPolicy Bypass -File scripts/build-ffmpeg-min-windows.ps1 -Msys2Root "$env:MSYS2_ROOT"
           if (-not (Test-Path "$env:FFMPEG_MIN_ROOT\include\libavcodec\avcodec.h")) {
             throw "ffmpeg-min headers missing"
           }

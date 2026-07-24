@@ -33,7 +33,7 @@ jobs:
           - os: ubuntu-22.04
             compiler: gcc
             qt_host: linux
-            qt_arch: gcc_64
+            qt_arch: linux_gcc_64
             c_compiler: gcc
             cxx_compiler: g++
           - os: windows-2022
@@ -87,6 +87,7 @@ jobs:
 
       - name: Setup MSYS2 (Windows)
         if: runner.os == 'Windows'
+        id: msys2
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -113,16 +114,19 @@ jobs:
       - name: Build minimal static FFmpeg (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
         run: |
-          # msys2/setup-msys2 with path-type=inherit puts bash on PATH while
-          # keeping MSVC tools (cl/link) visible for --toolchain=msvc.
-          if (-not (Get-Command bash -ErrorAction SilentlyContinue)) {
-            throw "bash not on PATH after msys2/setup-msys2"
+          # Do not resolve generic bash from PATH: Git for Windows can win over
+          # MSYS2 and produces a configure Makefile that MSYS2 make cannot use.
+          $msys2Bash = Join-Path $env:MSYS2_ROOT "usr\bin\bash.exe"
+          if ([string]::IsNullOrWhiteSpace($env:MSYS2_ROOT) -or -not (Test-Path $msys2Bash)) {
+            throw "MSYS2 bash missing; setup-msys2 output was '$env:MSYS2_ROOT'"
           }
           if (-not (Get-Command cl -ErrorAction SilentlyContinue)) {
             throw "cl.exe not on PATH after msvc-dev-cmd"
           }
-          powershell -ExecutionPolicy Bypass -File scripts/build-ffmpeg-min-windows.ps1
+          powershell -ExecutionPolicy Bypass -File scripts/build-ffmpeg-min-windows.ps1 -Msys2Root "$env:MSYS2_ROOT"
           if (-not (Test-Path "$env:FFMPEG_MIN_ROOT\include\libavcodec\avcodec.h")) {
             throw "ffmpeg-min headers missing under $env:FFMPEG_MIN_ROOT"
           }
@@ -133,7 +137,7 @@ jobs:
         shell: bash
         run: |
           cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=${BUILD_CONFIG} \
+            -DCMAKE_BUILD_TYPE="${BUILD_CONFIG}" \
             -DCMAKE_C_COMPILER=${{ matrix.c_compiler }} \
             -DCMAKE_CXX_COMPILER=${{ matrix.cxx_compiler }} \
             -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}" \
