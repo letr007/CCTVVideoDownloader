@@ -51,10 +51,6 @@ jobs:
             throw "Missing $buildDir/CCTVVideoDownloader.exe"
           }
 
-          if (-not (Test-Path "$buildDir/decrypt")) {
-            throw "Missing $buildDir/decrypt"
-          }
-
       - name: Prepare release metadata
         id: meta
         shell: pwsh
@@ -80,7 +76,6 @@ jobs:
 
           New-Item -ItemType Directory -Path $packageDir | Out-Null
           Copy-Item "build/${env:BUILD_CONFIG}/CCTVVideoDownloader.exe" $packageDir
-          Copy-Item "build/${env:BUILD_CONFIG}/decrypt" $packageDir -Recurse
 
       - name: Deploy Qt runtime
         shell: pwsh

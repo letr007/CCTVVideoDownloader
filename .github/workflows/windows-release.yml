@@ -48,11 +48,6 @@ jobs:
             throw "Missing $buildDir/CCTVVideoDownloader.exe"
           }
 
-          $decryptDir = "$buildDir/decrypt"
-          if (-not (Test-Path $decryptDir)) {
-            throw "Missing $buildDir/decrypt"
-          }
-
           Write-Output "Build outputs verified."
 
       - name: Create artifact zip
@@ -68,7 +63,6 @@ jobs:
 
           New-Item -ItemType Directory -Path $packageDir | Out-Null
           Copy-Item "build/${env:BUILD_CONFIG}/CCTVVideoDownloader.exe" $packageDir
-          Copy-Item "build/${env:BUILD_CONFIG}/decrypt" $packageDir -Recurse
 
           Compress-Archive -Path "$packageDir/*" -DestinationPath $zipPath
 
