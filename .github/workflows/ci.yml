@@ -68,7 +68,7 @@ jobs:
       - name: Install macOS build deps
         if: runner.os == 'macOS'
         run: |
-          brew install ninja nasm pkg-config || true
+          brew install ninja nasm pkg-config
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4

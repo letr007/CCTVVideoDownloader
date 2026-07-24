@@ -20,9 +20,11 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(FindFFmpegMin)
 
+# CTest defines option(BUILD_TESTING) with default ON. Include it before the
+# conditional so a bare configure actually enables tests unless -DBUILD_TESTING=OFF.
+include(CTest)
 if (BUILD_TESTING)
     find_package(Qt6 REQUIRED COMPONENTS Test)
-    include(CTest)
     add_subdirectory(tests)
 endif()
 
