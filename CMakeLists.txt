@@ -15,6 +15,23 @@ set(CMAKE_AUTOUIC_SEARCH_PATHS
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network)
 
+# Keep the in-app version aligned with the source actually being built. Tagged
+# release builds show their tag; local builds fall back to a commit identifier.
+find_package(Git QUIET)
+set(CCTV_VIDEO_DOWNLOADER_BUILD_VERSION "dev")
+if (GIT_FOUND)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" describe --tags --always --dirty
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        OUTPUT_VARIABLE CCTV_VIDEO_DOWNLOADER_GIT_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if (NOT CCTV_VIDEO_DOWNLOADER_GIT_VERSION STREQUAL "")
+        set(CCTV_VIDEO_DOWNLOADER_BUILD_VERSION "${CCTV_VIDEO_DOWNLOADER_GIT_VERSION}")
+    endif()
+endif()
+
 # Minimal static FFmpeg for in-process TS->MP4 remux (no system ffmpeg CLI).
 # Provides FFmpegMin::ffmpeg_min (and alias ffmpeg_min).
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -107,6 +124,10 @@ target_link_libraries(CCTVVideoDownloader
         Qt6::Widgets
         Qt6::Network
         FFmpegMin::ffmpeg_min
+)
+
+target_compile_definitions(CCTVVideoDownloader
+    PRIVATE CCTV_VIDEO_DOWNLOADER_BUILD_VERSION="${CCTV_VIDEO_DOWNLOADER_BUILD_VERSION}"
 )
 
 if (MSVC)

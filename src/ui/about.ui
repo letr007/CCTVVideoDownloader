@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>200</width>
-    <height>170</height>
+    <height>190</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -30,7 +30,7 @@
    <property name="geometry">
     <rect>
      <x>10</x>
-     <y>110</y>
+     <y>130</y>
      <width>70</width>
      <height>20</height>
     </rect>
@@ -98,11 +98,27 @@
     <bool>true</bool>
    </property>
   </widget>
+  <widget class="QLabel" name="label_version">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>108</y>
+     <width>180</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>版本：</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignmentFlag::AlignCenter</set>
+   </property>
+  </widget>
   <widget class="QLabel" name="label_link">
    <property name="geometry">
     <rect>
      <x>10</x>
-     <y>130</y>
+     <y>150</y>
      <width>180</width>
      <height>30</height>
     </rect>

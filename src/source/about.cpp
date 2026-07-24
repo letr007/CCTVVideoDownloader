@@ -4,10 +4,12 @@
 #include <QSize>
 #include <QUrl>
 #include <QDesktopServices>
+#include <QCoreApplication>
 
 About::About(QWidget* parent) : QDialog(parent)
 {
 	ui.setupUi(this);
+	ui.label_version->setText(tr("版本：%1").arg(QCoreApplication::applicationVersion()));
 	// 设置图片
 	QMovie *movie = new QMovie(":/resources/afraid.gif", QByteArray(), this);
 	movie->setCacheMode(QMovie::CacheNone);
