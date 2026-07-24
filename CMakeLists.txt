@@ -43,6 +43,7 @@ set(PROJECT_SOURCES
     src/source/main.cpp
     src/source/setting.cpp
     src/source/tsmerger.cpp
+    src/crypto/cctv_h5e_decrypt.cpp
 
     src/head/about.h
     src/head/apiservice.h
@@ -87,6 +88,7 @@ target_include_directories(CCTVVideoDownloader
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src/head
         ${CMAKE_CURRENT_SOURCE_DIR}/src/resources
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/crypto
 )
 
 target_link_libraries(CCTVVideoDownloader
@@ -121,9 +123,3 @@ if (WIN32)
     endif()
 endif()
 
-add_custom_command(TARGET CCTVVideoDownloader POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:CCTVVideoDownloader>/decrypt"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/src/decrypt"
-            "$<TARGET_FILE_DIR:CCTVVideoDownloader>/decrypt"
-)

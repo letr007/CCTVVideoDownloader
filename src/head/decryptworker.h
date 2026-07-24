@@ -1,11 +1,13 @@
-﻿#pragma once
+#pragma once
 
 #include <QObject>
 #include <QProcess>
+#include <QString>
 #include <QStringList>
 #include <atomic>
 #include <functional>
 
+// Compatibility shims retained for regression tests that inject a decrypt stage.
 struct DecryptProcessRequest
 {
 	QString program;
@@ -55,14 +57,12 @@ signals:
 	void decryptFinished(bool ok, const QString& msg);
 
 private:
-	QString decryptAssetsDir() const;
-
-	#ifdef CORE_REGRESSION_TESTS
+#ifdef CORE_REGRESSION_TESTS
 	void setTestProcessRunner(const std::function<DecryptProcessResult(const DecryptProcessRequest&)>& runner);
 	void clearTestProcessRunner();
 	void setTestDecryptAssetsDir(const QString& decryptAssetsDir);
 	void clearTestDecryptAssetsDir();
-	#endif
+#endif
 
 	QString m_name;
 	QString m_savePath;
@@ -71,8 +71,8 @@ private:
 	int m_processTimeoutMs{30000};
 	std::atomic_bool m_cancelled{false};
 
-	#ifdef CORE_REGRESSION_TESTS
+#ifdef CORE_REGRESSION_TESTS
 	std::function<DecryptProcessResult(const DecryptProcessRequest&)> m_testProcessRunner;
 	QString m_testDecryptAssetsDir;
-	#endif
+#endif
 };

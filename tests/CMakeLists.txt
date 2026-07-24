@@ -27,6 +27,7 @@ qt_add_executable(core_regression_tests
     ${PROJECT_SOURCE_DIR}/src/source/downloaddialog.cpp
     ${PROJECT_SOURCE_DIR}/src/source/downloadprogresswindow.cpp
     ${PROJECT_SOURCE_DIR}/src/source/decryptworker.cpp
+    ${PROJECT_SOURCE_DIR}/src/crypto/cctv_h5e_decrypt.cpp
     ${PROJECT_SOURCE_DIR}/src/source/concatworker.cpp
     ${PROJECT_SOURCE_DIR}/src/source/ffmpegcliremuxer.cpp
     ${PROJECT_SOURCE_DIR}/src/source/mediacontainervalidator.cpp
@@ -57,6 +58,7 @@ qt_add_executable(core_regression_tests
 target_include_directories(core_regression_tests
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/head
+        ${PROJECT_SOURCE_DIR}/src/crypto
 )
 
 target_link_libraries(core_regression_tests
@@ -76,13 +78,6 @@ target_compile_definitions(core_regression_tests
 if (MSVC)
     target_compile_options(core_regression_tests PRIVATE /utf-8)
 endif()
-
-add_custom_command(TARGET core_regression_tests POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:core_regression_tests>/decrypt"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${PROJECT_SOURCE_DIR}/src/decrypt"
-            "$<TARGET_FILE_DIR:core_regression_tests>/decrypt"
-)
 
 add_test(NAME core_regression_tests COMMAND core_regression_tests)
 set_tests_properties(core_regression_tests PROPERTIES
