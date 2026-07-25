@@ -3738,16 +3738,6 @@ void CoreRegressionTests::apiservice_getVideoList_usesCctv4kGuidFallback()
     const QString itemId = QStringLiteral("4k-item-002");
     const QString date = QStringLiteral("202604");
 
-    manager.queueSuccess(APIServiceTestAdapter::buildVideoApiUrl(apiService, FetchType::Column, guid, date, 1, 100),
-                         QByteArray(R"({"data":{"list":[],"total":0}})"));
-
-    QUrl albumUrl(QStringLiteral("https://api.cntv.cn/NewVideoset/getVideoAlbumInfoByVideoId"));
-    QUrlQuery albumQuery;
-    albumQuery.addQueryItem(QStringLiteral("id"), itemId);
-    albumQuery.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("tvcctv"));
-    albumUrl.setQuery(albumQuery);
-    manager.queueSuccess(albumUrl, QByteArray(R"({"data":{}})"));
-
     QUrl videoInfoUrl(QStringLiteral("https://zy.api.cntv.cn/video/videoinfoByGuid"));
     QUrlQuery videoInfoQuery;
     videoInfoQuery.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("cctv4k"));
@@ -3765,7 +3755,7 @@ void CoreRegressionTests::apiservice_getVideoList_usesCctv4kGuidFallback()
     QCOMPARE(videos.value(0).brief, QString("brief"));
     QCOMPARE(videos.value(0).image, QString("image.jpg"));
     QCOMPARE(videos.value(0).time, QString("2026-04-23"));
-    QCOMPARE(manager.requestCount(), 3);
+    QCOMPARE(manager.requestCount(), 1);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
 }
 

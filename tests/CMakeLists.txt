@@ -20,6 +20,7 @@ qt_add_executable(core_regression_tests
     ${PROJECT_SOURCE_DIR}/src/source/directmediafinalizer.cpp
     ${PROJECT_SOURCE_DIR}/src/source/setting.cpp
     ${PROJECT_SOURCE_DIR}/src/source/apiservice.cpp
+    ${PROJECT_SOURCE_DIR}/src/parse/contentparse.cpp
     ${PROJECT_SOURCE_DIR}/src/source/downloadtask.cpp
     ${PROJECT_SOURCE_DIR}/src/source/downloadengine.cpp
     ${PROJECT_SOURCE_DIR}/src/source/downloadmodel.cpp
@@ -58,6 +59,7 @@ qt_add_executable(core_regression_tests
 target_include_directories(core_regression_tests
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/head
+        ${PROJECT_SOURCE_DIR}/src/parse
         ${PROJECT_SOURCE_DIR}/src/crypto
 )
 

@@ -1,6 +1,9 @@
 #include "../head/apiservice.h"
+#include "contentparse.h"
 #include <QCoreApplication>
 #include <algorithm>
+#include <QDate>
+#include <QDateTime>
 #include <QStringList>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -129,92 +132,62 @@ void APIService::clearTestNetworkAccessManager()
 
 QSharedPointer<QStringList> APIService::getPlayColumnInfo(const QString& url) {
     qInfo() << "获取播放栏目信息，URL:" << url;
-    
+
     QByteArray responseData = sendNetworkRequest(QUrl(url));
     if (responseData.isEmpty()) {
         qWarning() << "获取播放栏目信息失败: 响应数据为空";
         return nullptr;
     }
 
-    QString html = QString::fromUtf8(responseData);
-    auto results = QSharedPointer<QStringList>::create();
+    const QString html = QString::fromUtf8(responseData);
+    ContentParse::Features features = ContentParse::parsePage(html, url);
 
-    // 预编译正则表达式
-    static const QRegularExpression regexPatterns[] = {
-        QRegularExpression(R"(var commentTitle\s*=\s*["'](.*?)["'];)"),
-        QRegularExpression(R"(var itemid1\s*=\s*["'](.*?)["'];)"),
-        QRegularExpression(R"(var column_id\s*=\s*["'](.*?)["'];)"),
-        QRegularExpression(R"(var guid\s*=\s*["'](.*?)["'];)")
-    };
-
-    // 安全匹配函数
-    auto safeMatch = [](const QRegularExpression& regex, const QString& text) -> QString {
-        auto match = regex.match(text);
-        return match.hasMatch() ? match.captured(1) : QString();
-        };
-
-    // 提取标题、itemId、columnId
-    QString title = safeMatch(regexPatterns[0], html).split(" ").value(0);
-    QString itemId = safeMatch(regexPatterns[1], html);
-    QString columnId = safeMatch(regexPatterns[2], html);
-    QString guid = safeMatch(regexPatterns[3], html);
-
-    const QString videoCenterId = safeMatch(QRegularExpression(R"(\bvideoCenterId\s*:\s*["']([0-9a-fA-F]{32})["'])"), html).trimmed();
-    if (url.contains(QStringLiteral("news.cctv.cn"), Qt::CaseInsensitive) && !videoCenterId.isEmpty()) {
-        const QString videoId = safeMatch(QRegularExpression(R"(\bvideoId\s*:\s*["']([^"']+)["'])"), html).trimmed();
-        itemId = videoId.isEmpty() ? videoCenterId : videoId;
-        columnId = videoCenterId;
-    }
-
-    if (title.isEmpty() || itemId.isEmpty() || columnId.isEmpty()) {
+    if (features.title.isEmpty() || features.itemId.isEmpty() || features.columnId.isEmpty()) {
         QRegularExpression lmUrlRegex(R"(tv\.cctv\.com/lm/([^/?#]+))");
         auto lmUrlMatch = lmUrlRegex.match(url);
         if (lmUrlMatch.hasMatch()) {
             qInfo() << "尝试从栏目首页提取栏目信息";
 
-            QString lmTitle = safeMatch(QRegularExpression(R"(<meta\s+property=["']og:title["']\s+content=["'](.*?)["'])", QRegularExpression::CaseInsensitiveOption), html).trimmed();
+            QString lmTitle = QRegularExpression(R"(<meta\s+property=["']og:title["']\s+content=["'](.*?)["'])", QRegularExpression::CaseInsensitiveOption).match(html).captured(1).trimmed();
             if (lmTitle.isEmpty()) {
-                lmTitle = safeMatch(QRegularExpression(R"(<title>\s*(.*?)\s*(?:_CCTV|</title>))", QRegularExpression::CaseInsensitiveOption), html).trimmed();
+                lmTitle = QRegularExpression(R"(<title>\s*(.*?)\s*(?:_CCTV|</title>))", QRegularExpression::CaseInsensitiveOption).match(html).captured(1).trimmed();
             }
 
-            QString lmItemId = safeMatch(QRegularExpression(R"(play\(\s*["']([0-9a-fA-F]{32})["'])"), html).trimmed();
+            QString lmItemId = QRegularExpression(R"(play\(\s*["']([0-9a-fA-F]{32})["'])").match(html).captured(1).trimmed();
 
             QString videosetUrl = QString("https://tv.cctv.com/lm/%1/videoset").arg(lmUrlMatch.captured(1));
             QByteArray videosetData = sendNetworkRequest(QUrl(videosetUrl));
             QString lmColumnId;
             if (!videosetData.isEmpty()) {
-                lmColumnId = safeMatch(QRegularExpression(R"(var\s+lmtopId\s*=\s*["'](TOPC\d+)["'];)"), QString::fromUtf8(videosetData)).trimmed();
+                lmColumnId = QRegularExpression(R"(var\s+lmtopId\s*=\s*["'](TOPC\d+)["'];)").match(QString::fromUtf8(videosetData)).captured(1).trimmed();
             }
 
             if (!lmTitle.isEmpty() && !lmColumnId.isEmpty()) {
-                title = lmTitle;
-                itemId = lmItemId.isEmpty() ? lmColumnId : lmItemId;
-                columnId = lmColumnId;
+                features.title = lmTitle;
+                features.itemId = lmItemId.isEmpty() ? lmColumnId : lmItemId;
+                features.columnId = lmColumnId;
+                features.kind = ContentParse::classify(features);
             }
         }
     }
 
-    if (columnId.isEmpty() && !guid.isEmpty()) {
-        qInfo() << "未获取到columnId，使用guid作为CCTV-4K兜底:" << guid;
-        title = title.isEmpty() ? QStringLiteral("CCTV-4K") : title;
-        itemId = itemId.isEmpty() ? guid : itemId;
-        columnId = guid;
-    }
-
-    // 验证数据完整性
-    if (title.isEmpty() || itemId.isEmpty() || columnId.isEmpty()) {
+    if (features.title.isEmpty() || features.itemId.isEmpty() || features.columnId.isEmpty()) {
         qWarning() << "从HTML提取必要数据失败";
         return nullptr;
     }
 
-    qInfo() << "成功提取播放栏目信息 - 标题:" << title << "itemId:" << itemId << "columnId:" << columnId;
+    qInfo() << "成功提取播放栏目信息 - 标题:" << features.title
+            << "itemId:" << features.itemId
+            << "columnId:" << features.columnId
+            << "kind:" << static_cast<int>(features.kind);
 
-    results->append(title);
-    results->append(itemId);
-    results->append(columnId);
-
+    auto results = QSharedPointer<QStringList>::create();
+    results->append(features.title);
+    results->append(features.itemId);
+    results->append(features.columnId);
     return results;
 }
+
 
 QMap<int, VideoItem> APIService::getVideoList(
     const QString& column_id,
@@ -224,27 +197,20 @@ QMap<int, VideoItem> APIService::getVideoList(
 {
     qInfo() << "获取视频列表 - column_id:" << column_id << "item_id:" << item_id
              << "start_index:" << start_date << "end_index:" << end_date;
-    
-    // 参数校验
-	QDate dateBegin = QDateTime::fromString(start_date, "yyyyMM").date();
-	QDate dateEnd = QDateTime::fromString(end_date, "yyyyMM").date();
 
+    QDate dateBegin = QDateTime::fromString(start_date, "yyyyMM").date();
+    QDate dateEnd = QDateTime::fromString(end_date, "yyyyMM").date();
     if (dateBegin < dateEnd) {
-		QDate tmp = dateBegin;
-		dateBegin = dateEnd;
-		dateEnd = tmp;
+        qSwap(dateBegin, dateEnd);
     }
 
-    // 生成日期列表
-	QStringList dateList;
+    QStringList dateList;
     for (QDate date = dateBegin; date >= dateEnd; date = date.addMonths(-1)) {
-		dateList.append(date.toString("yyyyMM"));
+        dateList.append(date.toString("yyyyMM"));
     }
-	qInfo() << "生成的日期列表:" << dateList;
+    qInfo() << "生成的日期列表:" << dateList;
 
-    auto isCntvGuid = [](const QString& value) {
-        return QRegularExpression(QStringLiteral("^[0-9a-fA-F]{32}$")).match(value).hasMatch();
-    };
+    const ContentParse::Features features = ContentParse::fromStoredIds(column_id, item_id);
 
     auto appendSingleVideoByGuid = [&](const QString& serviceId, const QString& guid, const QString& logLabel, QMap<int, VideoItem>& target) {
         QUrl videoInfoUrl("https://zy.api.cntv.cn/video/videoinfoByGuid");
@@ -278,45 +244,107 @@ QMap<int, VideoItem> APIService::getVideoList(
         return false;
     };
 
-    if (item_id.startsWith(QStringLiteral("VIDE"), Qt::CaseInsensitive) && isCntvGuid(column_id)) {
-        QMap<int, VideoItem> singleVideoResult;
-        if (appendSingleVideoByGuid(QStringLiteral("tvcctv"), column_id, QStringLiteral("tvcctv"), singleVideoResult)) {
-            return singleVideoResult;
+    auto fetchAlbumByModes = [&](const QString& albumId) {
+        QMap<int, VideoItem> albumResult;
+        if (albumId.isEmpty()) {
+            return albumResult;
         }
+
+        const int modes[] = {1, 2, 0};
+        for (int mode : modes) {
+            albumResult.clear();
+            int resultIndex = 0;
+            constexpr int pageSize = 100;
+            int page = 1;
+            int totalPages = 1;
+
+            qInfo() << "尝试专辑列表 albumId:" << albumId << "mode:" << mode;
+            do {
+                QUrl url = buildAlbumVideoListUrl(albumId, mode, page, pageSize);
+                QByteArray responseData = sendNetworkRequest(url);
+                if (responseData.isEmpty()) {
+                    break;
+                }
+
+                QJsonObject dataObj = parseJsonObject(responseData, "data");
+                QJsonArray items = dataObj.value("list").toArray();
+                if (items.isEmpty()) {
+                    break;
+                }
+
+                if (page == 1) {
+                    const int total = dataObj.value("total").toInt(items.size());
+                    totalPages = std::max(1, (total + pageSize - 1) / pageSize);
+                }
+
+                processMonthData(items, QStringLiteral("album"), albumResult, resultIndex);
+                QCoreApplication::processEvents();
+                ++page;
+            } while (page <= totalPages);
+
+            if (!albumResult.isEmpty()) {
+                qInfo() << "专辑列表获取成功 albumId:" << albumId << "mode:" << mode << "count:" << albumResult.size();
+                return albumResult;
+            }
+        }
+        return albumResult;
+    };
+
+    QMap<int, VideoItem> result;
+    qInfo() << "内容类型:" << static_cast<int>(features.kind);
+
+    switch (features.kind) {
+    case ContentParse::Kind::Album: {
+        const QString albumId = !features.albumId.isEmpty() ? features.albumId : item_id;
+        result = fetchAlbumByModes(albumId);
+        break;
     }
+    case ContentParse::Kind::Episode: {
+        if (ContentParse::isHexGuid(column_id)
+            && appendSingleVideoByGuid(QStringLiteral("tvcctv"), column_id, QStringLiteral("tvcctv"), result)) {
+            break;
+        }
 
-    // 先尝试栏目方式获取
-    QMap<int, VideoItem> result = fetchVideoData(column_id, dateList, FetchType::Column);
+        if (ContentParse::isTopc(column_id)) {
+            result = fetchVideoData(column_id, dateList, FetchType::Column);
+            if (!result.isEmpty()) {
+                qInfo() << "通过栏目方式获取到" << result.size() << "个视频";
+                break;
+            }
+        }
 
-    if (!result.isEmpty()) {
-        qInfo() << "通过栏目方式获取到" << result.size() << "个视频";
-        return result;
+        QString albumId = features.albumId;
+        if (albumId.isEmpty()) {
+            albumId = getRealAlbumId(item_id);
+            if (albumId.isEmpty()) {
+                qWarning() << "无法获取真实专辑ID";
+            }
+        }
+        if (!albumId.isEmpty()) {
+            result = fetchAlbumByModes(albumId);
+        }
+        break;
     }
-
-    qInfo() << "栏目方式获取失败，尝试专辑方式";
-    
-    // 尝试专辑方式获取
-    QString real_album_id = getRealAlbumId(item_id);
-    if (!real_album_id.isEmpty()) {
-        qInfo() << "获取到真实专辑ID:" << real_album_id;
-        result = fetchVideoData(real_album_id, dateList, FetchType::Album);
+    case ContentParse::Kind::Column:
+    case ContentParse::Kind::News:
+        result = fetchVideoData(column_id, dateList, FetchType::Column);
         if (!result.isEmpty()) {
-            qInfo() << "通过专辑方式获取到" << result.size() << "个视频";
+            qInfo() << "通过栏目方式获取到" << result.size() << "个视频";
         }
-    } else {
-        qWarning() << "无法获取真实专辑ID";
-    }
-
-    if (result.isEmpty()) {
+        break;
+    case ContentParse::Kind::FourK:
         appendSingleVideoByGuid(QStringLiteral("cctv4k"), column_id, QStringLiteral("CCTV-4K"), result);
+        break;
+    case ContentParse::Kind::Unknown:
+        break;
     }
 
     if (result.isEmpty()) {
-        qWarning() << "获取视频列表失败: 所有方式都未获取到数据";
+        qWarning() << "获取视频列表失败: 类型策略未获取到数据 kind=" << static_cast<int>(features.kind);
     }
-
     return result;
 }
+
 
 QMap<int, VideoItem> APIService::getHighlightList(const QString& item_id)
 {
