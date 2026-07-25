@@ -96,6 +96,112 @@ struct StreamMapEntry
 	AVBSFContext* bsf = nullptr;
 };
 
+struct OutputTimestampState
+{
+	int64_t lastMuxDts = AV_NOPTS_VALUE;
+	int64_t lastPacketDuration = 0;
+};
+
+bool checkedTimestampAdd(int64_t left, int64_t right, int64_t* result)
+{
+	if ((right > 0 && left > std::numeric_limits<int64_t>::max() - right)
+		|| (right < 0 && left < std::numeric_limits<int64_t>::min() - right)) {
+		return false;
+	}
+	*result = left + right;
+	return true;
+}
+
+int failTimestampNormalization(QString* errorOut, int streamIndex, const char* stage, const QString& detail)
+{
+	if (errorOut != nullptr) {
+		*errorOut = QStringLiteral("timestamp normalization failed (stream %1, stage %2): %3")
+								.arg(streamIndex)
+								.arg(QString::fromLatin1(stage))
+								.arg(detail);
+	}
+	return AVERROR(EINVAL);
+}
+
+int normalizeAndWritePacket(AVFormatContext* ofmt,
+	AVPacket* pkt,
+	std::vector<OutputTimestampState>* timestampStates,
+	QString* errorOut,
+	const char* stage)
+{
+	if (pkt->stream_index < 0 || pkt->stream_index >= static_cast<int>(timestampStates->size())) {
+		return failTimestampNormalization(errorOut, pkt->stream_index, stage,
+			QStringLiteral("output stream index is out of range"));
+	}
+
+	OutputTimestampState& state = (*timestampStates)[static_cast<size_t>(pkt->stream_index)];
+	if (pkt->pts == AV_NOPTS_VALUE && pkt->dts == AV_NOPTS_VALUE) {
+		if (state.lastMuxDts == AV_NOPTS_VALUE) {
+			return failTimestampNormalization(errorOut, pkt->stream_index, stage,
+				QStringLiteral("first packet has no PTS or DTS"));
+		}
+
+		const int64_t duration = std::max<int64_t>(state.lastPacketDuration, 1);
+		int64_t inferredTimestamp = 0;
+		if (!checkedTimestampAdd(state.lastMuxDts, duration, &inferredTimestamp)) {
+			return failTimestampNormalization(errorOut, pkt->stream_index, stage,
+				QStringLiteral("PTS/DTS inference overflow"));
+		}
+		pkt->pts = inferredTimestamp;
+		pkt->dts = inferredTimestamp;
+	} else if (pkt->pts == AV_NOPTS_VALUE) {
+		pkt->pts = pkt->dts;
+	} else if (pkt->dts == AV_NOPTS_VALUE) {
+		pkt->dts = pkt->pts;
+	}
+
+	if (pkt->dts > pkt->pts) {
+		int64_t nextMuxDts = 0;
+		if (!checkedTimestampAdd(state.lastMuxDts, 1, &nextMuxDts)) {
+			return failTimestampNormalization(errorOut, pkt->stream_index, stage,
+				QStringLiteral("DTS/PTS median-rule threshold overflow"));
+		}
+
+		// Equivalent to ffmpeg_mux.c's FFMIN3/FFMAX3 three-value median rule.
+		const int64_t correctedTimestamp = std::max(std::min(pkt->pts, pkt->dts),
+			std::min(std::max(pkt->pts, pkt->dts), nextMuxDts));
+		pkt->pts = correctedTimestamp;
+		pkt->dts = correctedTimestamp;
+	}
+
+	if (state.lastMuxDts != AV_NOPTS_VALUE && pkt->dts <= state.lastMuxDts) {
+		int64_t nextMuxDts = 0;
+		if (!checkedTimestampAdd(state.lastMuxDts, 1, &nextMuxDts)) {
+			return failTimestampNormalization(errorOut, pkt->stream_index, stage,
+				QStringLiteral("monotonic DTS correction overflow"));
+		}
+		if (pkt->pts >= pkt->dts) {
+			pkt->pts = std::max(pkt->pts, nextMuxDts);
+		}
+		pkt->dts = nextMuxDts;
+	}
+
+	// av_interleaved_write_frame() takes ownership of the packet on success, so
+	// preserve the normalized timing before the call clears/unrefs its fields.
+	const int streamIndex = pkt->stream_index;
+	const int64_t writtenDts = pkt->dts;
+	const int64_t writtenDuration = pkt->duration;
+	const int writeRet = av_interleaved_write_frame(ofmt, pkt);
+	if (writeRet < 0) {
+		if (errorOut != nullptr) {
+			*errorOut = QStringLiteral("write packet failed (stream %1, stage %2): %3")
+								.arg(streamIndex)
+								.arg(QString::fromLatin1(stage))
+								.arg(avErrorString(writeRet));
+		}
+		return writeRet;
+	}
+
+	state.lastMuxDts = writtenDts;
+	state.lastPacketDuration = writtenDuration;
+	return 0;
+}
+
 void freeStreamMaps(std::vector<StreamMapEntry>& maps)
 {
 	for (StreamMapEntry& entry : maps) {
@@ -136,11 +242,6 @@ int openAacBsf(AVStream* inStream, AVBSFContext** outBsf)
 	return 0;
 }
 
-int writePacket(AVFormatContext* ofmt, AVPacket* pkt)
-{
-	return av_interleaved_write_frame(ofmt, pkt);
-}
-
 int remuxWithLibav(const QString& inputPath,
 	const QString& outputPath,
 	int timeoutMs,
@@ -151,6 +252,7 @@ int remuxWithLibav(const QString& inputPath,
 	AVFormatContext* ofmt = nullptr;
 	AVPacket* pkt = nullptr;
 	std::vector<StreamMapEntry> streamMap;
+	std::vector<OutputTimestampState> timestampStates;
 	int ret = 0;
 	QElapsedTimer timer;
 	timer.start();
@@ -231,6 +333,7 @@ int remuxWithLibav(const QString& inputPath,
 		ret = fail(AVERROR_STREAM_NOT_FOUND, QStringLiteral("no media streams found"));
 		goto cleanup;
 	}
+	timestampStates.resize(static_cast<size_t>(outStreamIndex));
 
 	if ((ofmt->oformat->flags & AVFMT_NOFILE) == 0) {
 		ret = avio_open(&ofmt->pb, outputUtf8.constData(), AVIO_FLAG_WRITE);
@@ -314,7 +417,7 @@ int remuxWithLibav(const QString& inputPath,
 				pkt->stream_index = map.outIndex;
 				av_packet_rescale_ts(pkt, map.bsf->time_base_out, outStream->time_base);
 				pkt->pos = -1;
-				ret = writePacket(ofmt, pkt);
+				ret = normalizeAndWritePacket(ofmt, pkt, &timestampStates, errorOut, "aac_bsf_receive");
 				av_packet_unref(pkt);
 				if (ret < 0) {
 					goto cleanup;
@@ -326,7 +429,7 @@ int remuxWithLibav(const QString& inputPath,
 		pkt->stream_index = map.outIndex;
 		av_packet_rescale_ts(pkt, inStream->time_base, outStream->time_base);
 		pkt->pos = -1;
-		ret = writePacket(ofmt, pkt);
+		ret = normalizeAndWritePacket(ofmt, pkt, &timestampStates, errorOut, "direct");
 		av_packet_unref(pkt);
 		if (ret < 0) {
 			goto cleanup;
@@ -355,7 +458,7 @@ int remuxWithLibav(const QString& inputPath,
 			pkt->stream_index = map.outIndex;
 			av_packet_rescale_ts(pkt, map.bsf->time_base_out, outStream->time_base);
 			pkt->pos = -1;
-			ret = writePacket(ofmt, pkt);
+			ret = normalizeAndWritePacket(ofmt, pkt, &timestampStates, errorOut, "aac_bsf_flush");
 			av_packet_unref(pkt);
 			if (ret < 0) {
 				goto cleanup;
