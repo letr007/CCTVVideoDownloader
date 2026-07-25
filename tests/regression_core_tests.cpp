@@ -751,6 +751,16 @@ public:
         emit allDownloadFinished();
     }
 
+    QStringList shardFilePaths() const override
+    {
+        QStringList paths;
+        paths.reserve(m_lastUrls.size());
+        for (const QString& url : m_lastUrls) {
+            paths.append(QDir(m_lastSaveDir).filePath(QFileInfo(QUrl(url).path()).fileName()));
+        }
+        return paths;
+    }
+
     QStringList lastUrls() const { return m_lastUrls; }
     QString lastSaveDir() const { return m_lastSaveDir; }
 
@@ -787,9 +797,10 @@ public:
         m_actions.enqueue({FakeCoordinatorOutcome::Cancelled, message, delayMs});
     }
 
-    void setFilePath(const QString& path) override
+    void setConcatInputs(const QStringList& inputPaths, const QString& outputPath) override
     {
-        m_filePath = path;
+        m_inputPaths = inputPaths;
+        m_outputPath = outputPath;
     }
 
     void startConcat() override
@@ -818,12 +829,14 @@ public:
         emit concatFinished(false, QStringLiteral("cancelled"));
     }
 
-    QString filePath() const { return m_filePath; }
+    QStringList inputPaths() const { return m_inputPaths; }
+    QString outputPath() const { return m_outputPath; }
     int startCount() const { return m_startCount; }
 
 private:
     QQueue<FakeConcatAction> m_actions;
-    QString m_filePath;
+    QStringList m_inputPaths;
+    QString m_outputPath;
     int m_startCount = 0;
     bool m_pending = false;
 };
@@ -1058,6 +1071,7 @@ private slots:
     void decryptWorker_cancelDuringProcess_emitsCancelledAndDoesNotPublish();
 
     void concatWorker_success_stagesResultTs();
+    void concatWorker_explicitManifest_excludesResidualTsFiles();
     void concatWorker_zeroByteFile_emitsFailure();
     void concatWorker_cancelDuringMerge_emitsCancelledAndDoesNotStageResultTs();
 
@@ -4268,7 +4282,7 @@ void CoreRegressionTests::concatWorker_success_stagesResultTs()
     ConcatWorker worker;
     QSignalSpy spy(&worker, &ConcatWorker::concatFinished);
 
-    worker.setFilePath(tempDir.path());
+    worker.setConcatInputs({firstTsPath, secondTsPath}, QDir(tempDir.path()).filePath(QStringLiteral("result.ts")));
     worker.doConcat();
 
     QCOMPARE(spy.count(), 1);
@@ -4284,6 +4298,40 @@ void CoreRegressionTests::concatWorker_success_stagesResultTs()
     QVERIFY2(validation.ok, qPrintable(validation.code + QStringLiteral(": ") + validation.message));
 }
 
+void CoreRegressionTests::concatWorker_explicitManifest_excludesResidualTsFiles()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString firstTsPath = QDir(tempDir.path()).filePath(QStringLiteral("current-first.ts"));
+    const QString secondTsPath = QDir(tempDir.path()).filePath(QStringLiteral("current-second.ts"));
+    const QString staleTsPath = QDir(tempDir.path()).filePath(QStringLiteral("999.ts"));
+    const QString resultTsPath = QDir(tempDir.path()).filePath(QStringLiteral("result.ts"));
+    QVERIFY(createFakeTsFile(firstTsPath, 2, 0));
+    QVERIFY(createFakeTsFile(secondTsPath, 3, 256));
+    QVERIFY(createFakeTsFile(staleTsPath, 7, 512));
+    QVERIFY(createFakeTsFile(resultTsPath, 11, 768));
+
+    ConcatWorker worker;
+    QSignalSpy spy(&worker, &ConcatWorker::concatFinished);
+    worker.setConcatInputs({firstTsPath, secondTsPath}, resultTsPath);
+    worker.doConcat();
+
+    QCOMPARE(spy.count(), 1);
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(QFileInfo(resultTsPath).size(), qint64((2 + 3) * 188));
+
+    QFile resultFile(resultTsPath);
+    QVERIFY(resultFile.open(QIODevice::ReadOnly));
+    const QByteArray resultBytes = resultFile.readAll();
+    QCOMPARE(resultBytes.size(), (2 + 3) * 188);
+    QCOMPARE(static_cast<quint8>(resultBytes.at(1)) & 0x1F, quint8(0));
+    QCOMPARE(static_cast<quint8>(resultBytes.at(2)), quint8(0));
+    QCOMPARE(static_cast<quint8>(resultBytes.at(2 * 188 + 1)) & 0x1F, quint8(1));
+    QCOMPARE(static_cast<quint8>(resultBytes.at(2 * 188 + 2)), quint8(0));
+}
+
 void CoreRegressionTests::concatWorker_zeroByteFile_emitsFailure()
 {
     QTemporaryDir tempDir;
@@ -4295,7 +4343,7 @@ void CoreRegressionTests::concatWorker_zeroByteFile_emitsFailure()
     ConcatWorker worker;
     QSignalSpy spy(&worker, &ConcatWorker::concatFinished);
 
-    worker.setFilePath(tempDir.path());
+    worker.setConcatInputs({zeroFile}, QDir(tempDir.path()).filePath(QStringLiteral("result.ts")));
     worker.doConcat();
 
     QCOMPARE(spy.count(), 1);
@@ -4327,7 +4375,7 @@ void CoreRegressionTests::concatWorker_cancelDuringMerge_emitsCancelledAndDoesNo
         }
     });
 
-    worker.setFilePath(tempDir.path());
+    worker.setConcatInputs({firstTsPath, secondTsPath}, QDir(tempDir.path()).filePath(QStringLiteral("result.ts")));
     worker.doConcat();
     clearTsMergerTestPacketProcessedHook();
 
@@ -5140,8 +5188,11 @@ void CoreRegressionTests::coordinatorFakeConcatStage_supportsSuccessFailureAndCa
     FakeCoordinatorConcatStage stage;
     QSignalSpy spy(&stage, &CoordinatorConcatStage::concatFinished);
 
-    stage.setFilePath(QStringLiteral("C:/fake/task"));
-    QCOMPARE(stage.filePath(), QStringLiteral("C:/fake/task"));
+    const QStringList inputPaths = {QStringLiteral("C:/fake/task/1.ts"), QStringLiteral("C:/fake/task/2.ts")};
+    const QString outputPath = QStringLiteral("C:/fake/task/result.ts");
+    stage.setConcatInputs(inputPaths, outputPath);
+    QCOMPARE(stage.inputPaths(), inputPaths);
+    QCOMPARE(stage.outputPath(), outputPath);
 
     stage.queueSuccess(QStringLiteral("result.ts ready"));
     stage.startConcat();
@@ -6414,7 +6465,10 @@ void CoreRegressionTests::downloadCoordinator_ownedConcatStage_mergesTaskDirecto
     QVERIFY(createFakeTsFile(QDir(taskDir).filePath(QStringLiteral("0001.ts")), 2, 0));
     QVERIFY(createFakeTsFile(QDir(taskDir).filePath(QStringLiteral("0002.ts")), 2, 256));
 
-    resolver.queueSuccess({QStringLiteral("https://fake.test/owned-concat-1.ts")}, false);
+    resolver.queueSuccess({
+        QStringLiteral("https://fake.test/0001.ts"),
+        QStringLiteral("https://fake.test/0002.ts")
+    }, false);
     downloadStage.queueSuccess({{100, 100}});
     decryptStage.queueSuccess(QStringLiteral("decrypt-after-owned-concat"));
 

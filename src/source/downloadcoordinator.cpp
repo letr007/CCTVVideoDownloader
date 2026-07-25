@@ -122,6 +122,16 @@ public:
         requestCancel();
     }
 
+    QStringList shardFilePaths() const override
+    {
+        QStringList paths;
+        paths.reserve(m_urls.size());
+        for (int index = 1; index <= m_urls.size(); ++index) {
+            paths.append(shardFilePathForIndex(index));
+        }
+        return paths;
+    }
+
 #ifdef CORE_REGRESSION_TESTS
     void setTestReplyFactory(const std::function<QNetworkReply*(const QNetworkRequest&)>& replyFactory)
     {
@@ -564,9 +574,10 @@ public:
         shutdownActiveStage();
     }
 
-    void setFilePath(const QString& path) override
+    void setConcatInputs(const QStringList& inputPaths, const QString& outputPath) override
     {
-        m_filePath = path;
+        m_inputPaths = inputPaths;
+        m_outputPath = outputPath;
     }
 
     void startConcat() override
@@ -582,7 +593,7 @@ public:
 
         auto* worker = new ConcatWorker();
         auto* thread = new QThread();
-        worker->setFilePath(m_filePath);
+        worker->setConcatInputs(m_inputPaths, m_outputPath);
         worker->moveToThread(thread);
 
         m_worker = worker;
@@ -647,7 +658,8 @@ private:
         }
     }
 
-    QString m_filePath;
+    QStringList m_inputPaths;
+    QString m_outputPath;
     ConcatWorker* m_worker = nullptr;
     QThread* m_thread = nullptr;
     bool m_resultPending = false;
@@ -1362,7 +1374,9 @@ void DownloadCoordinator::onDownloadFinished(bool success, const QString& errorS
     }
 
     transitionJob(m_currentIndex, DownloadJobState::Concatenating, DownloadJobStage::MergingShards);
-    m_concatStage->setFilePath(currentJobTaskDirectory());
+    m_concatStage->setConcatInputs(
+        m_downloadStage->shardFilePaths(),
+        QDir(currentJobTaskDirectory()).filePath(QStringLiteral("result.ts")));
     m_concatStage->startConcat();
 }
 

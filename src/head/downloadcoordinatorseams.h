@@ -36,6 +36,7 @@ public:
     virtual void startDownload(const QStringList& segmentUrls, const QString& saveDir, const QVariant& userData) = 0;
     virtual void cancelDownload(const QVariant& userData) = 0;
     virtual void cancelAllDownloads() = 0;
+    virtual QStringList shardFilePaths() const = 0;
 
 signals:
     void downloadProgress(qint64 bytesReceived, qint64 bytesTotal, const QVariant& userData);
@@ -52,7 +53,7 @@ public:
     using QObject::QObject;
     ~CoordinatorConcatStage() override = default;
 
-    virtual void setFilePath(const QString& path) = 0;
+    virtual void setConcatInputs(const QStringList& inputPaths, const QString& outputPath) = 0;
     virtual void startConcat() = 0;
     virtual void cancelConcat() = 0;
 
