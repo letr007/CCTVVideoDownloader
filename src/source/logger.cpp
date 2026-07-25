@@ -1,6 +1,7 @@
 #include "../head/logger.h"
 #include "../head/config.h"
 #include <QDir>
+#include <QFileInfo>
 #include <QStandardPaths>
 #include <QMutexLocker>
 #include <iostream>
@@ -52,15 +53,18 @@ void Logger::init(const QString& logFilePath)
 	detachStreamAndCloseFile();
 
 	QString filePath = logFilePath;
-	if (filePath == "app.log") {
+	if (filePath.isEmpty() || filePath == QStringLiteral("app.log")
+		|| !QFileInfo(filePath).isAbsolute()) {
 		const QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
 		QDir().mkpath(appDataPath);
-		filePath = appDataPath + "/app.log";
+		const QString fileName = (filePath.isEmpty() || filePath == QStringLiteral("app.log"))
+			? QStringLiteral("app.log")
+			: QFileInfo(filePath).fileName();
+		filePath = QDir(appDataPath).filePath(fileName);
 	}
 
 	m_logFile.setFileName(filePath);
 	if (!m_logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
-		std::cerr << "Failed to open log file: " << filePath.toStdString() << std::endl;
 		g_loggerActive.store(false, std::memory_order_release);
 		return;
 	}

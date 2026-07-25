@@ -41,8 +41,7 @@ CCTVVideoDownloader::CCTVVideoDownloader(QWidget* parent)
     setWindowIcon(QIcon(QPixmap(":/cctvvideodownload.png")));
     // 初始化全局设置
     initGlobalSettings();
-    // 初始化日志系统
-    Logger::instance()->init("cctvvideodownloader.log");
+    Logger::instance()->init(QStringLiteral("app.log"));
     // 从配置读取日志级别并设置
     int logLevel = readLogLevel();
     Logger::instance()->setLogLevel(logLevel);
