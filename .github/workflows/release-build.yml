@@ -152,6 +152,7 @@ jobs:
         run: |
           app="artifact/CCTVVideoDownloader/CCTVVideoDownloader.app"
           zip="artifact/CCTVVideoDownloader.${PACKAGE_ID}.macos.arm64.zip"
+          dmg="artifact/CCTVVideoDownloader.${PACKAGE_ID}.macos.arm64.dmg"
           test -x "$app/Contents/MacOS/CCTVVideoDownloader"
           test -d "$app/Contents/Frameworks/QtCore.framework"
           test -f "$app/Contents/PlugIns/platforms/libqcocoa.dylib"
@@ -164,7 +165,15 @@ jobs:
           process.terminate()
           process.wait(timeout=5)
           PY
+          # Keep the portable .app zip, and also publish a guided installer DMG.
           ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
+          brew list --versions imagemagick >/dev/null 2>&1 || brew install imagemagick
+          chmod +x scripts/package-macos-dmg.sh
+          ./scripts/package-macos-dmg.sh \
+            "$app" \
+            "$dmg" \
+            packaging/macos/dmg-background.png
+          test -f "$dmg"
 
       - name: Package Linux x86_64
         if: matrix.package_kind == 'linux'
@@ -184,6 +193,7 @@ jobs:
           path: |
             artifact/CCTVVideoDownloader.*.win.x64.zip
             artifact/CCTVVideoDownloader.*.macos.arm64.zip
+            artifact/CCTVVideoDownloader.*.macos.arm64.dmg
             artifact/CCTVVideoDownloader.*.linux.x86_64.tar.gz
             artifact/vc_redist.x64.exe
           if-no-files-found: error

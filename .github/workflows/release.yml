@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           cd artifact
-          sha256sum CCTVVideoDownloader.*.zip CCTVVideoDownloader.*.tar.gz > SHA256SUMS
+          sha256sum CCTVVideoDownloader.*.zip CCTVVideoDownloader.*.dmg CCTVVideoDownloader.*.tar.gz > SHA256SUMS
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -41,6 +41,7 @@ jobs:
           files: |
             artifact/CCTVVideoDownloader.*.win.x64.zip
             artifact/CCTVVideoDownloader.*.macos.arm64.zip
+            artifact/CCTVVideoDownloader.*.macos.arm64.dmg
             artifact/CCTVVideoDownloader.*.linux.x86_64.tar.gz
             artifact/vc_redist.x64.exe
             artifact/SHA256SUMS
