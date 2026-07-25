@@ -181,10 +181,19 @@ jobs:
         run: |
           package_dir="artifact/CCTVVideoDownloader"
           archive="artifact/CCTVVideoDownloader.${PACKAGE_ID}.linux.x86_64.tar.gz"
+          appimage="artifact/CCTVVideoDownloader.${PACKAGE_ID}.linux.x86_64.AppImage"
           test -x "$package_dir/bin/CCTVVideoDownloader"
           find "$package_dir" -name 'libQt6Core.so*' -print -quit | grep -q .
           find "$package_dir" -path '*/platforms/libqxcb.so' -print -quit | grep -q .
           tar -C artifact -czf "$archive" CCTVVideoDownloader
+          # Keep the portable tarball and also publish a download-and-run AppImage.
+          chmod +x scripts/package-linux-appimage.sh
+          ./scripts/package-linux-appimage.sh \
+            "$package_dir" \
+            "$appimage" \
+            packaging/linux/cctvvideodownloader.desktop \
+            packaging/linux/cctvvideodownloader.png
+          test -x "$appimage"
 
       - name: Upload useful release packages
         uses: actions/upload-artifact@v4
@@ -195,5 +204,6 @@ jobs:
             artifact/CCTVVideoDownloader.*.macos.arm64.zip
             artifact/CCTVVideoDownloader.*.macos.arm64.dmg
             artifact/CCTVVideoDownloader.*.linux.x86_64.tar.gz
+            artifact/CCTVVideoDownloader.*.linux.x86_64.AppImage
             artifact/vc_redist.x64.exe
           if-no-files-found: error

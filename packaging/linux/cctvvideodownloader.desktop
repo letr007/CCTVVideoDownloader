@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=CCTV Video Downloader
+Comment=Download videos from CCTV
+Exec=CCTVVideoDownloader
+Icon=cctvvideodownloader
+Categories=AudioVideo;Network;Qt;
+Terminal=false
+StartupNotify=true
