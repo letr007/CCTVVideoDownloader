@@ -1,13 +1,16 @@
 <h1 align="center">央视频下载器</h1>
 <p align="center" class="shields">
     <a href="https://github.com/letr007/CCTVVideoDownloader/issues" style="text-decoration:none">
-        <img src="https://img.shields.io/github/issues/letr007/CCTVVideoDownloader.svg" alt="GitHub issues"/>
+        <img src="https://img.shields.io/github/issues/letr007/CCTVVideoDownloader?style=for-the-badge" alt="GitHub issues"/>
     </a>
     <a href="https://github.com/letr007/CCTVVideoDownloader" style="text-decoration:none" >
-        <img src="https://img.shields.io/github/stars/letr007/CCTVVideoDownloader.svg" alt="GitHub stars"/>
+        <img src="https://img.shields.io/github/stars/letr007/CCTVVideoDownloader?style=for-the-badge" alt="GitHub stars"/>
     </a>
     <a href="https://github.com/letr007/CCTVVideoDownloader" style="text-decoration:none" >
-        <img src="https://img.shields.io/github/forks/letr007/CCTVVideoDownloader.svg" alt="GitHub forks"/>
+        <img src="https://img.shields.io/github/forks/letr007/CCTVVideoDownloader?style=for-the-badge" alt="GitHub forks"/>
+    </a>
+    <a href="https://linux.do" style="text-decoration:none" >
+        <img src="https://img.shields.io/badge/LINUX_DO-社区友链-FFD700?style=for-the-badge" alt="LinuxDo"/>
     </a>
 </p>
 
