@@ -29,8 +29,12 @@ if ! command -v magick >/dev/null 2>&1; then
 fi
 
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cctv-dmg.XXXXXX")"
+VERIFY_DEVICE=""
 cleanup() {
   local mount
+  if [[ -n "$VERIFY_DEVICE" ]]; then
+    hdiutil detach "$VERIFY_DEVICE" >/dev/null 2>&1 || true
+  fi
   for mount in "/Volumes/${VOLNAME}" /Volumes/"${VOLNAME}"*; do
     if [[ -e "$mount" ]]; then
       hdiutil detach "$mount" >/dev/null 2>&1 || true
@@ -46,6 +50,7 @@ BG_USE="$WORK_DIR/background.png"
 
 mkdir -p "$STAGE/.background"
 ditto "$APP_PATH" "$STAGE/CCTVVideoDownloader.app"
+codesign --verify --deep --strict --verbose=2 "$STAGE/CCTVVideoDownloader.app"
 ln -s /Applications "$STAGE/Applications"
 
 # Finder content area for bounds {180,120,1010,590} is about 830x470.
@@ -106,5 +111,31 @@ hdiutil detach "$MOUNT" >/dev/null
 mkdir -p "$(dirname "$OUTPUT_DMG")"
 rm -f "$OUTPUT_DMG"
 hdiutil convert "$RW_DMG" -format UDZO -imagekey zlib-level=9 -o "$OUTPUT_DMG" >/dev/null
+
+# Verify the exact app stored in the final compressed image, not only the
+# source bundle used to create it.
+VERIFY_MOUNT="$WORK_DIR/verify"
+mkdir -p "$VERIFY_MOUNT"
+VERIFY_DEVICE="$(hdiutil attach -readonly -noverify -noautoopen \
+  -mountpoint "$VERIFY_MOUNT" "$OUTPUT_DMG" | awk '/^\/dev\// { print $1; exit }')"
+if [[ -z "$VERIFY_DEVICE" || ! -d "$VERIFY_MOUNT/CCTVVideoDownloader.app" ]]; then
+  echo "failed to mount final DMG for verification" >&2
+  exit 1
+fi
+codesign --verify --deep --strict --verbose=2 "$VERIFY_MOUNT/CCTVVideoDownloader.app"
+python3 - "$VERIFY_MOUNT/CCTVVideoDownloader.app" <<'PY'
+import subprocess
+import sys
+import time
+
+process = subprocess.Popen([f"{sys.argv[1]}/Contents/MacOS/CCTVVideoDownloader"])
+time.sleep(5)
+if process.poll() is not None:
+    raise SystemExit(f"DMG app exited with {process.returncode}")
+process.terminate()
+process.wait(timeout=5)
+PY
+hdiutil detach "$VERIFY_DEVICE" >/dev/null
+VERIFY_DEVICE=""
 
 echo "created $OUTPUT_DMG"

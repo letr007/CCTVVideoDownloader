@@ -156,6 +156,10 @@ jobs:
           test -x "$app/Contents/MacOS/CCTVVideoDownloader"
           test -d "$app/Contents/Frameworks/QtCore.framework"
           test -f "$app/Contents/PlugIns/platforms/libqcocoa.dylib"
+          # Seal the complete deployed bundle. The linker signature on the main
+          # executable alone is invalid once frameworks and resources are added.
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
           python3 - "$app" <<'PY'
           import subprocess, sys, time
           process = subprocess.Popen([f"{sys.argv[1]}/Contents/MacOS/CCTVVideoDownloader"])
