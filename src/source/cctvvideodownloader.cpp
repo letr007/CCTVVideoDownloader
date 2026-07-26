@@ -7,28 +7,45 @@
 #include "../head/downloadjob.h"
 #include "../head/downloadprogresswindow.h"
 #include "../head/logger.h"
+#include "../head/monthcalendarwidget.h"
+#include "../head/theme.h"
 #include <algorithm>
+#include <QDateEdit>
+#include <QHeaderView>
 #include <QResizeEvent>
 #include <QStatusBar>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMenu>
+#include <QSignalBlocker>
+#include <QTimer>
 
 #include <QSizePolicy>
+
+namespace {
+
+void configureMonthPicker(QDateEdit* dateEdit)
+{
+    dateEdit->setMinimumDate(QDate(2000, 1, 1));
+    dateEdit->setMaximumDate(QDate::currentDate());
+    dateEdit->setCalendarWidget(new MonthCalendarWidget(
+        dateEdit->minimumDate(), dateEdit->maximumDate(), dateEdit));
+}
+
+} // namespace
 
 
 CCTVVideoDownloader::CCTVVideoDownloader(QWidget* parent)
     : QMainWindow(parent)
 {
     ui.setupUi(this);
-    setMinimumSize(640, 480);
-    setMaximumSize(960, 720);
-    resize(800, 600);
+    setMinimumSize(680, 480);
+    resize(900, 664);
     ui.leftPane->setMinimumWidth(180);
     ui.rightPane->setMinimumWidth(180);
     ui.mainSplitter->setStretchFactor(0, 1);
     ui.mainSplitter->setStretchFactor(1, 1);
-    ui.mainSplitter->setSizes({ 240, 240 });
+    ui.mainSplitter->setSizes({ 430, 430 });
     ui.label_img->setScaledContents(false);
     ui.label_img->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     ui.label_title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
@@ -38,8 +55,67 @@ CCTVVideoDownloader::CCTVVideoDownloader(QWidget* parent)
     // 设置标题和图标
     setWindowTitle(QString("央视视频下载器"));
     setWindowIcon(QIcon(QPixmap(":/cctvvideodownload.png")));
+    const auto updateThemeIcons = [this]() {
+        const QIcon refreshIcon = Theme::tintedIcon(QStringLiteral(":/flash.png"), Theme::Role::TextSecondary);
+        ui.flash_program->setIcon(refreshIcon);
+        ui.flash_list->setIcon(refreshIcon);
+        ui.settings->setIcon(Theme::tintedIcon(QStringLiteral(":/setting.png")));
+        // The source glyph is white and sits on the accent-colored primary button.
+        ui.pushButton->setIcon(QIcon(QStringLiteral(":/download.png")));
+    };
+    updateThemeIcons();
+    connect(Theme::instance(), &Theme::themeChanged, this, updateThemeIcons);
+
+    ui.tableWidget_Config->horizontalHeader()->setHighlightSections(false);
+    ui.tableWidget_Config->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    ui.tableWidget_Config->setColumnHidden(1, true);
+    ui.tableWidget_Config->setColumnHidden(2, true);
+    ui.tableWidget_Config->verticalHeader()->setDefaultSectionSize(32);
+    ui.tableWidget_List->horizontalHeader()->setHighlightSections(false);
+    ui.tableWidget_List->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    ui.tableWidget_List->verticalHeader()->setDefaultSectionSize(32);
     // 初始化全局设置
     initGlobalSettings();
+
+    const auto [displayStart, displayEnd] = readDisplayMinAndMax();
+    const auto [normalizedStart, normalizedEnd] = normalizeDisplayMonths(
+        displayStart, displayEnd);
+    const QDate startMonth = QDate::fromString(
+        normalizedStart + QStringLiteral("01"), QStringLiteral("yyyyMMdd"));
+    const QDate endMonth = QDate::fromString(
+        normalizedEnd + QStringLiteral("01"), QStringLiteral("yyyyMMdd"));
+    {
+        const QSignalBlocker startBlocker(ui.dateEdit_video_start);
+        const QSignalBlocker endBlocker(ui.dateEdit_video_end);
+        ui.dateEdit_video_start->setDate(startMonth);
+        ui.dateEdit_video_end->setDate(endMonth);
+    }
+    configureMonthPicker(ui.dateEdit_video_start);
+    configureMonthPicker(ui.dateEdit_video_end);
+    // Persist normalized values so legacy/future ranges do not break later runs.
+    writeDisplayMinAndMax(
+        startMonth.toString(QStringLiteral("yyyyMM")),
+        endMonth.toString(QStringLiteral("yyyyMM")));
+
+    auto* rangeRefreshTimer = new QTimer(this);
+    rangeRefreshTimer->setSingleShot(true);
+    rangeRefreshTimer->setInterval(300);
+    connect(rangeRefreshTimer, &QTimer::timeout, this, [this]() {
+        if (SELECTED_PROGRAMME) {
+            flashVideoList();
+        }
+    });
+    const auto persistVideoRange = [this, rangeRefreshTimer]() {
+        writeDisplayMinAndMax(
+            ui.dateEdit_video_start->date().toString(QStringLiteral("yyyyMM")),
+            ui.dateEdit_video_end->date().toString(QStringLiteral("yyyyMM")));
+        rangeRefreshTimer->start();
+    };
+    connect(ui.dateEdit_video_start, &QDateEdit::dateChanged,
+        this, persistVideoRange);
+    connect(ui.dateEdit_video_end, &QDateEdit::dateChanged,
+        this, persistVideoRange);
+
     Logger::instance()->init(QStringLiteral("app.log"));
     // 从配置读取日志级别并设置
     int logLevel = readLogLevel();
@@ -93,6 +169,8 @@ void CCTVVideoDownloader::signalConnect()
     ui.tableWidget_Config->setSelectionMode(QAbstractItemView::ExtendedSelection);
     ui.tableWidget_Config->setSelectionBehavior(QAbstractItemView::SelectRows);
     ui.tableWidget_Config->setContextMenuPolicy(Qt::CustomContextMenu);
+    ui.tableWidget_Config->verticalHeader()->setVisible(false);
+    ui.tableWidget_List->verticalHeader()->setVisible(false);
     connect(ui.tableWidget_Config, &QTableWidget::customContextMenuRequested,
         this, &CCTVVideoDownloader::onProgrammeContextMenuRequested);
 }
@@ -132,8 +210,9 @@ void CCTVVideoDownloader::flashProgrammeList()
         table->setItem(row, 2, itemIdItem);
     }
 
-    // 自动调整列宽
-    table->resizeColumnsToContents();
+    // Keep the visible name column filling the table. resizeColumnsToContents()
+    // would override this after the import dialog closes and collapse the table.
+    table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     
     qInfo() << "节目列表刷新完成，显示" << programmes.size() << "个节目";
 }
@@ -305,6 +384,11 @@ void CCTVVideoDownloader::handleBrowseVideoListResolved(quint64 requestId, const
     VIDEOS = videos;
     qInfo() << "异步视频列表刷新完成，请求ID:" << requestId << "视频数量:" << VIDEOS.size();
     renderVideoList(m_pendingVideoListShowHighlights);
+    if (VIDEOS.isEmpty()) {
+        statusBar()->showMessage(QStringLiteral("当前节目在所选区间内没有视频"), 5000);
+    } else {
+        statusBar()->showMessage(QStringLiteral("已加载 %1 个视频").arg(VIDEOS.size()), 3000);
+    }
     ui.flash_list->setEnabled(true);
     ui.tableWidget_List->setEnabled(true);
     ui.btn_select_all->setEnabled(true);

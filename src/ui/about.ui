@@ -2,141 +2,49 @@
 <ui version="4.0">
  <class>AboutDialog</class>
  <widget class="QDialog" name="AboutDialog">
-  <property name="geometry">
-   <rect>
-    <x>0</x>
-    <y>0</y>
-    <width>200</width>
-    <height>190</height>
-   </rect>
-  </property>
-  <property name="windowTitle">
-   <string>关于</string>
-  </property>
-  <widget class="QLabel" name="label_img">
-   <property name="geometry">
-    <rect>
-     <x>90</x>
-     <y>10</y>
-     <width>100</width>
-     <height>100</height>
-    </rect>
-   </property>
-   <property name="text">
-    <string>TextLabel</string>
-   </property>
-  </widget>
-  <widget class="QLabel" name="label_4">
-   <property name="geometry">
-    <rect>
-     <x>10</x>
-     <y>130</y>
-     <width>70</width>
-     <height>20</height>
-    </rect>
-   </property>
-   <property name="text">
-    <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-size:12pt; font-weight:700;&quot;&gt;项目地址&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-   </property>
-   <property name="alignment">
-    <set>Qt::AlignmentFlag::AlignCenter</set>
-   </property>
-  </widget>
-  <widget class="QLabel" name="label_2">
-   <property name="geometry">
-    <rect>
-     <x>10</x>
-     <y>10</y>
-     <width>70</width>
-     <height>15</height>
-    </rect>
-   </property>
-   <property name="font">
-    <font>
-     <pointsize>10</pointsize>
-    </font>
-   </property>
-   <property name="layoutDirection">
-    <enum>Qt::LayoutDirection::LeftToRight</enum>
-   </property>
-   <property name="text">
-    <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;作者:&lt;/span&gt;letr&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-   </property>
-   <property name="textFormat">
-    <enum>Qt::TextFormat::RichText</enum>
-   </property>
-   <property name="alignment">
-    <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
-   </property>
-  </widget>
-  <widget class="QLabel" name="label_3">
-   <property name="geometry">
-    <rect>
-     <x>10</x>
-     <y>35</y>
-     <width>70</width>
-     <height>70</height>
-    </rect>
-   </property>
-   <property name="font">
-    <font>
-     <pointsize>9</pointsize>
-    </font>
-   </property>
-   <property name="text">
-    <string>逻辑混乱
-代码稀烂
-大佬轻喷</string>
-   </property>
-   <property name="textFormat">
-    <enum>Qt::TextFormat::PlainText</enum>
-   </property>
-   <property name="alignment">
-    <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set>
-   </property>
-   <property name="wordWrap">
-    <bool>true</bool>
-   </property>
-  </widget>
-  <widget class="QLabel" name="label_version">
-   <property name="geometry">
-    <rect>
-     <x>10</x>
-     <y>108</y>
-     <width>180</width>
-     <height>20</height>
-    </rect>
-   </property>
-   <property name="text">
-    <string>版本：</string>
-   </property>
-   <property name="alignment">
-    <set>Qt::AlignmentFlag::AlignCenter</set>
-   </property>
-  </widget>
-  <widget class="QLabel" name="label_link">
-   <property name="geometry">
-    <rect>
-     <x>10</x>
-     <y>150</y>
-     <width>180</width>
-     <height>30</height>
-    </rect>
-   </property>
-   <property name="text">
-    <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://github.com/letr007/CCTVVideoDownloader&quot;&gt;&lt;span style=&quot; font-weight:700; text-decoration: underline; color:#555555;&quot;&gt;https://github.com/letr007/CCTVVideoDownloader&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-   </property>
-   <property name="textFormat">
-    <enum>Qt::TextFormat::RichText</enum>
-   </property>
-   <property name="alignment">
-    <set>Qt::AlignmentFlag::AlignCenter</set>
-   </property>
-   <property name="wordWrap">
-    <bool>true</bool>
-   </property>
-  </widget>
+  <property name="geometry"><rect><x>0</x><y>0</y><width>440</width><height>410</height></rect></property>
+  <property name="minimumSize"><size><width>400</width><height>380</height></size></property>
+  <property name="windowTitle"><string>关于</string></property>
+  <layout class="QVBoxLayout" name="rootLayout">
+   <property name="spacing"><number>12</number></property>
+   <property name="leftMargin"><number>28</number></property>
+   <property name="topMargin"><number>24</number></property>
+   <property name="rightMargin"><number>28</number></property>
+   <property name="bottomMargin"><number>20</number></property>
+   <item alignment="Qt::AlignmentFlag::AlignHCenter">
+    <widget class="QLabel" name="label_img">
+     <property name="minimumSize"><size><width>112</width><height>112</height></size></property>
+     <property name="maximumSize"><size><width>112</width><height>112</height></size></property>
+     <property name="text"><string/></property>
+     <property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="appNameLabel">
+     <property name="text"><string>央视视频下载器</string></property>
+     <property name="textRole" stdset="0"><string>title</string></property>
+     <property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property>
+    </widget>
+   </item>
+   <item><widget class="QLabel" name="label_version"><property name="text"><string>版本：</string></property><property name="textRole" stdset="0"><string>caption</string></property><property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property></widget></item>
+   <item><widget class="QLabel" name="label_3"><property name="text"><string>用于浏览和下载央视视频节目的桌面工具。</string></property><property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+   <item><widget class="Line" name="aboutSeparator"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property></widget></item>
+   <item><widget class="QLabel" name="label_2"><property name="text"><string>作者：letr</string></property><property name="textRole" stdset="0"><string>caption</string></property><property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property></widget></item>
+   <item><widget class="QLabel" name="label_4"><property name="text"><string>项目主页</string></property><property name="textRole" stdset="0"><string>section</string></property><property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property></widget></item>
+   <item>
+    <widget class="QLabel" name="label_link">
+     <property name="text"><string>&lt;a href=&quot;https://github.com/letr007/CCTVVideoDownloader&quot;&gt;github.com/letr007/CCTVVideoDownloader&lt;/a&gt;</string></property>
+     <property name="textFormat"><enum>Qt::TextFormat::RichText</enum></property>
+     <property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property>
+     <property name="wordWrap"><bool>true</bool></property>
+    </widget>
+   </item>
+   <item><spacer name="verticalSpacer"><property name="orientation"><enum>Qt::Orientation::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>8</height></size></property></spacer></item>
+   <item><widget class="QDialogButtonBox" name="buttonBox"><property name="standardButtons"><set>QDialogButtonBox::StandardButton::Close</set></property></widget></item>
+  </layout>
  </widget>
  <resources/>
- <connections/>
+ <connections>
+  <connection><sender>buttonBox</sender><signal>rejected()</signal><receiver>AboutDialog</receiver><slot>reject()</slot></connection>
+ </connections>
 </ui>

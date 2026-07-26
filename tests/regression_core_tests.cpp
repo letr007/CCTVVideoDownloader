@@ -30,6 +30,7 @@
 #include <QMutexLocker>
 #include <QThread>
 #include <QTimer>
+#include <QToolButton>
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -49,6 +50,7 @@
 #include "libavremuxer.h"
 #include "mediafinalizer.h"
 #include "mediacontainervalidator.h"
+#include "monthcalendarwidget.h"
 #include "concatworker.h"
 #include "downloadcoordinator.h"
 #include "downloadcoordinatorseams.h"
@@ -995,6 +997,9 @@ private slots:
     void cleanup();
 
     void initGlobalSettings_createsDefaults();
+    void displayRange_writeRoundTrips();
+    void displayRange_normalizesFutureAndReversedMonths();
+    void monthCalendar_selectsMonthAndDisablesFutureMonths();
     void setting_saveSettings_roundTripsValuesFromWidgetsToDisk();
     void setting_smoke_persistsSettingsAcrossFreshSession();
 
@@ -1240,6 +1245,86 @@ void CoreRegressionTests::initGlobalSettings_createsDefaults()
     QCOMPARE(dateEnd, QDate::currentDate().addMonths(-1).toString("yyyyMM"));
 }
 
+void CoreRegressionTests::displayRange_writeRoundTrips()
+{
+    initializeSettingsSandbox();
+
+    writeDisplayMinAndMax(QStringLiteral("202407"), QStringLiteral("202401"));
+    const auto [dateBeg, dateEnd] = readDisplayMinAndMax();
+
+    QCOMPARE(dateBeg, QStringLiteral("202407"));
+    QCOMPARE(dateEnd, QStringLiteral("202401"));
+}
+
+void CoreRegressionTests::displayRange_normalizesFutureAndReversedMonths()
+{
+    const QDate latestDate(2026, 7, 26);
+
+    const auto [futureStart, futureEnd] = normalizeDisplayMonths(
+        QStringLiteral("202805"), QStringLiteral("202701"), latestDate);
+    QCOMPARE(futureStart, QStringLiteral("202607"));
+    QCOMPARE(futureEnd, QStringLiteral("202503"));
+
+    const auto [reversedStart, reversedEnd] = normalizeDisplayMonths(
+        QStringLiteral("202401"), QStringLiteral("202406"), latestDate);
+    QCOMPARE(reversedStart, QStringLiteral("202406"));
+    QCOMPARE(reversedEnd, QStringLiteral("202401"));
+
+    const auto [multiYearStart, multiYearEnd] = normalizeDisplayMonths(
+        QStringLiteral("202607"), QStringLiteral("202101"), latestDate);
+    QCOMPARE(multiYearStart, QStringLiteral("202607"));
+    QCOMPARE(multiYearEnd, QStringLiteral("202101"));
+}
+
+void CoreRegressionTests::monthCalendar_selectsMonthAndDisablesFutureMonths()
+{
+    MonthCalendarWidget calendar(QDate(2000, 1, 1), QDate(2026, 7, 26));
+    calendar.setSelectedDate(QDate(2025, 3, 1));
+    calendar.showYear(2026);
+
+    auto* julyButton = calendar.findChild<QToolButton*>(
+        QStringLiteral("monthPickerMonth7"));
+    auto* augustButton = calendar.findChild<QToolButton*>(
+        QStringLiteral("monthPickerMonth8"));
+    QVERIFY(julyButton != nullptr);
+    QVERIFY(augustButton != nullptr);
+    QVERIFY(julyButton->isEnabled());
+    QVERIFY(!augustButton->isEnabled());
+
+    QSignalSpy activatedSpy(&calendar, &QCalendarWidget::activated);
+    QTest::mouseClick(julyButton, Qt::LeftButton);
+
+    QCOMPARE(calendar.selectedDate(), QDate(2026, 7, 1));
+    QCOMPARE(activatedSpy.count(), 1);
+    QCOMPARE(activatedSpy.takeFirst().at(0).toDate(), QDate(2026, 7, 1));
+
+    QDateEdit editor;
+    editor.setCalendarPopup(true);
+    auto* editorCalendar = new MonthCalendarWidget(
+        QDate(2000, 1, 1), QDate(2026, 7, 26), &editor);
+    editor.setCalendarWidget(editorCalendar);
+    editor.setDate(QDate(2025, 3, 1));
+    editorCalendar->showYear(2024);
+
+    auto* novemberButton = editorCalendar->findChild<QToolButton*>(
+        QStringLiteral("monthPickerMonth11"));
+    QVERIFY(novemberButton != nullptr);
+    QTest::mouseClick(novemberButton, Qt::LeftButton);
+    QCOMPARE(editor.date(), QDate(2024, 11, 1));
+
+    calendar.setSelectedDate(QDate(2026, 6, 1));
+    calendar.showYear(2026);
+    QTest::keyClick(&calendar, Qt::Key_Right);
+    QCOMPARE(calendar.selectedDate(), QDate(2026, 7, 1));
+    QTest::keyClick(&calendar, Qt::Key_Right);
+    QCOMPARE(calendar.selectedDate(), QDate(2026, 7, 1));
+
+    QSignalSpy keyboardActivatedSpy(&calendar, &QCalendarWidget::activated);
+    QTest::keyClick(&calendar, Qt::Key_Return);
+    QCOMPARE(keyboardActivatedSpy.count(), 1);
+    QCOMPARE(keyboardActivatedSpy.takeFirst().at(0).toDate(), QDate(2026, 7, 1));
+}
+
 void CoreRegressionTests::setting_saveSettings_roundTripsValuesFromWidgetsToDisk()
 {
     initializeSettingsSandbox();
@@ -1248,8 +1333,6 @@ void CoreRegressionTests::setting_saveSettings_roundTripsValuesFromWidgetsToDisk
 
     auto* savePathEdit = setting.findChild<QLineEdit*>("lineEdit_file_save_path");
     auto* threadSpin = setting.findChild<QSpinBox*>("spinBox_thread");
-    auto* dateBegEdit = setting.findChild<QDateEdit*>("dateEdit_1");
-    auto* dateEndEdit = setting.findChild<QDateEdit*>("dateEdit_2");
     auto* qualityCombo = setting.findChild<QComboBox*>("comboBox_quality");
     auto* logCombo = setting.findChild<QComboBox*>("comboBox_log");
     auto* highlightsCheck = setting.findChild<QCheckBox*>("checkBox_highlights");
@@ -1258,8 +1341,6 @@ void CoreRegressionTests::setting_saveSettings_roundTripsValuesFromWidgetsToDisk
 
     QVERIFY(savePathEdit != nullptr);
     QVERIFY(threadSpin != nullptr);
-    QVERIFY(dateBegEdit != nullptr);
-    QVERIFY(dateEndEdit != nullptr);
     QVERIFY(qualityCombo != nullptr);
     QVERIFY(logCombo != nullptr);
     QVERIFY(highlightsCheck != nullptr);
@@ -1268,15 +1349,11 @@ void CoreRegressionTests::setting_saveSettings_roundTripsValuesFromWidgetsToDisk
 
     const QString expectedSavePath = QDir(m_tempDir->path()).filePath("custom_path");
     const int expectedThreadNum = 6;
-    const QDate expectedDateBeg = QDate::currentDate().addMonths(-2);
-    const QDate expectedDateEnd = QDate::currentDate().addMonths(-1);
     const int expectedQuality = 2;
     const int expectedLogLevel = 0;
 
     savePathEdit->setText(expectedSavePath);
     threadSpin->setValue(expectedThreadNum);
-    dateBegEdit->setDate(expectedDateBeg);
-    dateEndEdit->setDate(expectedDateEnd);
     qualityCombo->setCurrentIndex(expectedQuality);
     logCombo->setCurrentIndex(expectedLogLevel);
     highlightsCheck->setChecked(true);
@@ -1292,8 +1369,8 @@ void CoreRegressionTests::setting_saveSettings_roundTripsValuesFromWidgetsToDisk
     QCOMPARE(readQuality(), QString::number(expectedQuality));
     QCOMPARE(readLogLevel(), expectedLogLevel);
     QCOMPARE(readShowHighlights(), true);
-    QCOMPARE(dateBeg, expectedDateBeg.toString("yyyyMM"));
-    QCOMPARE(dateEnd, expectedDateEnd.toString("yyyyMM"));
+    QCOMPARE(dateBeg, QDate::currentDate().toString("yyyyMM"));
+    QCOMPARE(dateEnd, QDate::currentDate().addMonths(-1).toString("yyyyMM"));
 }
 
 void CoreRegressionTests::setting_smoke_persistsSettingsAcrossFreshSession()
@@ -1302,8 +1379,6 @@ void CoreRegressionTests::setting_smoke_persistsSettingsAcrossFreshSession()
 
     const QString expectedSavePath = QDir(m_tempDir->path()).filePath("smoke_custom_path");
     const int expectedThreadNum = 7;
-    const QDate expectedDateBeg = QDate::currentDate().addMonths(-3);
-    const QDate expectedDateEnd = QDate::currentDate().addMonths(-1);
     const int expectedQuality = 2;
     const int expectedLogLevel = 2;
 
@@ -1312,8 +1387,6 @@ void CoreRegressionTests::setting_smoke_persistsSettingsAcrossFreshSession()
 
         auto* savePathEdit = setting.findChild<QLineEdit*>("lineEdit_file_save_path");
         auto* threadSpin = setting.findChild<QSpinBox*>("spinBox_thread");
-        auto* dateBegEdit = setting.findChild<QDateEdit*>("dateEdit_1");
-        auto* dateEndEdit = setting.findChild<QDateEdit*>("dateEdit_2");
         auto* qualityCombo = setting.findChild<QComboBox*>("comboBox_quality");
         auto* logCombo = setting.findChild<QComboBox*>("comboBox_log");
         auto* highlightsCheck = setting.findChild<QCheckBox*>("checkBox_highlights");
@@ -1322,8 +1395,6 @@ void CoreRegressionTests::setting_smoke_persistsSettingsAcrossFreshSession()
 
         QVERIFY(savePathEdit != nullptr);
         QVERIFY(threadSpin != nullptr);
-        QVERIFY(dateBegEdit != nullptr);
-        QVERIFY(dateEndEdit != nullptr);
         QVERIFY(qualityCombo != nullptr);
         QVERIFY(logCombo != nullptr);
         QVERIFY(highlightsCheck != nullptr);
@@ -1332,8 +1403,6 @@ void CoreRegressionTests::setting_smoke_persistsSettingsAcrossFreshSession()
 
         savePathEdit->setText(expectedSavePath);
         threadSpin->setValue(expectedThreadNum);
-        dateBegEdit->setDate(expectedDateBeg);
-        dateEndEdit->setDate(expectedDateEnd);
         qualityCombo->setCurrentIndex(expectedQuality);
         logCombo->setCurrentIndex(expectedLogLevel);
         highlightsCheck->setChecked(true);
@@ -1353,8 +1422,8 @@ void CoreRegressionTests::setting_smoke_persistsSettingsAcrossFreshSession()
     QCOMPARE(readQuality(), QString::number(expectedQuality));
     QCOMPARE(readLogLevel(), expectedLogLevel);
     QCOMPARE(readShowHighlights(), true);
-    QCOMPARE(dateBeg, expectedDateBeg.toString("yyyyMM"));
-    QCOMPARE(dateEnd, expectedDateEnd.toString("yyyyMM"));
+    QCOMPARE(dateBeg, QDate::currentDate().toString("yyyyMM"));
+    QCOMPARE(dateEnd, QDate::currentDate().addMonths(-1).toString("yyyyMM"));
 }
 
 void CoreRegressionTests::downloadTask_cancelBeforeRun_emitsCancelledSignal()

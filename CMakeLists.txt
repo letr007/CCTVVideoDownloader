@@ -13,7 +13,7 @@ set(CMAKE_AUTOUIC_SEARCH_PATHS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
 )
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Widgets Network)
 
 # Keep the in-app version aligned with the source actually being built. Tagged
 # release builds show their tag; local builds fall back to a commit identifier.
@@ -41,7 +41,7 @@ include(FindFFmpegMin)
 # conditional so a bare configure actually enables tests unless -DBUILD_TESTING=OFF.
 include(CTest)
 if (BUILD_TESTING)
-    find_package(Qt6 REQUIRED COMPONENTS Test)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Test)
     add_subdirectory(tests)
 endif()
 
@@ -63,11 +63,13 @@ set(PROJECT_SOURCES
     src/source/downloadtask.cpp
     src/source/import.cpp
     src/source/logger.cpp
+    src/source/monthcalendarwidget.cpp
     src/source/mediacontainervalidator.cpp
     src/source/mediafinalizer.cpp
     src/source/libavremuxer.cpp
     src/source/main.cpp
     src/source/setting.cpp
+    src/source/theme.cpp
     src/source/tsmerger.cpp
     src/crypto/cctv_h5e_decrypt.cpp
 
@@ -89,10 +91,12 @@ set(PROJECT_SOURCES
     src/head/downloadtask.h
     src/head/import.h
     src/head/logger.h
+    src/head/monthcalendarwidget.h
     src/head/mediacontainervalidator.h
     src/head/mediafinalizer.h
     src/head/libavremuxer.h
     src/head/setting.h
+    src/head/theme.h
     src/head/tsmerger.h
 
     src/ui/about.ui

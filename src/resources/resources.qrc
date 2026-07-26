@@ -2,10 +2,14 @@
   <qresource prefix="/">
     <file>download.png</file>
     <file>setting.png</file>
-    <file>info.png</file>
-    <file>afraid.gif</file>
     <file>cctvvideodownload.ico</file>
     <file>cctvvideodownload.png</file>
     <file>flash.png</file>
+    <file>check.png</file>
+    <file>chevron-down-light.png</file>
+    <file>chevron-down-dark.png</file>
+    <file>chevron-up-light.png</file>
+    <file>chevron-up-dark.png</file>
+    <file>app.qss</file>
   </qresource>
 </RCC>

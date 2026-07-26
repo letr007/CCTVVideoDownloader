@@ -3,10 +3,36 @@
 
 #include <QFileDialog>
 #include <QDir>
+#include <QAbstractItemView>
+#include <QDialogButtonBox>
+#include <QFrame>
+#include <QPushButton>
+#include <QStyle>
 
 Setting::Setting(QWidget* parent) : QDialog(parent)
 {
 	ui.setupUi(this);
+	auto* saveButton = ui.buttonBox->button(QDialogButtonBox::Ok);
+	auto* cancelButton = ui.buttonBox->button(QDialogButtonBox::Cancel);
+	saveButton->setText(QStringLiteral("保存"));
+	saveButton->setProperty("buttonRole", "primary");
+	saveButton->setFixedSize(88, 36);
+	saveButton->style()->unpolish(saveButton);
+	saveButton->style()->polish(saveButton);
+	cancelButton->setText(QStringLiteral("取消"));
+	cancelButton->setFixedSize(88, 36);
+	ui.pushButton_open->setFixedSize(80, 32);
+	ui.label_2->setFixedWidth(120);
+	ui.label_3->setFixedWidth(120);
+	ui.label_4->setFixedWidth(120);
+	ui.label_7->setFixedWidth(120);
+
+	for (QComboBox* combo : { ui.comboBox_quality, ui.comboBox_log }) {
+		combo->view()->setFrameShape(QFrame::NoFrame);
+		combo->view()->setAlternatingRowColors(false);
+		combo->setMaxVisibleItems(8);
+	}
+
 	// 锁定线程数上下限
 	ui.spinBox_thread->setMaximum(10);
 	ui.spinBox_thread->setMinimum(1);
@@ -32,8 +58,6 @@ void Setting::setDefault()
 	ui.radioButton_ts->setChecked(!transcode);
 	//ui.spinBox_program_1->setValue(g_settings->value("display_min", 1).toInt());
 	//ui.spinBox_program_2->setValue(g_settings->value("display_max", 100).toInt());
-	ui.dateEdit_1->setDate(QDateTime::fromString(g_settings->value("date_beg", "202501").toString(), "yyyyMM").date());
-	ui.dateEdit_2->setDate(QDateTime::fromString(g_settings->value("date_end", "202501").toString(), "yyyyMM").date());
 	ui.comboBox_quality->setCurrentIndex(g_settings->value("quality", 1).toInt());
 	ui.comboBox_log->setCurrentIndex(g_settings->value("log_level", 1).toInt());
 	ui.checkBox_highlights->setChecked(g_settings->value("show_highlights", false).toBool());
@@ -64,8 +88,6 @@ void Setting::saveSettings()
 	g_settings->setValue("save_dir", ui.lineEdit_file_save_path->text());
 	g_settings->setValue("thread_num", ui.spinBox_thread->value());
 	g_settings->setValue("transcode", ui.radioButton_mp4->isChecked());
-	g_settings->setValue("date_beg", ui.dateEdit_1->date().toString("yyyyMM"));
-	g_settings->setValue("date_end", ui.dateEdit_2->date().toString("yyyyMM"));
 	g_settings->setValue("quality", ui.comboBox_quality->currentIndex());
 	g_settings->setValue("log_level", ui.comboBox_log->currentIndex());
 	g_settings->setValue("show_highlights", ui.checkBox_highlights->isChecked());

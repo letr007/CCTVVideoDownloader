@@ -38,7 +38,7 @@
 ### 环境要求
 
 - CMake 3.21+
-- Qt 6（Core / Gui / Widgets / Network）
+- Qt 6.8+（Core / Gui / Widgets / Network）
 - C++17 编译器（Windows: MSVC 2022；macOS/Linux: 系统工具链）
 - 最小静态 FFmpeg 库（用于进程内 TS→MP4 remux；先构建 `third_party/ffmpeg-min`）
 
@@ -97,4 +97,3 @@ cmake --build build --config Release
 ##
 
 <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=letr007/CCTVVideoDownloader&type=Date" />
-

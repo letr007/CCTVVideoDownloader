@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QPair>
+#include <QDate>
 #include "../parse/contentparse.h"
 
 extern std::unique_ptr<QSettings> g_settings;
@@ -29,6 +30,11 @@ struct ProgrammePersistResult {
 QList<ContentParse::ProgrammeRecord> readProgrammeFromConfig();
 ProgrammePersistResult persistProgrammeImport(const ContentParse::ImportResult& result);
 extern std::tuple<QString, QString> readDisplayMinAndMax();
+extern void writeDisplayMinAndMax(const QString& displayMin, const QString& displayMax);
+extern std::tuple<QString, QString> normalizeDisplayMonths(
+    const QString& displayMin,
+    const QString& displayMax,
+    const QDate& latestDate = QDate::currentDate());
 extern QString readQuality();
 extern QString readSavePath();
 extern int readThreadNum();

@@ -3,434 +3,238 @@
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
   <property name="geometry">
-   <rect>
-    <x>0</x>
-    <y>0</y>
-    <width>500</width>
-    <height>510</height>
-   </rect>
+   <rect><x>0</x><y>0</y><width>900</width><height>664</height></rect>
   </property>
   <property name="minimumSize">
-   <size>
-    <width>500</width>
-    <height>510</height>
-   </size>
+    <size><width>680</width><height>480</height></size>
   </property>
-  <property name="windowTitle">
-   <string>MainWindow</string>
-  </property>
-  <property name="styleSheet">
-   <string notr="true"/>
-  </property>
+  <property name="windowTitle"><string>央视视频下载器</string></property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QHBoxLayout" name="horizontalLayout">
-    <property name="spacing">
-     <number>6</number>
-    </property>
-    <property name="leftMargin">
-     <number>9</number>
-    </property>
-    <property name="topMargin">
-     <number>9</number>
-    </property>
-    <property name="rightMargin">
-     <number>9</number>
-    </property>
-    <property name="bottomMargin">
-     <number>9</number>
-    </property>
+    <property name="spacing"><number>0</number></property>
+    <property name="leftMargin"><number>16</number></property>
+    <property name="topMargin"><number>16</number></property>
+    <property name="rightMargin"><number>16</number></property>
+    <property name="bottomMargin"><number>16</number></property>
     <item>
      <widget class="QSplitter" name="mainSplitter">
-      <property name="orientation">
-       <enum>Qt::Horizontal</enum>
-      </property>
-      <property name="childrenCollapsible">
-       <bool>false</bool>
-      </property>
+      <property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property>
+      <property name="childrenCollapsible"><bool>false</bool></property>
       <widget class="QWidget" name="leftPane">
        <layout class="QVBoxLayout" name="leftColumnLayout">
-        <property name="leftMargin">
-         <number>0</number>
-        </property>
-        <property name="topMargin">
-         <number>0</number>
-        </property>
-        <property name="rightMargin">
-         <number>0</number>
-        </property>
-        <property name="bottomMargin">
-         <number>0</number>
-        </property>
+        <property name="spacing"><number>12</number></property>
+        <property name="leftMargin"><number>0</number></property>
+        <property name="topMargin"><number>0</number></property>
+        <property name="rightMargin"><number>8</number></property>
+        <property name="bottomMargin"><number>0</number></property>
         <item>
          <layout class="QHBoxLayout" name="programHeaderLayout">
+          <property name="spacing"><number>8</number></property>
           <item>
            <widget class="QLabel" name="label">
-            <property name="text">
-             <string>节目信息</string>
-            </property>
+            <property name="text"><string>节目信息</string></property>
+            <property name="textRole" stdset="0"><string>section</string></property>
            </widget>
           </item>
+          <item><spacer name="programHeaderSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
           <item>
-           <spacer name="programHeaderSpacer">
-            <property name="orientation">
-             <enum>Qt::Horizontal</enum>
-            </property>
-            <property name="sizeHint" stdset="0">
-             <size>
-              <width>40</width>
-              <height>20</height>
-             </size>
-            </property>
-           </spacer>
-          </item>
-          <item>
-           <widget class="QPushButton" name="btn_import">
-            <property name="minimumSize">
-             <size>
-              <width>40</width>
-              <height>25</height>
-             </size>
-            </property>
-            <property name="maximumSize">
-             <size>
-              <width>40</width>
-              <height>25</height>
-             </size>
-            </property>
-            <property name="text">
-             <string>导入</string>
-            </property>
+            <widget class="QPushButton" name="btn_import">
+             <property name="minimumSize"><size><width>72</width><height>32</height></size></property>
+             <property name="maximumSize"><size><width>16777215</width><height>32</height></size></property>
+             <property name="text"><string>导入</string></property>
+            <property name="toolTip"><string>导入输入框中的节目链接</string></property>
            </widget>
           </item>
           <item>
            <widget class="QPushButton" name="flash_program">
-            <property name="minimumSize">
-             <size>
-              <width>25</width>
-              <height>25</height>
-             </size>
-            </property>
-            <property name="maximumSize">
-             <size>
-              <width>25</width>
-              <height>25</height>
-             </size>
-            </property>
-            <property name="text">
-             <string/>
-            </property>
-            <property name="icon">
-             <iconset resource="../resources/resources.qrc">
-              <normaloff>:/flash.png</normaloff>:/flash.png</iconset>
-            </property>
-            <property name="iconSize">
-             <size>
-              <width>20</width>
-              <height>20</height>
-             </size>
-            </property>
+             <property name="minimumSize"><size><width>32</width><height>32</height></size></property>
+             <property name="maximumSize"><size><width>32</width><height>32</height></size></property>
+            <property name="text"><string/></property>
+            <property name="toolTip"><string>刷新节目列表</string></property>
+            <property name="buttonRole" stdset="0"><string>icon</string></property>
+            <property name="iconSize"><size><width>16</width><height>16</height></size></property>
            </widget>
           </item>
          </layout>
         </item>
         <item>
-         <layout class="QHBoxLayout" name="importLinkLayout">
-          <property name="spacing">
-           <number>4</number>
-          </property>
-          <item>
-           <widget class="QLineEdit" name="lineEdit_import">
-            <property name="placeholderText">
-             <string>粘贴节目链接，回车导入</string>
-            </property>
-            <property name="clearButtonEnabled">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-         </layout>
+         <widget class="QLineEdit" name="lineEdit_import">
+          <property name="placeholderText"><string>粘贴节目链接，回车导入</string></property>
+          <property name="clearButtonEnabled"><bool>true</bool></property>
+         </widget>
         </item>
         <item>
          <widget class="QTableWidget" name="tableWidget_Config">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-            <horstretch>0</horstretch>
-            <verstretch>1</verstretch>
-           </sizepolicy>
-          </property>
-          <column>
-           <property name="text">
-            <string>名称</string>
-           </property>
-          </column>
-          <column>
-           <property name="text">
-            <string>栏目ID</string>
-           </property>
-          </column>
-          <column>
-           <property name="text">
-            <string>节目ID</string>
-           </property>
-          </column>
+          <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Expanding"><horstretch>0</horstretch><verstretch>1</verstretch></sizepolicy></property>
+          <property name="alternatingRowColors"><bool>true</bool></property>
+          <property name="showGrid"><bool>false</bool></property>
+          <property name="selectionBehavior"><enum>QAbstractItemView::SelectionBehavior::SelectRows</enum></property>
+          <property name="editTriggers"><set>QAbstractItemView::EditTrigger::NoEditTriggers</set></property>
+          <column><property name="text"><string>名称</string></property></column>
+          <column><property name="text"><string>栏目 ID</string></property></column>
+          <column><property name="text"><string>节目 ID</string></property></column>
          </widget>
         </item>
-        <item>
-         <widget class="Line" name="line">
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
-          </property>
-         </widget>
-        </item>
+        <item><widget class="Line" name="line"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property></widget></item>
         <item>
          <layout class="QHBoxLayout" name="videoHeaderLayout">
+          <property name="spacing"><number>8</number></property>
           <item>
            <widget class="QLabel" name="label_2">
-            <property name="text">
-             <string>视频列表</string>
-            </property>
+            <property name="text"><string>视频列表</string></property>
+            <property name="textRole" stdset="0"><string>section</string></property>
            </widget>
           </item>
-          <item>
-           <widget class="QPushButton" name="btn_select_all">
-            <property name="minimumSize">
-             <size>
-              <width>55</width>
-              <height>25</height>
-             </size>
-            </property>
-            <property name="text">
-             <string>全选视频</string>
-            </property>
-           </widget>
-          </item>
+          <item><spacer name="videoHeaderSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+           <item><widget class="QPushButton" name="btn_select_all"><property name="minimumSize"><size><width>96</width><height>32</height></size></property><property name="maximumSize"><size><width>16777215</width><height>32</height></size></property><property name="text"><string>全选视频</string></property></widget></item>
           <item>
            <widget class="QPushButton" name="flash_list">
-            <property name="minimumSize">
-             <size>
-              <width>25</width>
-              <height>25</height>
-             </size>
-            </property>
-            <property name="maximumSize">
-             <size>
-              <width>25</width>
-              <height>25</height>
-             </size>
-            </property>
-            <property name="text">
-             <string/>
-            </property>
-            <property name="icon">
-             <iconset resource="../resources/resources.qrc">
-              <normaloff>:/flash.png</normaloff>:/flash.png</iconset>
-            </property>
-            <property name="iconSize">
-             <size>
-              <width>20</width>
-              <height>20</height>
-             </size>
-            </property>
+             <property name="minimumSize"><size><width>32</width><height>32</height></size></property>
+             <property name="maximumSize"><size><width>32</width><height>32</height></size></property>
+            <property name="text"><string/></property>
+            <property name="toolTip"><string>刷新视频列表</string></property>
+            <property name="buttonRole" stdset="0"><string>icon</string></property>
+            <property name="iconSize"><size><width>16</width><height>16</height></size></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="videoRangeLayout">
+          <property name="spacing"><number>8</number></property>
+          <item>
+           <widget class="QLabel" name="videoRangeLabel">
+            <property name="minimumSize"><size><width>64</width><height>0</height></size></property>
+            <property name="text"><string>节目区间</string></property>
+            <property name="textRole" stdset="0"><string>caption</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QDateEdit" name="dateEdit_video_start">
+            <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+            <property name="minimumSize"><size><width>104</width><height>32</height></size></property>
+            <property name="maximumSize"><size><width>16777215</width><height>32</height></size></property>
+            <property name="displayFormat"><string>yyyy年M月</string></property>
+            <property name="calendarPopup"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item><widget class="QLabel" name="videoRangeSeparator"><property name="minimumSize"><size><width>20</width><height>0</height></size></property><property name="maximumSize"><size><width>20</width><height>16777215</height></size></property><property name="text"><string>至</string></property><property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property></widget></item>
+          <item>
+           <widget class="QDateEdit" name="dateEdit_video_end">
+            <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+            <property name="minimumSize"><size><width>104</width><height>32</height></size></property>
+            <property name="maximumSize"><size><width>16777215</width><height>32</height></size></property>
+            <property name="displayFormat"><string>yyyy年M月</string></property>
+            <property name="calendarPopup"><bool>true</bool></property>
            </widget>
           </item>
          </layout>
         </item>
         <item>
          <widget class="QTableWidget" name="tableWidget_List">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-            <horstretch>0</horstretch>
-            <verstretch>1</verstretch>
-           </sizepolicy>
-          </property>
-          <column>
-           <property name="text">
-            <string>名称</string>
-           </property>
-          </column>
+          <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Expanding"><horstretch>0</horstretch><verstretch>1</verstretch></sizepolicy></property>
+          <property name="alternatingRowColors"><bool>true</bool></property>
+          <property name="showGrid"><bool>false</bool></property>
+          <property name="selectionBehavior"><enum>QAbstractItemView::SelectionBehavior::SelectRows</enum></property>
+          <property name="editTriggers"><set>QAbstractItemView::EditTrigger::NoEditTriggers</set></property>
+          <column><property name="text"><string>名称</string></property></column>
          </widget>
         </item>
        </layout>
       </widget>
       <widget class="QWidget" name="rightPane">
-       <layout class="QVBoxLayout" name="rightColumnLayout">
-        <property name="leftMargin">
-         <number>0</number>
-        </property>
-        <property name="topMargin">
-         <number>0</number>
-        </property>
-        <property name="rightMargin">
-         <number>0</number>
-        </property>
-        <property name="bottomMargin">
-         <number>0</number>
-        </property>
+       <layout class="QVBoxLayout" name="rightPaneLayout">
+        <property name="spacing"><number>0</number></property>
+        <property name="leftMargin"><number>8</number></property>
+        <property name="topMargin"><number>0</number></property>
+        <property name="rightMargin"><number>0</number></property>
+        <property name="bottomMargin"><number>0</number></property>
         <item>
-         <widget class="QLabel" name="label_img">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-            <horstretch>0</horstretch>
-            <verstretch>1</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="minimumSize">
-           <size>
-            <width>0</width>
-            <height>100</height>
-           </size>
-          </property>
-          <property name="frameShape">
-           <enum>QFrame::Shape::StyledPanel</enum>
-          </property>
-          <property name="text">
-           <string>暂无图片QAQ</string>
-          </property>
-           <property name="scaledContents">
-            <bool>false</bool>
-           </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignCenter</set>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLabel" name="label_title">
-          <property name="frameShape">
-           <enum>QFrame::Shape::StyledPanel</enum>
-          </property>
-          <property name="text">
-           <string>暂无标题</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QScrollArea" name="scrollArea">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-            <horstretch>0</horstretch>
-            <verstretch>2</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="frameShape">
-           <enum>QFrame::Shape::StyledPanel</enum>
-          </property>
-          <property name="widgetResizable">
-           <bool>true</bool>
-          </property>
-          <widget class="QWidget" name="scrollAreaWidgetContents">
-           <property name="enabled">
-            <bool>true</bool>
-           </property>
-           <layout class="QVBoxLayout" name="scrollAreaLayout">
-            <property name="spacing">
-             <number>0</number>
-            </property>
-            <property name="leftMargin">
-             <number>0</number>
-            </property>
-            <property name="topMargin">
-             <number>0</number>
-            </property>
-            <property name="rightMargin">
-             <number>0</number>
-            </property>
-            <property name="bottomMargin">
-             <number>0</number>
-            </property>
-            <item>
-             <widget class="QLabel" name="label_introduce">
-              <property name="frameShape">
-               <enum>QFrame::Shape::NoFrame</enum>
-              </property>
-              <property name="text">
-               <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;暂无介绍&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-              </property>
-              <property name="wordWrap">
-               <bool>true</bool>
-              </property>
+         <widget class="QFrame" name="detailsCard">
+          <property name="frameShape"><enum>QFrame::Shape::NoFrame</enum></property>
+          <property name="panelRole" stdset="0"><string>card</string></property>
+          <layout class="QVBoxLayout" name="rightColumnLayout">
+           <property name="spacing"><number>12</number></property>
+           <property name="leftMargin"><number>16</number></property>
+           <property name="topMargin"><number>16</number></property>
+           <property name="rightMargin"><number>16</number></property>
+           <property name="bottomMargin"><number>16</number></property>
+           <item>
+            <widget class="QLabel" name="label_img">
+             <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Preferred"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property>
+             <property name="minimumSize"><size><width>0</width><height>160</height></size></property>
+             <property name="frameShape"><enum>QFrame::Shape::NoFrame</enum></property>
+             <property name="text"><string>选择视频后显示预览</string></property>
+             <property name="textRole" stdset="0"><string>empty</string></property>
+             <property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="label_title">
+             <property name="text"><string>尚未选择视频</string></property>
+             <property name="textRole" stdset="0"><string>title</string></property>
+             <property name="wordWrap"><bool>true</bool></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="label_time">
+             <property name="text"><string>选择左侧视频查看详情</string></property>
+             <property name="textRole" stdset="0"><string>caption</string></property>
+             <property name="wordWrap"><bool>true</bool></property>
+            </widget>
+           </item>
+           <item><widget class="Line" name="detailsSeparator"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property></widget></item>
+           <item>
+            <widget class="QScrollArea" name="scrollArea">
+             <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Expanding"><horstretch>0</horstretch><verstretch>1</verstretch></sizepolicy></property>
+             <property name="frameShape"><enum>QFrame::Shape::NoFrame</enum></property>
+             <property name="widgetResizable"><bool>true</bool></property>
+             <widget class="QWidget" name="scrollAreaWidgetContents">
+              <layout class="QVBoxLayout" name="scrollAreaLayout">
+               <property name="spacing"><number>0</number></property>
+               <property name="leftMargin"><number>0</number></property>
+               <property name="topMargin"><number>0</number></property>
+               <property name="rightMargin"><number>4</number></property>
+               <property name="bottomMargin"><number>0</number></property>
+               <item>
+                <widget class="QLabel" name="label_introduce">
+                 <property name="sizePolicy"><sizepolicy hsizetype="Ignored" vsizetype="Preferred"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property>
+                 <property name="text"><string>节目介绍将在这里显示。</string></property>
+                 <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set></property>
+                 <property name="wordWrap"><bool>true</bool></property>
+                </widget>
+               </item>
+               <item><spacer name="detailsBottomSpacer"><property name="orientation"><enum>Qt::Orientation::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+              </layout>
              </widget>
-            </item>
-           </layout>
-          </widget>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="buttonRowLayout">
+             <property name="spacing"><number>8</number></property>
+             <item>
+              <widget class="QPushButton" name="pushButton">
+               <property name="minimumSize"><size><width>0</width><height>40</height></size></property>
+               <property name="maximumSize"><size><width>16777215</width><height>40</height></size></property>
+               <property name="text"><string>下载</string></property>
+               <property name="buttonRole" stdset="0"><string>primary</string></property>
+               <property name="iconSize"><size><width>16</width><height>16</height></size></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="settings">
+               <property name="minimumSize"><size><width>40</width><height>40</height></size></property>
+               <property name="maximumSize"><size><width>40</width><height>40</height></size></property>
+               <property name="text"><string/></property>
+               <property name="toolTip"><string>设置</string></property>
+               <property name="buttonRole" stdset="0"><string>iconLarge</string></property>
+               <property name="iconSize"><size><width>16</width><height>16</height></size></property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
          </widget>
-        </item>
-        <item>
-         <widget class="QLabel" name="label_time">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="frameShape">
-           <enum>QFrame::Shape::StyledPanel</enum>
-          </property>
-          <property name="text">
-           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;暂无时间&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <layout class="QHBoxLayout" name="buttonRowLayout">
-          <item>
-           <widget class="QPushButton" name="pushButton">
-            <property name="minimumSize">
-             <size>
-              <width>0</width>
-              <height>40</height>
-             </size>
-            </property>
-            <property name="font">
-             <font>
-              <pointsize>10</pointsize>
-             </font>
-            </property>
-            <property name="text">
-             <string>下载</string>
-            </property>
-            <property name="icon">
-             <iconset resource="../resources/resources.qrc">
-              <normaloff>:/download.png</normaloff>:/download.png</iconset>
-            </property>
-            <property name="iconSize">
-             <size>
-              <width>14</width>
-              <height>14</height>
-             </size>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="settings">
-            <property name="minimumSize">
-             <size>
-              <width>40</width>
-              <height>40</height>
-             </size>
-            </property>
-            <property name="maximumSize">
-             <size>
-              <width>40</width>
-              <height>40</height>
-             </size>
-            </property>
-            <property name="text">
-             <string/>
-            </property>
-            <property name="icon">
-             <iconset resource="../resources/resources.qrc">
-              <normaloff>:/setting.png</normaloff>:/setting.png</iconset>
-            </property>
-            <property name="iconSize">
-             <size>
-              <width>14</width>
-              <height>14</height>
-             </size>
-            </property>
-           </widget>
-          </item>
-         </layout>
         </item>
        </layout>
       </widget>
@@ -439,76 +243,26 @@
    </layout>
   </widget>
   <widget class="QMenuBar" name="menubar">
-   <property name="geometry">
-    <rect>
-     <x>0</x>
-     <y>0</y>
-     <width>500</width>
-     <height>20</height>
-    </rect>
-   </property>
    <widget class="QMenu" name="menu">
-    <property name="title">
-     <string>程序</string>
-    </property>
-    <addaction name="actionfile"/>
-    <addaction name="actionsetting"/>
-    <addaction name="actionabout"/>
-    <addaction name="separator"/>
-    <addaction name="actionexit"/>
+    <property name="title"><string>程序</string></property>
+    <addaction name="actionfile"/><addaction name="actionsetting"/><addaction name="actionabout"/><addaction name="separator"/><addaction name="actionexit"/>
    </widget>
    <widget class="QMenu" name="menu_2">
-    <property name="title">
-     <string>节目</string>
-    </property>
+    <property name="title"><string>节目</string></property>
     <addaction name="actionimport"/>
    </widget>
-   <addaction name="menu"/>
-   <addaction name="menu_2"/>
+   <addaction name="menu"/><addaction name="menu_2"/>
   </widget>
-  <action name="actionfile">
-   <property name="text">
-    <string>打开文件保存位置</string>
-   </property>
-  </action>
-  <action name="actionexit">
-   <property name="text">
-    <string>退出</string>
-   </property>
-  </action>
-  <action name="actionout">
-   <property name="text">
-    <string>导出节目单</string>
-   </property>
-  </action>
-  <action name="actionsetting">
-   <property name="text">
-    <string>设置</string>
-   </property>
-  </action>
-  <action name="actionabout">
-   <property name="text">
-    <string>关于...</string>
-   </property>
-  </action>
-  <action name="actionfrom_file">
-   <property name="text">
-    <string>从文件导入</string>
-   </property>
-  </action>
-  <action name="actionfrom_link">
-   <property name="text">
-    <string>从链接导入</string>
-   </property>
-  </action>
-  <action name="actionimport">
-   <property name="text">
-    <string>导入节目</string>
-   </property>
-  </action>
+  <widget class="QStatusBar" name="statusbar"/>
+  <action name="actionfile"><property name="text"><string>打开文件保存位置</string></property></action>
+  <action name="actionexit"><property name="text"><string>退出</string></property></action>
+  <action name="actionout"><property name="text"><string>导出节目单</string></property></action>
+  <action name="actionsetting"><property name="text"><string>设置</string></property></action>
+  <action name="actionabout"><property name="text"><string>关于...</string></property></action>
+  <action name="actionfrom_file"><property name="text"><string>从文件导入</string></property></action>
+  <action name="actionfrom_link"><property name="text"><string>从链接导入</string></property></action>
+  <action name="actionimport"><property name="text"><string>导入节目</string></property></action>
  </widget>
- <resources>
-  <include location="../resources/resources.qrc"/>
- </resources>
+ <resources><include location="../resources/resources.qrc"/></resources>
  <connections/>
 </ui>

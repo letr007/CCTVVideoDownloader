@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QStandardPaths>
+#include <algorithm>
 
 std::unique_ptr<QSettings> g_settings;
 
@@ -196,6 +197,46 @@ extern std::tuple<QString, QString> readDisplayMinAndMax()
 	qInfo() << "显示范围 - 最小值:" << displayMin << "最大值:" << displayMax;
 	
 	return std::make_tuple(displayMin, displayMax);
+}
+
+extern void writeDisplayMinAndMax(const QString& displayMin, const QString& displayMax)
+{
+	g_settings->beginGroup(QStringLiteral("settings"));
+	g_settings->setValue(QStringLiteral("date_beg"), displayMin);
+	g_settings->setValue(QStringLiteral("date_end"), displayMax);
+	g_settings->endGroup();
+	g_settings->sync();
+}
+
+extern std::tuple<QString, QString> normalizeDisplayMonths(
+	const QString& displayMin,
+	const QString& displayMax,
+	const QDate& latestDate)
+{
+	const QDate earliestMonth(2000, 1, 1);
+	const QDate latestMonth(latestDate.year(), latestDate.month(), 1);
+	auto parseMonth = [&](const QString& value, const QDate& fallback) {
+		const QDate parsed = QDate::fromString(value + QStringLiteral("01"),
+			QStringLiteral("yyyyMMdd"));
+		return qMax(earliestMonth, parsed.isValid() ? parsed : fallback);
+	};
+
+	QDate startMonth = parseMonth(displayMin, latestMonth);
+	QDate endMonth = parseMonth(displayMax, latestMonth.addMonths(-1));
+	if (startMonth < endMonth) {
+		std::swap(startMonth, endMonth);
+	}
+	if (startMonth > latestMonth) {
+		const int monthSpan = (startMonth.year() - endMonth.year()) * 12
+			+ startMonth.month() - endMonth.month();
+		startMonth = latestMonth;
+		endMonth = qMax(earliestMonth, latestMonth.addMonths(-monthSpan));
+	}
+
+	return {
+		startMonth.toString(QStringLiteral("yyyyMM")),
+		endMonth.toString(QStringLiteral("yyyyMM"))
+	};
 }
 
 extern QString readQuality()

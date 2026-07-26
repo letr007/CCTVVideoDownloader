@@ -20,21 +20,17 @@ void DownloadModel::updateInfo(const DownloadInfo& info) {
 
     QStandardItem* statusItem = item(row, 1) ? item(row, 1) : new QStandardItem();
     statusItem->setText(info.statusText());
-    statusItem->setForeground([&]() {
-        switch (info.status) {
-        case DownloadStatus::Downloading: return QBrush(Qt::blue);
-        case DownloadStatus::Finished: return QBrush(Qt::darkGreen);
-        default: return QBrush(Qt::white);
-        }
-        }());
+    statusItem->setData(static_cast<int>(info.status), Qt::UserRole);
     setItem(row, 1, statusItem);
 
     QStandardItem* urlItem = item(row, 2) ? item(row, 2) : new QStandardItem();
     urlItem->setText(info.url);
+    urlItem->setToolTip(info.url);
     setItem(row, 2, urlItem);
 
     QStandardItem* progressItem = item(row, 3) ? item(row, 3) : new QStandardItem();
     progressItem->setText(info.progressText());
+    progressItem->setData(qBound(0, info.progress, 100), Qt::UserRole);
     setItem(row, 3, progressItem);
 
     m_progressDict[info.index] = info.progress;

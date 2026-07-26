@@ -1,0 +1,600 @@
+/* 应用样式表模板。颜色和尺寸占位符由 Theme::reload() 按当前深浅色替换。 */
+
+QWidget {
+    font-size: %FONT_BODY%px;
+}
+
+QMainWindow, QDialog {
+    background: %BACKGROUND%;
+}
+
+/* ---- 文本 ---- */
+
+QLabel {
+    color: %TEXT_PRIMARY%;
+    background: transparent;
+}
+
+QLabel:disabled {
+    color: %TEXT_DISABLED%;
+}
+
+QLabel[textRole="title"],
+QLabel#label_title,
+QLabel#appNameLabel,
+QLabel#settingsTitle,
+QLabel#downloadTitleLabel,
+QDialog#ImportDialog QLabel#label {
+    font-size: %FONT_TITLE%px;
+    font-weight: 600;
+}
+
+QLabel[textRole="caption"],
+QLabel#label_time,
+QLabel#label_version,
+QLabel#downloadStateLabel,
+QLabel#videoRangeLabel,
+QDialog#ImportDialog QLabel#helperLabel,
+QDialog#ImportDialog QLabel#label_status {
+    font-size: %FONT_CAPTION%px;
+    color: %TEXT_SECONDARY%;
+}
+
+QLabel[textRole="section"],
+QLabel#storageSectionLabel,
+QLabel#downloadSectionLabel,
+QLabel#displaySectionLabel,
+QLabel#advancedSectionLabel,
+QLabel#currentProgressLabel,
+QLabel#batchProgressLabel,
+QDialog#AboutDialog QLabel#label_4 {
+    font-size: %FONT_CAPTION%px;
+    font-weight: 600;
+    color: %TEXT_SECONDARY%;
+}
+
+QLabel[textRole="empty"],
+QMainWindow QLabel#label_img {
+    color: %TEXT_DISABLED%;
+}
+
+QLabel[severity="danger"] {
+    color: %DANGER%;
+}
+
+QLabel[severity="info"] {
+    color: %TEXT_SECONDARY%;
+}
+
+/* ---- 按钮 ---- */
+
+QPushButton {
+    background: %SURFACE%;
+    color: %TEXT_PRIMARY%;
+    border: 1px solid %BORDER%;
+    border-radius: 6px;
+    padding: 0 %SPACING_MD%px;
+    min-height: %CONTROL_HEIGHT%px;
+}
+
+QPushButton:hover {
+    background: %SURFACE_HOVER%;
+    border-color: %BORDER_STRONG%;
+}
+
+QPushButton:pressed {
+    background: %BORDER%;
+}
+
+QPushButton:disabled {
+    color: %TEXT_DISABLED%;
+    border-color: %BORDER%;
+    background: %BACKGROUND%;
+}
+
+QPushButton[buttonRole="primary"],
+QPushButton#pushButton,
+QPushButton#downloadCloseButton {
+    background: %ACCENT%;
+    color: #FFFFFF;
+    border: none;
+    font-weight: 600;
+    min-height: %CONTROL_HEIGHT_LARGE%px;
+}
+
+QPushButton[buttonRole="primary"]:hover,
+QPushButton#pushButton:hover,
+QPushButton#downloadCloseButton:hover {
+    background: %ACCENT_HOVER%;
+}
+
+QPushButton[buttonRole="primary"]:pressed,
+QPushButton#pushButton:pressed,
+QPushButton#downloadCloseButton:pressed {
+    background: %ACCENT_PRESSED%;
+}
+
+QPushButton[buttonRole="primary"]:disabled,
+QPushButton#pushButton:disabled,
+QPushButton#downloadCloseButton:disabled {
+    background: %BORDER%;
+    color: %TEXT_DISABLED%;
+}
+
+/* 仅图标的方形按钮 */
+QPushButton[buttonRole="icon"],
+QPushButton#flash_program,
+QPushButton#flash_list {
+    padding: 0;
+    min-width: %CONTROL_HEIGHT_LARGE%px;
+    max-width: %CONTROL_HEIGHT_LARGE%px;
+    min-height: %CONTROL_HEIGHT_LARGE%px;
+    max-height: %CONTROL_HEIGHT_LARGE%px;
+}
+
+QPushButton[buttonRole="iconLarge"],
+QPushButton#settings {
+    padding: 0;
+    min-width: 40px;
+    max-width: 40px;
+    min-height: 40px;
+    max-height: 40px;
+}
+
+/* ---- 输入控件 ---- */
+
+QLineEdit, QSpinBox, QComboBox, QDateEdit {
+    background: %SURFACE%;
+    color: %TEXT_PRIMARY%;
+    border: 1px solid %BORDER%;
+    border-radius: 6px;
+    padding: 0 %SPACING_SM%px;
+    min-height: %CONTROL_HEIGHT%px;
+    selection-background-color: %ACCENT%;
+    selection-color: #FFFFFF;
+}
+
+QLineEdit:hover, QSpinBox:hover, QComboBox:hover, QDateEdit:hover {
+    border-color: %BORDER_STRONG%;
+}
+
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QDateEdit:focus {
+    border-color: %ACCENT%;
+}
+
+QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled, QDateEdit:disabled {
+    color: %TEXT_DISABLED%;
+    background: %BACKGROUND%;
+}
+
+QComboBox::drop-down, QDateEdit::drop-down {
+    border: none;
+    width: %SPACING_XL%px;
+}
+
+QComboBox::down-arrow, QDateEdit::down-arrow {
+    image: url(:/chevron-down.png);
+    width: 10px;
+    height: 10px;
+}
+
+QComboBox QAbstractItemView {
+    background: %SURFACE%;
+    color: %TEXT_PRIMARY%;
+    border: none;
+    border-radius: 0;
+    padding: %SPACING_XS%px;
+    margin: 0;
+    outline: none;
+    selection-background-color: %ACCENT%;
+    selection-color: #FFFFFF;
+}
+
+QComboBox QAbstractItemView::item {
+    min-height: 28px;
+    padding: 2px %SPACING_SM%px;
+    border-radius: 4px;
+}
+
+QComboBoxPrivateContainer {
+    background: %SURFACE%;
+    border: 1px solid %BORDER_STRONG%;
+    border-radius: 8px;
+    padding: 0;
+}
+
+QSpinBox {
+    padding-right: 28px;
+}
+
+QSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 24px;
+    height: 15px;
+    background: transparent;
+    border: none;
+    border-left: 1px solid %BORDER%;
+    border-bottom: 1px solid %BORDER%;
+    border-top-right-radius: 5px;
+}
+
+QSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 24px;
+    height: 15px;
+    background: transparent;
+    border: none;
+    border-left: 1px solid %BORDER%;
+    border-bottom-right-radius: 5px;
+}
+
+QSpinBox::up-button:hover,
+QSpinBox::down-button:hover {
+    background: %SURFACE_HOVER%;
+}
+
+QSpinBox::up-button:pressed,
+QSpinBox::down-button:pressed {
+    background: %BORDER%;
+}
+
+QSpinBox::up-arrow {
+    image: url(:/chevron-up.png);
+    width: 8px;
+    height: 8px;
+}
+
+QSpinBox::down-arrow {
+    image: url(:/chevron-down.png);
+    width: 8px;
+    height: 8px;
+}
+
+QDateEdit::up-button, QDateEdit::down-button {
+    width: %SPACING_LG%px;
+    border: none;
+    background: transparent;
+}
+
+/* ---- 月份选择弹层 ---- */
+
+QCalendarWidget#monthCalendar,
+QWidget#monthPickerPanel {
+    background: %SURFACE%;
+    color: %TEXT_PRIMARY%;
+    border: 1px solid %BORDER%;
+    border-radius: 8px;
+}
+
+QWidget#monthPickerPanel {
+    border: none;
+}
+
+QLabel#monthPickerYear {
+    color: %TEXT_PRIMARY%;
+    font-weight: 600;
+}
+
+QToolButton#monthPickerPreviousYear,
+QToolButton#monthPickerNextYear {
+    background: transparent;
+    color: %TEXT_PRIMARY%;
+    border: none;
+    border-radius: 5px;
+    min-width: 32px;
+    max-width: 32px;
+    min-height: 32px;
+    max-height: 32px;
+    font-size: 20px;
+}
+
+QToolButton#monthPickerPreviousYear:hover,
+QToolButton#monthPickerNextYear:hover,
+QToolButton[monthButton="true"]:hover {
+    background: %SURFACE_HOVER%;
+}
+
+QToolButton#monthPickerPreviousYear:pressed,
+QToolButton#monthPickerNextYear:pressed,
+QToolButton[monthButton="true"]:pressed {
+    background: %BORDER%;
+}
+
+QToolButton#monthPickerPreviousYear:disabled,
+QToolButton#monthPickerNextYear:disabled,
+QToolButton[monthButton="true"]:disabled {
+    background: transparent;
+    color: %TEXT_DISABLED%;
+}
+
+QToolButton[monthButton="true"] {
+    background: transparent;
+    color: %TEXT_PRIMARY%;
+    border: none;
+    border-radius: 6px;
+    min-height: 38px;
+    font-weight: 500;
+}
+
+QToolButton[monthButton="true"][selected="true"] {
+    background: %ACCENT%;
+    color: #FFFFFF;
+}
+
+/* ---- 选择控件 ---- */
+
+QCheckBox, QRadioButton {
+    color: %TEXT_PRIMARY%;
+    spacing: %SPACING_SM%px;
+    background: transparent;
+}
+
+QCheckBox:disabled, QRadioButton:disabled {
+    color: %TEXT_DISABLED%;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid %BORDER_STRONG%;
+    background: %SURFACE%;
+}
+
+QCheckBox::indicator {
+    border-radius: 4px;
+}
+
+QRadioButton::indicator {
+    width: 18px;
+    height: 18px;
+    border: 1px solid %BORDER_STRONG%;
+    border-radius: 9px;
+    background: %SURFACE%;
+}
+
+QCheckBox::indicator:hover, QRadioButton::indicator:hover {
+    border-color: %ACCENT%;
+}
+
+QCheckBox::indicator:checked {
+    background: %ACCENT%;
+    border-color: %ACCENT%;
+    image: url(:/check.png);
+}
+
+QRadioButton::indicator:checked {
+    border: 1px solid %ACCENT%;
+    background: qradialgradient(
+        cx: 0.5, cy: 0.5, radius: 0.5,
+        fx: 0.5, fy: 0.5,
+        stop: 0 %ACCENT%,
+        stop: 0.30 %ACCENT%,
+        stop: 0.32 %SURFACE%,
+        stop: 1 %SURFACE%
+    );
+}
+
+/* ---- 表格 ---- */
+
+QTableView, QTableWidget {
+    background: %SURFACE%;
+    alternate-background-color: %BACKGROUND%;
+    color: %TEXT_PRIMARY%;
+    border: 1px solid %BORDER%;
+    border-radius: 8px;
+    gridline-color: transparent;
+    outline: none;
+    selection-background-color: %ACCENT%;
+    selection-color: #FFFFFF;
+}
+
+QTableView::item, QTableWidget::item {
+    padding: %SPACING_XS%px %SPACING_SM%px;
+    border: none;
+}
+
+QTableView::item:hover, QTableWidget::item:hover {
+    background: %SURFACE_HOVER%;
+}
+
+QTableView::item:selected, QTableWidget::item:selected {
+    background: %ACCENT%;
+    color: #FFFFFF;
+}
+
+QHeaderView {
+    background: transparent;
+    border: none;
+}
+
+QHeaderView::section {
+    background: %BACKGROUND%;
+    color: %TEXT_SECONDARY%;
+    font-size: %FONT_CAPTION%px;
+    font-weight: 600;
+    padding: %SPACING_XS%px %SPACING_SM%px;
+    border: none;
+    border-bottom: 1px solid %BORDER%;
+}
+
+QHeaderView::section:hover {
+    color: %TEXT_PRIMARY%;
+}
+
+QTableCornerButton::section {
+    background: %BACKGROUND%;
+    border: none;
+    border-bottom: 1px solid %BORDER%;
+}
+
+/* ---- 进度条 ---- */
+
+QProgressBar {
+    background: %BORDER%;
+    border: none;
+    border-radius: 4px;
+    height: 8px;
+    text-align: center;
+    color: transparent;
+}
+
+QProgressBar::chunk {
+    background: %ACCENT%;
+    border-radius: 4px;
+}
+
+QProgressBar[progressRole="cell"] {
+    height: 6px;
+    border-radius: 3px;
+}
+
+/* ---- 滚动区域 ---- */
+
+QScrollArea {
+    background: transparent;
+    border: none;
+}
+
+QScrollArea > QWidget > QWidget {
+    background: transparent;
+}
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background: %BORDER_STRONG%;
+    border-radius: 5px;
+    min-height: %SPACING_XL%px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: %TEXT_SECONDARY%;
+}
+
+QScrollBar:horizontal {
+    background: transparent;
+    height: 10px;
+    margin: 0;
+}
+
+QScrollBar::handle:horizontal {
+    background: %BORDER_STRONG%;
+    border-radius: 5px;
+    min-width: %SPACING_XL%px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background: %TEXT_SECONDARY%;
+}
+
+QScrollBar::add-line, QScrollBar::sub-line {
+    width: 0;
+    height: 0;
+}
+
+QScrollBar::add-page, QScrollBar::sub-page {
+    background: transparent;
+}
+
+/* ---- 菜单 ---- */
+
+QMenuBar {
+    background: %BACKGROUND%;
+    color: %TEXT_PRIMARY%;
+    border-bottom: 1px solid %BORDER%;
+}
+
+QMenuBar::item {
+    background: transparent;
+    padding: %SPACING_XS%px %SPACING_MD%px;
+    border-radius: 4px;
+}
+
+QMenuBar::item:selected {
+    background: %SURFACE_HOVER%;
+}
+
+QMenu {
+    background: %SURFACE%;
+    color: %TEXT_PRIMARY%;
+    border: 1px solid %BORDER%;
+    border-radius: 8px;
+    padding: %SPACING_XS%px;
+}
+
+QMenu::item {
+    padding: %SPACING_XS%px %SPACING_XL%px %SPACING_XS%px %SPACING_MD%px;
+    border-radius: 4px;
+}
+
+QMenu::item:selected {
+    background: %ACCENT%;
+    color: #FFFFFF;
+}
+
+QMenu::item:disabled {
+    color: %TEXT_DISABLED%;
+}
+
+QMenu::separator {
+    height: 1px;
+    background: %BORDER%;
+    margin: %SPACING_XS%px %SPACING_SM%px;
+}
+
+/* ---- 其他 ---- */
+
+QToolTip {
+    background: %SURFACE%;
+    color: %TEXT_PRIMARY%;
+    border: 1px solid %BORDER%;
+    border-radius: 6px;
+    padding: %SPACING_XS%px %SPACING_SM%px;
+}
+
+QStatusBar {
+    background: %BACKGROUND%;
+    color: %TEXT_SECONDARY%;
+    border-top: 1px solid %BORDER%;
+}
+
+QStatusBar::item {
+    border: none;
+}
+
+QSplitter::handle {
+    background: transparent;
+}
+
+QSplitter::handle:horizontal {
+    width: %SPACING_LG%px;
+}
+
+QSplitter::handle:hover {
+    background: %BORDER%;
+}
+
+QFrame[frameShape="4"], QFrame[frameShape="5"] {
+    background: %BORDER%;
+    border: none;
+    max-height: 1px;
+}
+
+/* 卡片容器：右侧信息面板等 */
+QFrame[panelRole="card"],
+QFrame#detailsCard {
+    background: %SURFACE%;
+    border: 1px solid %BORDER%;
+    border-radius: 10px;
+}
+
+QFrame#detailsCard QLabel#label_img {
+    background: %BACKGROUND%;
+    border-radius: 8px;
+}

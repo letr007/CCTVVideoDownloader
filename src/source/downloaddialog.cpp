@@ -18,7 +18,6 @@ Download::Download(QWidget* parent)
 	ui.setupUi(this);
 	resize(700, 500);
 	setMinimumSize(560, 400);
-	setMaximumSize(840, 600);
 	m_model = new DownloadModel(this);
 	m_engine = new DownloadEngine(this);
 	ui.tableView->setModel(m_model);
@@ -27,6 +26,12 @@ Download::Download(QWidget* parent)
 	ui.tableView->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
 	ui.tableView->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
 	ui.tableView->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+	ui.tableView->horizontalHeader()->setHighlightSections(false);
+	ui.tableView->verticalHeader()->setVisible(false);
+	ui.tableView->verticalHeader()->setDefaultSectionSize(32);
+	ui.tableView->setShowGrid(false);
+	ui.tableView->setAlternatingRowColors(true);
+	ui.tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
 	ui.tableView->setTextElideMode(Qt::ElideMiddle);
 	ui.tableView->setWordWrap(false);
 	layoutDownloadDialog();

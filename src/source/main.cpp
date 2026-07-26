@@ -1,16 +1,15 @@
 #include "../head/cctvvideodownloader.h"
 #include "../head/logger.h"
 #include "../head/config.h"
+#include "../head/theme.h"
 #include <QtWidgets/QApplication>
-#include <QGuiApplication>
 
 int main(int argc, char *argv[])
 {
-    QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-
     QApplication a(argc, argv);
     a.setApplicationName(QStringLiteral("CCTVVideoDownloader"));
     a.setApplicationVersion(QStringLiteral(CCTV_VIDEO_DOWNLOADER_BUILD_VERSION));
+    Theme::apply(a);
     // Ensure Cmd+Q / last-window-closed both leave a normal process exit code.
     QObject::connect(&a, &QApplication::lastWindowClosed, &a, &QApplication::quit);
     CCTVVideoDownloader w;
