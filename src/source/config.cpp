@@ -61,47 +61,126 @@ extern void initGlobalSettings()
 	}
 }
 
-extern QList<QPair<QString, QJsonObject>> readProgrammeFromConfig()
+namespace {
+
+constexpr int kProgrammeSchemaVersion = 2;
+
+ContentParse::ProgrammeRecord decodeProgrammeRecord(const QString& key, const QByteArray& encoded)
 {
-	qInfo() << "从配置读取节目列表";
-	
-	QList<QPair<QString, QJsonObject>> results;
+	QJsonParseError error;
+	const QJsonDocument document = QJsonDocument::fromJson(QByteArray::fromBase64(encoded), &error);
+	if (error.error != QJsonParseError::NoError || !document.isObject()) {
+		qWarning() << "节目配置解析失败 key:" << key << error.errorString();
+		return {};
+	}
 
-	// 读取文件数据
+	const QJsonObject object = document.object();
+	ContentParse::ProgrammeRecord record;
+	record.storageKey = key;
+	record.title = object.value(QStringLiteral("name")).toString();
+	record.itemId = object.value(QStringLiteral("itemid")).toString();
+	record.columnId = object.value(QStringLiteral("columnid")).toString();
+	record.catalogId = object.value(QStringLiteral("catalogid")).toString(record.columnId);
+	record.profile = ContentParse::pageProfileFromName(object.value(QStringLiteral("profile")).toString());
+	if (record.profile == ContentParse::PageProfile::Standard
+		&& ContentParse::isVidE(record.itemId)
+		&& ContentParse::isTopc(record.columnId)
+		&& ContentParse::isHexGuid(record.catalogId)) {
+		record.profile = ContentParse::PageProfile::LegacySportsEpisode;
+	}
+	return record;
+}
+
+QByteArray encodeProgrammeRecord(const ContentParse::ProgrammeRecord& record)
+{
+	const QJsonObject object{
+		{QStringLiteral("name"), record.title},
+		{QStringLiteral("itemid"), record.itemId},
+		{QStringLiteral("columnid"), record.columnId},
+		{QStringLiteral("catalogid"), record.catalogId},
+		{QStringLiteral("profile"), ContentParse::pageProfileName(record.profile)},
+		{QStringLiteral("version"), kProgrammeSchemaVersion},
+	};
+	return QJsonDocument(object).toJson(QJsonDocument::Compact).toBase64();
+}
+
+bool sameProgramme(const ContentParse::ProgrammeRecord& left, const ContentParse::ProgrammeRecord& right)
+{
+	return left.title == right.title
+		&& left.itemId == right.itemId
+		&& left.columnId == right.columnId
+		&& left.catalogId == right.catalogId
+		&& left.profile == right.profile;
+}
+
+} // namespace
+
+QList<ContentParse::ProgrammeRecord> readProgrammeFromConfig()
+{
+	QList<ContentParse::ProgrammeRecord> records;
+	if (!g_settings) {
+		return records;
+	}
+
 	g_settings->sync();
-	g_settings->beginGroup("programme");
-	QStringList existingKeys = g_settings->childKeys();
-	
-	qInfo() << "找到" << existingKeys.size() << "个节目配置项";
-
-	for (const QString& key : existingKeys)
-	{
-		QByteArray existingData = g_settings->value(key).toByteArray();
-		// 解码base64
-		QByteArray decodeData = QByteArray::fromBase64(existingData);
-		if (decodeData.isEmpty())
-		{
-			qWarning() << "Base64解码失败 key:" << key;
-			g_settings->endGroup();
-			return QList<QPair<QString, QJsonObject>>();
+	g_settings->beginGroup(QStringLiteral("programme"));
+	for (const QString& key : g_settings->childKeys()) {
+		ContentParse::ProgrammeRecord record = decodeProgrammeRecord(key, g_settings->value(key).toByteArray());
+		if (record.isValid()) {
+			records.append(record);
 		}
-		// 转换为Json
-		QJsonParseError error;
-		QJsonDocument doc = QJsonDocument::fromJson(decodeData, &error);
-		if (error.error != QJsonParseError::NoError)
-		{
-			qWarning() << "Json解析错误:" << error.errorString();
-			g_settings->endGroup();
-			return QList<QPair<QString, QJsonObject>>();
-		}
-
-		results.append({key, doc.object()});
 	}
 	g_settings->endGroup();
-	
-	qInfo() << "成功读取" << results.size() << "个节目配置";
-	
-	return results;
+	return records;
+}
+
+ProgrammePersistResult persistProgrammeImport(const ContentParse::ImportResult& result)
+{
+	ProgrammePersistResult persisted;
+	if (!g_settings || !result.isValid()) {
+		return persisted;
+	}
+
+	ContentParse::ProgrammeRecord incoming = ContentParse::makeProgrammeRecord(result);
+	if (!incoming.isValid()) {
+		return persisted;
+	}
+
+	g_settings->sync();
+	g_settings->beginGroup(QStringLiteral("programme"));
+	const QStringList keys = g_settings->childKeys();
+	int maxId = 0;
+	ContentParse::ProgrammeRecord existing;
+	for (const QString& key : keys) {
+		bool numeric = false;
+		maxId = qMax(maxId, key.toInt(&numeric));
+		const ContentParse::ProgrammeRecord candidate = decodeProgrammeRecord(key, g_settings->value(key).toByteArray());
+		const bool sameRawIdentity = candidate.itemId == incoming.itemId
+			&& candidate.columnId == incoming.columnId;
+		const bool legacyProjectedIdentity = incoming.profile == ContentParse::PageProfile::LegacySportsEpisode
+			&& candidate.itemId == incoming.itemId
+			&& candidate.columnId == incoming.catalogId;
+		if (sameRawIdentity || legacyProjectedIdentity) {
+			existing = candidate;
+			break;
+		}
+	}
+
+	if (!existing.storageKey.isEmpty() && sameProgramme(existing, incoming)) {
+		g_settings->endGroup();
+		persisted.outcome = ProgrammePersistOutcome::Duplicate;
+		persisted.record = existing;
+		return persisted;
+	}
+
+	incoming.storageKey = existing.storageKey.isEmpty() ? QString::number(maxId + 1) : existing.storageKey;
+	g_settings->setValue(incoming.storageKey, encodeProgrammeRecord(incoming));
+	g_settings->endGroup();
+	g_settings->sync();
+	persisted.outcome = existing.storageKey.isEmpty()
+		? ProgrammePersistOutcome::Inserted : ProgrammePersistOutcome::Upgraded;
+	persisted.record = incoming;
+	return persisted;
 }
 
 extern std::tuple<QString, QString> readDisplayMinAndMax()

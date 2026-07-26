@@ -16,7 +16,6 @@
 
 #include <QSizePolicy>
 
-//std::tuple<int, int> CCTVVideoDownloader::SELECTED_ID;
 
 CCTVVideoDownloader::CCTVVideoDownloader(QWidget* parent)
     : QMainWindow(parent)
@@ -103,7 +102,7 @@ void CCTVVideoDownloader::flashProgrammeList()
     qInfo() << "刷新节目列表";
     
     // 读取配置文件
-    QList<QPair<QString, QJsonObject>> programmes = readProgrammeFromConfig();
+    const QList<ContentParse::ProgrammeRecord> programmes = readProgrammeFromConfig();
     qInfo() << "从配置读取到" << programmes.size() << "个节目";
 
     // 获取表格控件
@@ -114,12 +113,12 @@ void CCTVVideoDownloader::flashProgrammeList()
 
     // 填充表格数据
     for (int row = 0; row < programmes.size(); ++row) {
-        const auto& [key, programme] = programmes[row];
+        const ContentParse::ProgrammeRecord& programme = programmes[row];
 
         // 创建表格项
-        QTableWidgetItem* nameItem = new QTableWidgetItem(programme["name"].toString());
-        QTableWidgetItem* columnIdItem = new QTableWidgetItem(programme["columnid"].toString());
-        QTableWidgetItem* itemIdItem = new QTableWidgetItem(programme["itemid"].toString());
+        QTableWidgetItem* nameItem = new QTableWidgetItem(programme.title);
+        QTableWidgetItem* columnIdItem = new QTableWidgetItem(programme.columnId);
+        QTableWidgetItem* itemIdItem = new QTableWidgetItem(programme.itemId);
 
         // 设置表格项为不可编辑
         nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
@@ -127,7 +126,7 @@ void CCTVVideoDownloader::flashProgrammeList()
         itemIdItem->setFlags(itemIdItem->flags() & ~Qt::ItemIsEditable);
 
         // 加入表格
-        nameItem->setData(Qt::UserRole, key);
+        nameItem->setData(Qt::UserRole, QVariant::fromValue(programme));
         table->setItem(row, 0, nameItem);
         table->setItem(row, 1, columnIdItem);
         table->setItem(row, 2, itemIdItem);
@@ -168,7 +167,11 @@ void CCTVVideoDownloader::deleteSelectedProgrammes()
     for (const auto& row : table->selectionModel()->selectedRows()) {
         QTableWidgetItem* nameItem = table->item(row.row(), 0);
         if (nameItem) {
-            keysToRemove << nameItem->data(Qt::UserRole).toString();
+            const ContentParse::ProgrammeRecord programme = nameItem->data(Qt::UserRole)
+                .value<ContentParse::ProgrammeRecord>();
+            if (!programme.storageKey.isEmpty()) {
+                keysToRemove << programme.storageKey;
+            }
         }
     }
     keysToRemove.removeDuplicates();
@@ -198,20 +201,19 @@ void CCTVVideoDownloader::flashVideoList()
 {
     qInfo() << "刷新视频列表";
     
-    if (!SELECTED_ID) {
-        qWarning() << "刷新视频列表失败: SELECTED_ID为空";
+    if (!SELECTED_PROGRAMME) {
+        qWarning() << "刷新视频列表失败: SELECTED_PROGRAMME为空";
         return;
     }
-    auto [columnId, itemId] = *SELECTED_ID;
+    const ContentParse::ProgrammeRecord programme = *SELECTED_PROGRAMME;
     auto [displayMin, displayMax] = readDisplayMinAndMax();
     
-    qInfo() << "获取视频列表参数 - columnId:" << columnId << "itemId:" << itemId
+    qInfo() << "获取视频列表参数 - catalogId:" << programme.catalogId << "itemId:" << programme.itemId
              << "显示范围:" << displayMin << "-" << displayMax;
     
     m_pendingVideoListShowHighlights = readShowHighlights();
     m_pendingVideoListRequestId = APIService::instance().startGetBrowseVideoList(
-        columnId,
-        itemId,
+        programme,
         displayMin,
         displayMax,
         m_pendingVideoListShowHighlights
@@ -233,7 +235,17 @@ void CCTVVideoDownloader::isProgrammeSelected(int r, int c)
     qInfo() << "选中栏目 - 行:" << r << "列:" << c << "名称:" << selected_item_name
              << "columnId:" << selectedItemColumnId << "itemId:" << selectedItemItemId;
     
-    SELECTED_ID.emplace(selectedItemColumnId, selectedItemItemId);
+    QTableWidgetItem* nameItem = ui.tableWidget_Config->item(r, 0);
+    if (!nameItem) {
+        return;
+    }
+    const ContentParse::ProgrammeRecord programme = nameItem->data(Qt::UserRole)
+        .value<ContentParse::ProgrammeRecord>();
+    if (!programme.isValid()) {
+        qWarning() << "选中节目缺少有效记录";
+        return;
+    }
+    SELECTED_PROGRAMME = programme;
     flashVideoList();
 }
 
@@ -580,7 +592,7 @@ void CCTVVideoDownloader::onImportLinkSubmitted()
     updateImportAvailability();
 }
 
-void CCTVVideoDownloader::handleInlineImportColumnInfoResolved(quint64 requestId, const QStringList& data)
+void CCTVVideoDownloader::handleInlineImportColumnInfoResolved(quint64 requestId, const ContentParse::ImportResult& data)
 {
     if (requestId != m_pendingInlineImportRequestId) {
         return;
@@ -589,62 +601,23 @@ void CCTVVideoDownloader::handleInlineImportColumnInfoResolved(quint64 requestId
     m_pendingInlineImportRequestId = 0;
     updateImportAvailability();
 
-    if (data.size() != 3 || data.at(0).isEmpty()) {
+    if (!data.isValid()) {
         statusBar()->showMessage(QStringLiteral("导入失败：未获取到有效节目信息"), 5000);
         qWarning() << "内联导入获取数据失败";
         return;
     }
 
-    // 构建JSON数据
-    QJsonObject results{
-        {"name", data.at(0)},
-        {"itemid", data.at(1)},
-        {"columnid", data.at(2)},
-    };
-    QByteArray jsonData = QJsonDocument(results).toJson(QJsonDocument::Compact);
-    QString currentData = jsonData.toBase64();
-
-    // 检查重复
-    g_settings->sync();
-    g_settings->beginGroup("programme");
-    bool isDuplicate = false;
-    const QStringList existingKeys = g_settings->childKeys();
-    for (const QString& key : existingKeys) {
-        if (g_settings->value(key).toString() == currentData) {
-            isDuplicate = true;
-            break;
-        }
-    }
-
-    if (isDuplicate) {
-        g_settings->endGroup();
-        statusBar()->showMessage(QStringLiteral("该节目已存在，无需重复导入"), 3000);
-        qInfo() << "内联导入跳过重复数据";
-        ui.lineEdit_import->clear();
+    const ProgrammePersistResult persisted = persistProgrammeImport(data);
+    if (persisted.outcome == ProgrammePersistOutcome::Failed) {
+        statusBar()->showMessage(QStringLiteral("导入失败：无法保存节目信息"), 5000);
         return;
     }
 
-    // 自增ID
-    int newId = 1;
-    if (!existingKeys.isEmpty()) {
-        bool ok;
-        int maxId = 0;
-        for (const QString& key : existingKeys) {
-            int currentId = key.toInt(&ok);
-            if (ok && currentId > maxId) {
-                maxId = currentId;
-            }
-        }
-        newId = maxId + 1;
-    }
-
-    g_settings->setValue(QString::number(newId), currentData);
-    g_settings->endGroup();
-    g_settings->sync();
-
-    qInfo() << "内联导入成功，节目ID:" << newId << "名称:" << data.at(0);
-
-    statusBar()->showMessage(QStringLiteral("导入成功：%1").arg(data.at(0)), 5000);
+    const QString status = persisted.outcome == ProgrammePersistOutcome::Inserted ? QStringLiteral("导入成功")
+        : persisted.outcome == ProgrammePersistOutcome::Upgraded ? QStringLiteral("节目已升级")
+        : QStringLiteral("节目已存在");
+    qInfo() << status << "节目ID:" << persisted.record.storageKey << "名称:" << data.title;
+    statusBar()->showMessage(QStringLiteral("%1：%2").arg(status, data.title), 5000);
     ui.lineEdit_import->clear();
     flashProgrammeList();
 }

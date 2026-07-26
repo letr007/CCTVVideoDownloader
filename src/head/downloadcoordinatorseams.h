@@ -7,6 +7,7 @@
 
 #include "downloadjob.h"
 #include "downloadmodel.h"
+#include "../parse/contentparse.h"
 
 class CoordinatorResolveService : public QObject
 {
@@ -20,7 +21,7 @@ public:
     virtual void cancelResolve() = 0;
 
 signals:
-    void resolved(const QStringList& segmentUrls, bool is4K);
+    void resolved(const ContentParse::ResolvedMedia& media);
     void failed(DownloadErrorCategory category, const QString& message);
     void cancelled();
 };

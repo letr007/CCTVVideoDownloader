@@ -1,6 +1,7 @@
 #include "../head/downloadcoordinator.h"
 
 #include "../head/apiservice.h"
+#include "../parse/contentresolver.h"
 #include "../head/concatworker.h"
 #include "../head/decryptworker.h"
 #include "../head/directmediafinalizer.h"
@@ -1051,24 +1052,24 @@ DownloadErrorCategory classifyApiResolveFailure(const QString& message)
     return DownloadErrorCategory::ValidationError;
 }
 
-class ApiServiceResolveBridge final : public CoordinatorResolveService
+class ContentResolverResolveBridge final : public CoordinatorResolveService
 {
 public:
-    explicit ApiServiceResolveBridge(APIService* apiService, QObject* parent = nullptr)
+    explicit ContentResolverResolveBridge(APIService* apiService, QObject* parent = nullptr)
         : CoordinatorResolveService(parent)
-        , m_apiService(apiService)
+        , m_resolver(*apiService, this)
     {
-        Q_ASSERT(m_apiService != nullptr);
+        Q_ASSERT(apiService != nullptr);
 
-        connect(m_apiService, &APIService::encryptM3U8UrlsResolved, this,
-            [this](const QStringList& urls, bool is4K) {
-                emit resolved(urls, is4K);
+        connect(&m_resolver, &ContentParse::ContentResolver::mediaResolved, this,
+            [this](const ContentParse::ResolvedMedia& media) {
+                emit resolved(media);
             });
-        connect(m_apiService, &APIService::encryptM3U8UrlsFailed, this,
+        connect(&m_resolver, &ContentParse::ContentResolver::mediaResolveFailed, this,
             [this](const QString& errorMessage) {
                 emit failed(classifyApiResolveFailure(errorMessage), errorMessage);
             });
-        connect(m_apiService, &APIService::encryptM3U8UrlsCancelled, this,
+        connect(&m_resolver, &ContentParse::ContentResolver::mediaResolveCancelled, this,
             [this]() {
                 emit cancelled();
             });
@@ -1076,16 +1077,16 @@ public:
 
     void startResolve(const QString& guid, const QString& quality) override
     {
-        m_apiService->startGetEncryptM3U8Urls(guid, quality);
+        m_resolver.startResolveMedia(guid, quality);
     }
 
     void cancelResolve() override
     {
-        m_apiService->cancelGetEncryptM3U8Urls();
+        m_resolver.cancelResolveMedia();
     }
 
 private:
-    APIService* m_apiService = nullptr;
+    ContentParse::ContentResolver m_resolver;
 };
 
 }
@@ -1134,7 +1135,7 @@ DownloadCoordinator::DownloadCoordinator(APIService* apiService,
     CoordinatorDirectFinalizeStage* directFinalizeStage,
     QObject* parent)
     : QObject(parent)
-    , m_resolveService(new ApiServiceResolveBridge(apiService))
+    , m_resolveService(new ContentResolverResolveBridge(apiService))
     , m_ownedResolveService(m_resolveService)
     , m_downloadStage(downloadStage)
     , m_concatStage(concatStage)
@@ -1304,15 +1305,16 @@ QList<DownloadJob> DownloadCoordinator::jobs() const
     return m_jobs;
 }
 
-void DownloadCoordinator::onResolved(const QStringList& segmentUrls, bool is4K)
+void DownloadCoordinator::onResolved(const ContentParse::ResolvedMedia& media)
 {
     if (!hasCurrentJob()) {
         return;
     }
 
-    m_currentJobIs4K = is4K;
+    m_currentJobIs4K = media.is4K;
+    m_currentJobEncryptionMode = media.encryptionMode;
     transitionJob(m_currentIndex, DownloadJobState::Downloading, DownloadJobStage::DownloadingShards);
-    m_downloadStage->startDownload(segmentUrls, currentJobTaskDirectory(), currentJobId());
+    m_downloadStage->startDownload(media.segmentUrls, currentJobTaskDirectory(), currentJobId());
 }
 
 void DownloadCoordinator::onResolveFailed(DownloadErrorCategory category, const QString& message)
@@ -1396,7 +1398,7 @@ void DownloadCoordinator::onConcatFinished(bool ok, const QString& message)
         return;
     }
 
-    if (m_currentJobIs4K) {
+    if (m_currentJobEncryptionMode == ContentParse::EncryptionMode::None) {
         transitionJob(m_currentIndex, DownloadJobState::DirectFinalizing, DownloadJobStage::PublishingOutput);
         if (auto* productionStage = dynamic_cast<ProductionCoordinatorDirectFinalizeStage*>(m_directFinalizeStage)) {
             productionStage->setTaskDirectory(currentJobTaskDirectory());
@@ -1467,6 +1469,7 @@ void DownloadCoordinator::resetBatchState()
     m_cancelAllRequested = false;
     m_stoppedByFatalError = false;
     m_currentJobIs4K = false;
+    m_currentJobEncryptionMode = ContentParse::EncryptionMode::H5E;
 }
 
 void DownloadCoordinator::startNextQueuedJob()
@@ -1489,6 +1492,7 @@ void DownloadCoordinator::startNextQueuedJob()
         if (m_jobs[index].state == DownloadJobState::Queued) {
             m_currentIndex = index;
             m_currentJobIs4K = false;
+            m_currentJobEncryptionMode = ContentParse::EncryptionMode::H5E;
             if (auto* productionStage = dynamic_cast<ProductionCoordinatorDownloadStage*>(m_downloadStage)) {
                 productionStage->setInitialThreadCount(m_jobs[index].request.threadCount);
             }
@@ -1522,6 +1526,7 @@ void DownloadCoordinator::finishBatch()
     m_cancelCurrentRequested = false;
     m_cancelAllRequested = false;
     m_currentJobIs4K = false;
+    m_currentJobEncryptionMode = ContentParse::EncryptionMode::H5E;
     m_busy = false;
     emit batchFinished(completedJobs, failedJobs, cancelledJobs, totalJobs, stoppedByFatalError);
     emit busyChanged(false);

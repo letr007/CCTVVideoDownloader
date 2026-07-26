@@ -76,7 +76,7 @@ signals:
     void batchFinished(int completedJobs, int failedJobs, int cancelledJobs, int totalJobs, bool stoppedByFatalError);
 
 private slots:
-    void onResolved(const QStringList& segmentUrls, bool is4K);
+    void onResolved(const ContentParse::ResolvedMedia& media);
     void onResolveFailed(DownloadErrorCategory category, const QString& message);
     void onResolveCancelled();
     void onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal, const QVariant& userData);
@@ -149,4 +149,5 @@ private:
     bool m_cancelAllRequested = false;
     bool m_stoppedByFatalError = false;
     bool m_currentJobIs4K = false;
+    ContentParse::EncryptionMode m_currentJobEncryptionMode = ContentParse::EncryptionMode::H5E;
 };

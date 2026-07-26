@@ -39,6 +39,8 @@
 #include "config.h"
 #include "setting.h"
 #include "apiservice.h"
+#include "contentparse.h"
+#include "contentresolver.h"
 #include "downloadengine.h"
 #include "downloadtask.h"
 #include "downloaddialog.h"
@@ -214,16 +216,6 @@ public:
         apiService.processTopicVideoData(items, result, resultIndex);
     }
 
-    static QHash<QString, QString> parseM3U8QualityUrls(APIService& apiService, const QByteArray& m3u8Data, const QString& baseUrl)
-    {
-        return apiService.parseM3U8QualityUrls(m3u8Data, baseUrl);
-    }
-
-    static QString selectQuality(APIService& apiService, const QString& requestedQuality, const QHash<QString, QString>& availableQualities)
-    {
-        return apiService.selectQuality(requestedQuality, availableQualities);
-    }
-
     static QUrl buildVideoApiUrl(APIService& apiService, FetchType fetchType, const QString& id, const QString& date, int page, int pageSize)
     {
         return apiService.buildVideoApiUrl(fetchType, id, date, page, pageSize);
@@ -239,16 +231,6 @@ public:
         return apiService.buildTopicVideoListUrl(columnId, itemId, type);
     }
 
-    static QStringList buildTsUrlsFromPlaylistData(APIService& apiService, const QByteArray& playlistData, const QString& fullM3u8Url)
-    {
-        return apiService.buildTsUrlsFromPlaylistData(playlistData, fullM3u8Url);
-    }
-
-    static QStringList getTsFileList(APIService& apiService, const QString& qualityPath, const QString& baseUrl)
-    {
-        return apiService.getTsFileList(qualityPath, baseUrl);
-    }
-
     static void setTestNetworkAccessManager(APIService& apiService, QNetworkAccessManager* networkAccessManager)
     {
         apiService.setTestNetworkAccessManager(networkAccessManager);
@@ -259,10 +241,6 @@ public:
         apiService.clearTestNetworkAccessManager();
     }
 
-    static QStringList getEncryptM3U8Urls(APIService& apiService, const QString& guid, const QString& quality)
-    {
-        return apiService.getEncryptM3U8Urls(guid, quality);
-    }
 };
 
 class DownloadTaskTestAdapter {
@@ -533,6 +511,7 @@ struct FakeResolveAction {
     FakeCoordinatorOutcome outcome = FakeCoordinatorOutcome::Success;
     QStringList segmentUrls;
     bool is4K = false;
+    ContentParse::EncryptionMode encryptionMode = ContentParse::EncryptionMode::H5E;
     DownloadErrorCategory category = DownloadErrorCategory::Unknown;
     QString message;
 };
@@ -573,12 +552,14 @@ public:
     {
     }
 
-    void queueSuccess(const QStringList& segmentUrls, bool is4K)
+    void queueSuccess(const QStringList& segmentUrls, bool is4K,
+        ContentParse::EncryptionMode encryptionMode = ContentParse::EncryptionMode::H5E)
     {
         FakeResolveAction action;
         action.outcome = FakeCoordinatorOutcome::Success;
         action.segmentUrls = segmentUrls;
         action.is4K = is4K;
+        action.encryptionMode = encryptionMode;
         m_actions.enqueue(action);
     }
 
@@ -614,7 +595,7 @@ public:
             m_pending = false;
             switch (action.outcome) {
             case FakeCoordinatorOutcome::Success:
-                emit resolved(action.segmentUrls, action.is4K);
+                emit resolved({action.segmentUrls, action.encryptionMode, action.is4K});
                 break;
             case FakeCoordinatorOutcome::Failure:
                 emit failed(action.category, action.message);
@@ -880,6 +861,7 @@ public:
     void startDecrypt() override
     {
         QVERIFY(!m_actions.isEmpty());
+        ++m_startCount;
         m_pending = true;
         const FakeDecryptAction action = m_actions.dequeue();
         QTimer::singleShot(action.delayMs, this, [this, action]() {
@@ -905,12 +887,14 @@ public:
     QString name() const { return m_name; }
     QString savePath() const { return m_savePath; }
     bool transcodeToMp4() const { return m_transcodeToMp4; }
+    int startCount() const { return m_startCount; }
 
 private:
     QQueue<FakeDecryptAction> m_actions;
     QString m_name;
     QString m_savePath;
     bool m_transcodeToMp4 = false;
+    int m_startCount = 0;
     bool m_pending = false;
 };
 
@@ -924,7 +908,7 @@ public:
     {
     }
 
-    void queueSuccess(const QString& code, const QString& message, const QString& finalPath, int delayMs = 0)
+    void queueSuccess(const QString& code = QString(), const QString& message = QString(), const QString& finalPath = QString(), int delayMs = 0)
     {
         FakeDirectFinalizeAction action;
         action.outcome = FakeCoordinatorOutcome::Success;
@@ -958,6 +942,7 @@ public:
     void startFinalize(const QString& title, const QString& savePath, bool transcodeToMp4) override
     {
         QVERIFY(!m_actions.isEmpty());
+        ++m_startCount;
         m_title = title;
         m_savePath = savePath;
         m_transcodeToMp4 = transcodeToMp4;
@@ -990,12 +975,14 @@ public:
     QString title() const { return m_title; }
     QString savePath() const { return m_savePath; }
     bool transcodeToMp4() const { return m_transcodeToMp4; }
+    int startCount() const { return m_startCount; }
 
 private:
     QQueue<FakeDirectFinalizeAction> m_actions;
     QString m_title;
     QString m_savePath;
     bool m_transcodeToMp4 = false;
+    int m_startCount = 0;
     bool m_pending = false;
 };
 
@@ -1104,6 +1091,8 @@ private slots:
     void downloadJob_failurePolicy_classifiesSharedEnvironmentErrors_asStopBatch();
 
     void coordinatorFakeResolveService_supportsSuccessFailureAndCancel();
+    void coordinator_skipsDecryptForClearMedia();
+    void coordinator_decryptsH5eFourKMedia();
     void coordinatorFakeDownloadStage_supportsProgressFailureAndCancel();
     void coordinatorFakeConcatStage_supportsSuccessFailureAndCancel();
     void coordinatorFakeDecryptStage_supportsSuccessFailureAndCancel();
@@ -1154,25 +1143,33 @@ private slots:
     void apiservice_processMonthData_skipsItemsWithoutGuidOrTitle();
     void apiservice_processMonthData_marksHighlightItems();
     void apiservice_processTopicVideoData_marksFragments();
-    void apiservice_parseM3U8QualityUrls_and_selectQuality_chooseHighestForZero();
+    void contentResolver_resolvesH5eVariantPlaylist();
+    void contentResolver_prefersEncryptedH5eOverClearHls();
+    void contentResolver_clearOnlyNetworkErrorTriesNextQuality();
+    void contentResolver_resolves4KPlaylist();
+    void contentResolver_fourKQualityUrl_preservesFilenameAndQuery();
+    void contentResolver_cancelledReplyDoesNotFallbackOrConsumeReplacement();
+    void contentResolver_cancelResolveMedia_emitsCancelled();
     void apiservice_getPlayColumnInfo_usesGuidFallbackForCctv4k();
+    void apiservice_getPlayColumnInfo_importsLegacyGuidWithoutSemicolon();
+    void contentparse_legacySportsProfileOwnsCatalogIdentity();
+    void programmePersistence_reimportUpgradesLegacyRecord();
+    void programmePersistence_reimportUpgradesProjectedLegacyRecord();
+    void apiservice_getPlayColumnInfo_modernVidePagePreservesTopcColumn();
+    void apiservice_getPlayColumnInfo_legacySportsPageWithoutGuidPreservesTopcColumn();
     void apiservice_getPlayColumnInfo_extractsNewsArticleVideoCenterId();
+    void contentParse_makePlan_selectsExpectedCatalogOperations();
+    void contentParse_fromStoredIds_hexGuidVide_usesTvcctvSingleVideo();
     void apiservice_getVideoList_usesTvcctvSingleVideoLookup();
     void apiservice_getVideoList_usesCctv4kGuidFallback();
     void apiservice_startGetPlayColumnInfo_asyncSuccess_emitsResolvedData();
     void apiservice_startGetBrowseVideoList_asyncSuccess_preservesHighlightAndFragmentBrowseSemantics();
     void apiservice_startGetImage_asyncSuccess_emitsLoadedImage();
-    void apiservice_startGetEncryptM3U8Urls_asyncSuccess_emitsUrlsAnd4KFlag();
-    void apiservice_startGetEncryptM3U8Urls_asyncFailure_emitsExactlyOnce();
-    void apiservice_cancelGetEncryptM3U8Urls_abortsPendingReplyAndSuppressesSuccess();
-    void apiservice_getEncryptM3U8Urls_cctv4kUses4000Playlist();
     void apiservice_buildVideoApiUrl_buildsExpectedQuery();
     void apiservice_buildAlbumVideoListUrl_buildsHighlightQuery();
     void apiservice_buildTopicVideoListUrl_buildsFragmentQuery();
-    void apiservice_buildTsUrlsFromPlaylistData_returnsExpectedAbsoluteUrls();
     void apiservice_sendNetworkRequest_fakeSuccess_returnsDeterministicBody();
     void apiservice_sendNetworkRequest_fakeError_returnsEmptyData();
-    void apiservice_getTsFileList_returnsExpectedUrlsFromSyntheticData();
 
     void fakeNetworkReply_success_emitsReadyReadProgressAndFinished();
     void fakeNetworkReply_abort_marksCancelledAndFinishes();
@@ -1211,7 +1208,6 @@ void CoreRegressionTests::init()
 
 void CoreRegressionTests::cleanup()
 {
-    APIService::instance().cancelGetEncryptM3U8Urls();
     APIServiceTestAdapter::clearTestNetworkAccessManager(APIService::instance());
     g_settings.reset();
     const QString configPath = defaultConfigFilePath();
@@ -3634,32 +3630,190 @@ void CoreRegressionTests::apiservice_processTopicVideoData_marksFragments()
     QCOMPARE(result.value(0).listType, QString::fromUtf8("片段"));
 }
 
-void CoreRegressionTests::apiservice_parseM3U8QualityUrls_and_selectQuality_chooseHighestForZero()
+void CoreRegressionTests::contentResolver_resolvesH5eVariantPlaylist()
 {
     APIService& apiService = APIService::instance();
-
-    const QByteArray m3u8Payload = R"(
-#EXTM3U
-#EXT-X-STREAM-INF:BANDWIDTH=460800,RESOLUTION=480x270
-low.m3u8
-#EXT-X-STREAM-INF:BANDWIDTH=1228800,RESOLUTION=1280x720
-mid.m3u8
-#EXT-X-STREAM-INF:BANDWIDTH=2048000,RESOLUTION=1920x1080
+    FakeNetworkAccessManager manager;
+    const QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=h5e-guid"));
+    const QUrl masterUrl(QStringLiteral("https://media.example/asp/h5e/master.m3u8"));
+    const QUrl variantUrl(QStringLiteral("https://media.example/asp/h5e/high.m3u8"));
+    manager.queueSuccess(infoUrl, R"({"manifest":{"hls_h5e_url":"https://media.example/asp/h5e/master.m3u8"}})");
+    manager.queueSuccess(masterUrl, R"(#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=2048000
 high.m3u8
-#EXT-X-STREAM-INF:BANDWIDTH=4000000,RESOLUTION=3840x2160
-uhd.m3u8
-)";
+)");
+    manager.queueSuccess(variantUrl, R"(#EXTM3U
+segment-1.ts
+https://cdn.example/segment-2.ts
+)");
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
 
-    const auto qualityUrls = APIServiceTestAdapter::parseM3U8QualityUrls(apiService, m3u8Payload, QString("https://dh5.example/asp/h5e/index.m3u8"));
+    ContentParse::ContentResolver resolver(apiService);
+    QSignalSpy resolvedSpy(&resolver, &ContentParse::ContentResolver::mediaResolved);
+    resolver.startResolveMedia(QStringLiteral("h5e-guid"), QStringLiteral("0"));
 
-    QCOMPARE(qualityUrls.size(), 4);
-    QCOMPARE(qualityUrls.value(QString("4")), QString("low.m3u8"));
-    QCOMPARE(qualityUrls.value(QString("2")), QString("mid.m3u8"));
-    QCOMPARE(qualityUrls.value(QString("1")), QString("high.m3u8"));
-    QCOMPARE(qualityUrls.value(QString("5")), QString("uhd.m3u8"));
+    QVERIFY(resolvedSpy.wait(1000));
+    const QList<QVariant> result = resolvedSpy.takeFirst();
+    QCOMPARE(qvariant_cast<ContentParse::ResolvedMedia>(result.at(0)).segmentUrls, QStringList({
+        QStringLiteral("https://media.example/asp/h5e/segment-1.ts"),
+        QStringLiteral("https://cdn.example/segment-2.ts")}));
+    QCOMPARE(qvariant_cast<ContentParse::ResolvedMedia>(result.at(0)).encryptionMode, ContentParse::EncryptionMode::H5E);
+    QVERIFY(!qvariant_cast<ContentParse::ResolvedMedia>(result.at(0)).is4K);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
 
-    const auto selected = APIServiceTestAdapter::selectQuality(apiService, QString("0"), qualityUrls);
-    QCOMPARE(selected, QString("5"));
+void CoreRegressionTests::contentResolver_prefersEncryptedH5eOverClearHls()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=encrypted-with-clear-guid"));
+    const QUrl masterUrl(QStringLiteral("https://media.example/asp/h5e/master.m3u8"));
+    const QUrl variantUrl(QStringLiteral("https://media.example/asp/h5e/high.m3u8"));
+    manager.queueSuccess(infoUrl, R"({"hls_url":"https://media.example/asp/hls/main/video/main.m3u8","manifest":{"hls_h5e_url":"https://media.example/asp/h5e/master.m3u8"}})");
+    manager.queueSuccess(masterUrl, R"(#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=2048000
+high.m3u8
+)");
+    manager.queueSuccess(variantUrl, R"(#EXTM3U
+encrypted-segment.ts
+)");
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    ContentParse::ContentResolver resolver(apiService);
+    QSignalSpy resolvedSpy(&resolver, &ContentParse::ContentResolver::mediaResolved);
+    QSignalSpy failedSpy(&resolver, &ContentParse::ContentResolver::mediaResolveFailed);
+    resolver.startResolveMedia(QStringLiteral("encrypted-with-clear-guid"), QStringLiteral("0"));
+
+    QVERIFY2(resolvedSpy.wait(1000), qPrintable(failedSpy.isEmpty() ? QStringLiteral("no resolution signal") : failedSpy.first().first().toString()));
+    const ContentParse::ResolvedMedia media = qvariant_cast<ContentParse::ResolvedMedia>(resolvedSpy.takeFirst().at(0));
+    QCOMPARE(media.segmentUrls, QStringList({QStringLiteral("https://media.example/asp/h5e/encrypted-segment.ts")}));
+    QCOMPARE(media.encryptionMode, ContentParse::EncryptionMode::H5E);
+    QVERIFY(!media.is4K);
+    QCOMPARE(manager.requestedUrls(), QList<QUrl>({infoUrl, masterUrl, variantUrl}));
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::contentResolver_clearOnlyNetworkErrorTriesNextQuality()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=clear-error-guid"));
+    const QUrl unavailable4000(QStringLiteral("https://media.example/asp/hls/4000/video/main.m3u8"));
+    const QUrl available2000(QStringLiteral("https://media.example/asp/hls/2000/video/main.m3u8"));
+    manager.queueSuccess(infoUrl, R"({"hls_url":"https://media.example/asp/hls/main/video/main.m3u8"})");
+    manager.queueError(unavailable4000, QNetworkReply::ContentNotFoundError, QStringLiteral("not found"));
+    manager.queueSuccess(available2000, R"(#EXTM3U
+clear-segment.ts
+)");
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    ContentParse::ContentResolver resolver(apiService);
+    QSignalSpy resolvedSpy(&resolver, &ContentParse::ContentResolver::mediaResolved);
+    QSignalSpy failedSpy(&resolver, &ContentParse::ContentResolver::mediaResolveFailed);
+    resolver.startResolveMedia(QStringLiteral("clear-error-guid"), QStringLiteral("0"));
+
+    QVERIFY2(resolvedSpy.wait(1000), qPrintable(failedSpy.isEmpty() ? QStringLiteral("no resolution signal") : failedSpy.first().first().toString()));
+    const ContentParse::ResolvedMedia media = qvariant_cast<ContentParse::ResolvedMedia>(resolvedSpy.takeFirst().at(0));
+    QCOMPARE(media.segmentUrls, QStringList({QStringLiteral("https://media.example/asp/hls/2000/video/clear-segment.ts")}));
+    QCOMPARE(media.encryptionMode, ContentParse::EncryptionMode::None);
+    QCOMPARE(manager.requestedUrls(), QList<QUrl>({infoUrl, unavailable4000, available2000}));
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::contentResolver_resolves4KPlaylist()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=4k-guid"));
+    const QUrl playlistUrl(QStringLiteral("https://4k.example/4000/playlist.m3u8"));
+    manager.queueSuccess(infoUrl, R"({"play_channel":"CCTV-4K","hls_url":"https://4k.example/main/playlist.m3u8"})");
+    manager.queueSuccess(playlistUrl, R"(#EXTM3U
+segment-4k.ts
+)");
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    ContentParse::ContentResolver resolver(apiService);
+    QSignalSpy resolvedSpy(&resolver, &ContentParse::ContentResolver::mediaResolved);
+    resolver.startResolveMedia(QStringLiteral("4k-guid"), QStringLiteral("5"));
+
+    QVERIFY(resolvedSpy.wait(1000));
+    const QList<QVariant> result = resolvedSpy.takeFirst();
+    const ContentParse::ResolvedMedia media = qvariant_cast<ContentParse::ResolvedMedia>(result.at(0));
+    QCOMPARE(media.segmentUrls, QStringList({QStringLiteral("https://4k.example/4000/segment-4k.ts")}));
+    QCOMPARE(media.encryptionMode, ContentParse::EncryptionMode::None);
+    QVERIFY(media.is4K);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::contentResolver_fourKQualityUrl_preservesFilenameAndQuery()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=4k-guid"));
+    const QUrl playlistUrl(QStringLiteral("https://4k.example/asp/hls/4000/program/alternate.m3u8?token=abc#fragment"));
+    manager.queueSuccess(infoUrl, R"({"play_channel":"CCTV-4K","hls_url":"https://4k.example/asp/hls/main/program/alternate.m3u8?token=abc#fragment"})");
+    manager.queueSuccess(playlistUrl, R"(#EXTM3U
+segment-4k.ts
+)");
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    ContentParse::ContentResolver resolver(apiService);
+    QSignalSpy resolvedSpy(&resolver, &ContentParse::ContentResolver::mediaResolved);
+    resolver.startResolveMedia(QStringLiteral("4k-guid"), QStringLiteral("5"));
+
+    QVERIFY(resolvedSpy.wait(1000));
+    QCOMPARE(manager.requestedUrls().at(1), playlistUrl);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::contentResolver_cancelledReplyDoesNotFallbackOrConsumeReplacement()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl firstInfoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=first-guid"));
+    const QUrl secondInfoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=second-guid"));
+    const QUrl secondPlaylistUrl(QStringLiteral("https://clear.example/asp/hls/4000/program/main.m3u8"));
+    manager.queueSuccess(firstInfoUrl, QByteArray(), 100);
+    manager.queueSuccess(secondInfoUrl, R"({"hls_url":"https://clear.example/asp/hls/main/program/main.m3u8"})");
+    manager.queueSuccess(secondPlaylistUrl, R"(#EXTM3U
+second.ts
+)");
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    ContentParse::ContentResolver resolver(apiService);
+    QSignalSpy resolvedSpy(&resolver, &ContentParse::ContentResolver::mediaResolved);
+    QSignalSpy failedSpy(&resolver, &ContentParse::ContentResolver::mediaResolveFailed);
+    resolver.startResolveMedia(QStringLiteral("first-guid"), QStringLiteral("5"));
+    resolver.startResolveMedia(QStringLiteral("second-guid"), QStringLiteral("5"));
+
+    QVERIFY(resolvedSpy.wait(1000));
+    QCOMPARE(resolvedSpy.count(), 1);
+    QCOMPARE(failedSpy.count(), 0);
+    const ContentParse::ResolvedMedia media = qvariant_cast<ContentParse::ResolvedMedia>(resolvedSpy.takeFirst().at(0));
+    QCOMPARE(media.segmentUrls, QStringList({QStringLiteral("https://clear.example/asp/hls/4000/program/second.ts")}));
+    QCOMPARE(manager.requestCount(), 3);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::contentResolver_cancelResolveMedia_emitsCancelled()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    ContentParse::ContentResolver resolver(apiService);
+    QSignalSpy cancelledSpy(&resolver, &ContentParse::ContentResolver::mediaResolveCancelled);
+    resolver.startResolveMedia(QStringLiteral("cancel-guid"), QStringLiteral("0"));
+    resolver.cancelResolveMedia();
+
+    QCOMPARE(cancelledSpy.count(), 1);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
 }
 
 void CoreRegressionTests::apiservice_getPlayColumnInfo_usesGuidFallbackForCctv4k()
@@ -3669,7 +3823,7 @@ void CoreRegressionTests::apiservice_getPlayColumnInfo_usesGuidFallbackForCctv4k
     const QUrl url(QStringLiteral("https://tv.cctv.com/cctv4k/example.shtml"));
     const QByteArray html = R"(
 <html><head><script>
-var guid = '4k-guid-001';
+var guid = '4a0c129380f14290a4d630d69de73ba1';
 </script></head></html>
 )";
 
@@ -3679,10 +3833,10 @@ var guid = '4k-guid-001';
     auto result = apiService.getPlayColumnInfo(url.toString());
 
     QVERIFY(!result.isNull());
-    QCOMPARE(result->size(), 3);
-    QCOMPARE(result->at(0), QString("CCTV-4K"));
-    QCOMPARE(result->at(1), QString("4k-guid-001"));
-    QCOMPARE(result->at(2), QString("4k-guid-001"));
+    QCOMPARE(result->title, QString("CCTV-4K"));
+    QCOMPARE(result->rawItemId, QString("4a0c129380f14290a4d630d69de73ba1"));
+    QCOMPARE(result->rawColumnId, QString("4a0c129380f14290a4d630d69de73ba1"));
+    QCOMPARE(result->catalogId, QString("4a0c129380f14290a4d630d69de73ba1"));
     QCOMPARE(manager.requestCount(), 1);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
 }
@@ -3707,40 +3861,273 @@ var playerParas = { videoCenterId: "6ef3fbbea4924a0a87a8cb12b76cc109", videoId: 
     auto result = apiService.getPlayColumnInfo(url.toString());
 
     QVERIFY(!result.isNull());
-    QCOMPARE(result->size(), 3);
-    QCOMPARE(result->at(0), QString("NewsSingleVideo"));
-    QCOMPARE(result->at(1), QString("VIDE100215108600"));
-    QCOMPARE(result->at(2), QString("6ef3fbbea4924a0a87a8cb12b76cc109"));
+    QCOMPARE(result->title, QString("NewsSingleVideo"));
+    QCOMPARE(result->rawItemId, QString("VIDE100215108600"));
+    QCOMPARE(result->rawColumnId, QString("6ef3fbbea4924a0a87a8cb12b76cc109"));
+    QCOMPARE(result->catalogId, QString("6ef3fbbea4924a0a87a8cb12b76cc109"));
     QCOMPARE(manager.requestCount(), 1);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::apiservice_getPlayColumnInfo_importsLegacyGuidWithoutSemicolon()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl url(QStringLiteral("https://sports.cctv.com/2011/12/22/VIDE0tOb7LbbAcQsiTpDpZwf111222.shtml"));
+    const QString guid = QStringLiteral("06645fff52a645068d2dba87937ff5e7");
+    const QString itemId = QStringLiteral("VIDE0tOb7LbbAcQsiTpDpZwf111222");
+    const QByteArray html = QStringLiteral(R"(
+<script>
+var commentTitle = '《足球之夜》 20111222';
+var itemid1 = 'VIDE0tOb7LbbAcQsiTpDpZwf111222';
+var column_id = 'TOPC9964025095711882';
+var guid = '%1'
+</script>
+)").arg(guid).toUtf8();
+    manager.queueSuccess(url, html);
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const auto result = apiService.getPlayColumnInfo(url.toString());
+    QVERIFY(!result.isNull());
+    QCOMPARE(result->title, QStringLiteral("《足球之夜》"));
+    QCOMPARE(result->rawItemId, itemId);
+    QCOMPARE(result->rawColumnId, QStringLiteral("TOPC9964025095711882"));
+    QCOMPARE(result->catalogId, guid);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::contentparse_legacySportsProfileOwnsCatalogIdentity()
+{
+    const QString guid = QStringLiteral("06645fff52a645068d2dba87937ff5e7");
+    const ContentParse::Features features = ContentParse::parsePage(QStringLiteral(R"(
+<script>
+var commentTitle = 'Legacy Sports';
+var itemid1 = 'VIDE0tOb7LbbAcQsiTpDpZwf111222';
+var column_id = 'TOPC9964025095711882';
+var guid = '%1';
+</script>)").arg(guid),
+        QStringLiteral("https://sports.cctv.com/2011/12/22/VIDE0tOb7LbbAcQsiTpDpZwf111222.shtml"));
+
+    QCOMPARE(features.profile, ContentParse::PageProfile::LegacySportsEpisode);
+    const ContentParse::Plan plan = ContentParse::makePlan(features);
+    QCOMPARE(plan.catalogStrategy, ContentParse::CatalogStrategy::SingleVideo);
+    QCOMPARE(plan.serviceId, QStringLiteral("tvcctv"));
+    QCOMPARE(plan.catalogId, guid);
+
+    const ContentParse::ImportResult result = ContentParse::makeImportResult(features);
+    QCOMPARE(result.rawItemId, QStringLiteral("VIDE0tOb7LbbAcQsiTpDpZwf111222"));
+    QCOMPARE(result.rawColumnId, QStringLiteral("TOPC9964025095711882"));
+    QCOMPARE(result.catalogId, guid);
+    const ContentParse::ProgrammeRecord record = ContentParse::makeProgrammeRecord(result);
+    QCOMPARE(record.columnId, QStringLiteral("TOPC9964025095711882"));
+    QCOMPARE(record.catalogId, guid);
+}
+
+void CoreRegressionTests::programmePersistence_reimportUpgradesLegacyRecord()
+{
+    initializeSettingsSandbox();
+    const QString rawItemId = QStringLiteral("VIDE0tOb7LbbAcQsiTpDpZwf111222");
+    const QString rawColumnId = QStringLiteral("TOPC9964025095711882");
+    g_settings->beginGroup("programme");
+    g_settings->setValue(QStringLiteral("1"), QJsonDocument(QJsonObject{
+        {"name", "Legacy Sports"}, {"itemid", rawItemId}, {"columnid", rawColumnId}
+    }).toJson(QJsonDocument::Compact).toBase64());
+    g_settings->endGroup();
+
+    ContentParse::ImportResult result;
+    result.title = QStringLiteral("Legacy Sports");
+    result.rawItemId = rawItemId;
+    result.rawColumnId = rawColumnId;
+    result.catalogId = QStringLiteral("06645fff52a645068d2dba87937ff5e7");
+
+    const ProgrammePersistResult persisted = persistProgrammeImport(result);
+    QCOMPARE(persisted.outcome, ProgrammePersistOutcome::Upgraded);
+    const auto programmes = readProgrammeFromConfig();
+    QCOMPARE(programmes.size(), 1);
+    const ContentParse::ProgrammeRecord stored = programmes.first();
+    QCOMPARE(stored.itemId, rawItemId);
+    QCOMPARE(stored.columnId, rawColumnId);
+    QCOMPARE(stored.catalogId, result.catalogId);
+    QCOMPARE(stored.profile, ContentParse::PageProfile::LegacySportsEpisode);
+}
+
+void CoreRegressionTests::programmePersistence_reimportUpgradesProjectedLegacyRecord()
+{
+    initializeSettingsSandbox();
+    const QString itemId = QStringLiteral("VIDE0tOb7LbbAcQsiTpDpZwf111222");
+    const QString rawColumnId = QStringLiteral("TOPC9964025095711882");
+    const QString guid = QStringLiteral("06645fff52a645068d2dba87937ff5e7");
+    g_settings->beginGroup("programme");
+    g_settings->setValue(QStringLiteral("1"), QJsonDocument(QJsonObject{
+        {"name", "Legacy Sports"}, {"itemid", itemId}, {"columnid", guid}
+    }).toJson(QJsonDocument::Compact).toBase64());
+    g_settings->endGroup();
+
+    ContentParse::ImportResult result;
+    result.title = QStringLiteral("Legacy Sports");
+    result.rawItemId = itemId;
+    result.rawColumnId = rawColumnId;
+    result.catalogId = guid;
+    result.profile = ContentParse::PageProfile::LegacySportsEpisode;
+
+    const ProgrammePersistResult persisted = persistProgrammeImport(result);
+    QCOMPARE(persisted.outcome, ProgrammePersistOutcome::Upgraded);
+    QCOMPARE(persisted.record.storageKey, QStringLiteral("1"));
+    const auto programmes = readProgrammeFromConfig();
+    QCOMPARE(programmes.size(), 1);
+    QCOMPARE(programmes.first().columnId, rawColumnId);
+    QCOMPARE(programmes.first().catalogId, guid);
+    QCOMPARE(programmes.first().profile, ContentParse::PageProfile::LegacySportsEpisode);
+}
+
+void CoreRegressionTests::apiservice_getPlayColumnInfo_modernVidePagePreservesTopcColumn()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl url(QStringLiteral("https://tv.cctv.com/2026/07/26/VIDEModernExample.shtml"));
+    const QString guid = QStringLiteral("6ef3fbbea4924a0a87a8cb12b76cc109");
+    const QString itemId = QStringLiteral("VIDEModernExample");
+    const QString columnId = QStringLiteral("TOPC1558678001929702");
+    manager.queueSuccess(url, QStringLiteral(R"(
+<script>
+var commentTitle = 'ModernEpisode';
+var itemid1 = '%1';
+var column_id = '%2';
+var guid = '%3';
+</script>
+)").arg(itemId, columnId, guid).toUtf8());
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const auto result = apiService.getPlayColumnInfo(url.toString());
+    QVERIFY(!result.isNull());
+    QCOMPARE(result->title, QStringLiteral("ModernEpisode"));
+    QCOMPARE(result->rawItemId, itemId);
+    QCOMPARE(result->rawColumnId, columnId);
+    QCOMPARE(result->catalogId, columnId);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::apiservice_getPlayColumnInfo_legacySportsPageWithoutGuidPreservesTopcColumn()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl url(QStringLiteral("https://sports.cctv.com/2011/12/22/VIDELegacyNoGuid.shtml"));
+    const QString itemId = QStringLiteral("VIDELegacyNoGuid");
+    const QString columnId = QStringLiteral("TOPC9964025095711882");
+    manager.queueSuccess(url, QStringLiteral(R"(
+<script>
+var commentTitle = 'LegacyWithoutGuid';
+var itemid1 = '%1';
+var column_id = '%2';
+</script>
+)").arg(itemId, columnId).toUtf8());
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const auto result = apiService.getPlayColumnInfo(url.toString());
+    QVERIFY(!result.isNull());
+    QCOMPARE(result->title, QStringLiteral("LegacyWithoutGuid"));
+    QCOMPARE(result->rawItemId, itemId);
+    QCOMPARE(result->rawColumnId, columnId);
+    QCOMPARE(result->catalogId, columnId);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::contentParse_makePlan_selectsExpectedCatalogOperations()
+{
+    ContentParse::Features episode;
+    episode.kind = ContentParse::Kind::Episode;
+    episode.columnId = QStringLiteral("6ef3fbbea4924a0a87a8cb12b76cc109");
+    const auto episodePlan = ContentParse::makePlan(episode);
+    QCOMPARE(episodePlan.catalogStrategy, ContentParse::CatalogStrategy::SingleVideo);
+    QCOMPARE(episodePlan.serviceId, QStringLiteral("tvcctv"));
+
+    ContentParse::Features album;
+    album.kind = ContentParse::Kind::Album;
+    const auto albumPlan = ContentParse::makePlan(album);
+    QCOMPARE(albumPlan.catalogStrategy, ContentParse::CatalogStrategy::AlbumByModes);
+    QCOMPARE(albumPlan.albumModes, QVector<int>({1, 2, 0}));
+
+    ContentParse::Features column;
+    column.kind = ContentParse::Kind::Column;
+    const auto columnPlan = ContentParse::makePlan(column);
+    QCOMPARE(columnPlan.catalogStrategy, ContentParse::CatalogStrategy::ColumnByMonth);
+
+    ContentParse::Features fourK;
+    fourK.kind = ContentParse::Kind::FourK;
+    const auto fourKPlan = ContentParse::makePlan(fourK);
+    QCOMPARE(fourKPlan.catalogStrategy, ContentParse::CatalogStrategy::SingleVideo);
+    QCOMPARE(fourKPlan.serviceId, QStringLiteral("cctv4k"));
+
+    ContentParse::Features news;
+    news.title = QStringLiteral("News");
+    news.kind = ContentParse::Kind::News;
+    news.itemId = QStringLiteral("VIDE100215108600");
+    news.columnId = QStringLiteral("6ef3fbbea4924a0a87a8cb12b76cc109");
+    const ContentParse::Plan newsPlan = ContentParse::makePlan(news);
+    QCOMPARE(newsPlan.catalogStrategy, ContentParse::CatalogStrategy::SingleVideo);
+    QCOMPARE(newsPlan.serviceId, QStringLiteral("tvcctv"));
+    QCOMPARE(newsPlan.catalogId, news.columnId);
+    const ContentParse::ImportResult newsImport = ContentParse::makeImportResult(news);
+    const ContentParse::Plan storedNewsPlan = ContentParse::makePlan(ContentParse::makeProgrammeRecord(newsImport));
+    QCOMPARE(storedNewsPlan.catalogStrategy, ContentParse::CatalogStrategy::SingleVideo);
+    QCOMPARE(storedNewsPlan.serviceId, QStringLiteral("tvcctv"));
+    QCOMPARE(storedNewsPlan.catalogId, news.columnId);
+}
+
+void CoreRegressionTests::contentParse_fromStoredIds_hexGuidVide_usesTvcctvSingleVideo()
+{
+    const QString guid = QStringLiteral("6ef3fbbea4924a0a87a8cb12b76cc109");
+    const ContentParse::Plan plan = ContentParse::makePlan(ContentParse::fromStoredIds(guid, QStringLiteral("VIDE100215108600")));
+    QCOMPARE(plan.catalogStrategy, ContentParse::CatalogStrategy::SingleVideo);
+    QCOMPARE(plan.serviceId, QStringLiteral("tvcctv"));
 }
 
 void CoreRegressionTests::apiservice_getVideoList_usesTvcctvSingleVideoLookup()
 {
     APIService& apiService = APIService::instance();
     FakeNetworkAccessManager manager;
-    const QString guid = QStringLiteral("6ef3fbbea4924a0a87a8cb12b76cc109");
-    const QString itemId = QStringLiteral("VIDE100215108600");
+    const QUrl pageUrl(QStringLiteral("https://sports.cctv.com/2011/12/22/VIDE0tOb7LbbAcQsiTpDpZwf111222.shtml"));
+    const QString guid = QStringLiteral("06645fff52a645068d2dba87937ff5e7");
+    const QString itemId = QStringLiteral("VIDE0tOb7LbbAcQsiTpDpZwf111222");
     const QString date = QStringLiteral("202606");
+    manager.queueSuccess(pageUrl, QStringLiteral(R"(
+<script>
+var commentTitle = '《足球之夜》 20111222';
+var itemid1 = 'VIDE0tOb7LbbAcQsiTpDpZwf111222';
+var column_id = 'TOPC9964025095711882';
+var guid = '%1'
+</script>
+)").arg(guid).toUtf8());
 
     QUrl videoInfoUrl(QStringLiteral("https://zy.api.cntv.cn/video/videoinfoByGuid"));
     QUrlQuery videoInfoQuery;
     videoInfoQuery.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("tvcctv"));
     videoInfoQuery.addQueryItem(QStringLiteral("guid"), guid);
     videoInfoUrl.setQuery(videoInfoQuery);
-    manager.queueSuccess(videoInfoUrl, QByteArray(R"({"vid":"6ef3fbbea4924a0a87a8cb12b76cc109","title":"News Single Video","brief":"brief","img":"image.jpg","time":"2026-06-28"})"));
+    manager.queueSuccess(videoInfoUrl, QByteArray(R"({"vid":"06645fff52a645068d2dba87937ff5e7","title":"《足球之夜》 20111222","brief":"brief","img":"image.jpg","time":"2011-12-22 20:39:57"})"));
 
     APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
 
-    const auto videos = apiService.getVideoList(guid, itemId, date, date);
+    const auto storedIds = apiService.getPlayColumnInfo(pageUrl.toString());
+    QVERIFY(!storedIds.isNull());
+    QCOMPARE(storedIds->title, QStringLiteral("《足球之夜》"));
+    QCOMPARE(storedIds->rawItemId, itemId);
+    QCOMPARE(storedIds->rawColumnId, QStringLiteral("TOPC9964025095711882"));
+    QCOMPARE(storedIds->catalogId, guid);
+
+    const auto videos = apiService.getVideoList(*storedIds, date, date);
 
     QCOMPARE(videos.size(), 1);
     QCOMPARE(videos.value(0).guid, guid);
-    QCOMPARE(videos.value(0).title, QString("News Single Video"));
+    QCOMPARE(videos.value(0).title, QString("《足球之夜》 20111222"));
     QCOMPARE(videos.value(0).brief, QString("brief"));
     QCOMPARE(videos.value(0).image, QString("image.jpg"));
-    QCOMPARE(videos.value(0).time, QString("2026-06-28"));
-    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(videos.value(0).time, QString("2011-12-22 20:39:57"));
+    QCOMPARE(manager.requestCount(), 2);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
 }
 
@@ -3748,8 +4135,8 @@ void CoreRegressionTests::apiservice_getVideoList_usesCctv4kGuidFallback()
 {
     APIService& apiService = APIService::instance();
     FakeNetworkAccessManager manager;
-    const QString guid = QStringLiteral("4k-guid-002");
-    const QString itemId = QStringLiteral("4k-item-002");
+    const QString guid = QStringLiteral("4a0c129380f14290a4d630d69de73ba2");
+    const QString itemId = guid;
     const QString date = QStringLiteral("202604");
 
     QUrl videoInfoUrl(QStringLiteral("https://zy.api.cntv.cn/video/videoinfoByGuid"));
@@ -3780,7 +4167,7 @@ void CoreRegressionTests::apiservice_startGetPlayColumnInfo_asyncSuccess_emitsRe
     const QUrl url(QStringLiteral("https://tv.cctv.com/cctv4k/async-example.shtml"));
     const QByteArray html = R"(
 <html><head><script>
-var guid = '4k-guid-async-import';
+var guid = '4a0c129380f14290a4d630d69de73ba3';
 </script></head></html>
 )";
 
@@ -3798,11 +4185,11 @@ var guid = '4k-guid-async-import';
 
     const QList<QVariant> resultArgs = resolvedSpy.takeFirst();
     QCOMPARE(resultArgs.at(0).toULongLong(), requestId);
-    QCOMPARE(resultArgs.at(1).toStringList(), QStringList({
-        QStringLiteral("CCTV-4K"),
-        QStringLiteral("4k-guid-async-import"),
-        QStringLiteral("4k-guid-async-import")
-    }));
+    const ContentParse::ImportResult imported = resultArgs.at(1).value<ContentParse::ImportResult>();
+    QCOMPARE(imported.title, QStringLiteral("CCTV-4K"));
+    QCOMPARE(imported.rawItemId, QStringLiteral("4a0c129380f14290a4d630d69de73ba3"));
+    QCOMPARE(imported.rawColumnId, QStringLiteral("4a0c129380f14290a4d630d69de73ba3"));
+    QCOMPARE(imported.catalogId, QStringLiteral("4a0c129380f14290a4d630d69de73ba3"));
     QCOMPARE(manager.requestCount(), 1);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
 }
@@ -3888,139 +4275,6 @@ void CoreRegressionTests::apiservice_startGetImage_asyncSuccess_emitsLoadedImage
     QCOMPARE(manager.unexpectedRequestCount(), 0);
 }
 
-void CoreRegressionTests::apiservice_startGetEncryptM3U8Urls_asyncSuccess_emitsUrlsAnd4KFlag()
-{
-    APIService& apiService = APIService::instance();
-    FakeNetworkAccessManager manager;
-    const QString guid = QStringLiteral("4k-guid-async-001");
-
-    QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do"));
-    QUrlQuery infoQuery;
-    infoQuery.addQueryItem(QStringLiteral("pid"), guid);
-    infoUrl.setQuery(infoQuery);
-    manager.queueSuccess(infoUrl, QByteArray(R"({"play_channel":"CCTV-4K","hls_url":"https://4k.example/live/main/index.m3u8"})"));
-
-    const QUrl playlistUrl(QStringLiteral("https://4k.example/live/4000/index.m3u8"));
-    manager.queueSuccess(playlistUrl, QByteArray("#EXTM3U\r\n#EXTINF:2.0,\r\n0.ts?maxbr=2048\r\n#EXTINF:2.0,\r\n1.ts?maxbr=2048\r\n"));
-
-    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
-
-    QSignalSpy resolvedSpy(&apiService, &APIService::encryptM3U8UrlsResolved);
-    QSignalSpy failedSpy(&apiService, &APIService::encryptM3U8UrlsFailed);
-    QSignalSpy cancelledSpy(&apiService, &APIService::encryptM3U8UrlsCancelled);
-
-    apiService.startGetEncryptM3U8Urls(guid, QStringLiteral("0"));
-
-    QVERIFY(resolvedSpy.wait(1000));
-    QCOMPARE(resolvedSpy.count(), 1);
-    QCOMPARE(failedSpy.count(), 0);
-    QCOMPARE(cancelledSpy.count(), 0);
-
-    const QList<QVariant> resultArgs = resolvedSpy.takeFirst();
-    QCOMPARE(resultArgs.at(0).toStringList(), QStringList({
-        QStringLiteral("https://4k.example/live/4000/0.ts?maxbr=2048"),
-        QStringLiteral("https://4k.example/live/4000/1.ts?maxbr=2048")
-    }));
-    QVERIFY(resultArgs.at(1).toBool());
-    QVERIFY(apiService.lastM3U8ResultWas4K());
-    QCOMPARE(manager.requestCount(), 2);
-    QCOMPARE(manager.unexpectedRequestCount(), 0);
-}
-
-void CoreRegressionTests::apiservice_startGetEncryptM3U8Urls_asyncFailure_emitsExactlyOnce()
-{
-    APIService& apiService = APIService::instance();
-    FakeNetworkAccessManager manager;
-    const QString guid = QStringLiteral("async-failure-guid-001");
-
-    QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do"));
-    QUrlQuery infoQuery;
-    infoQuery.addQueryItem(QStringLiteral("pid"), guid);
-    infoUrl.setQuery(infoQuery);
-    manager.queueSuccess(infoUrl, QByteArray(R"({"manifest":{}})"));
-
-    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
-
-    QSignalSpy resolvedSpy(&apiService, &APIService::encryptM3U8UrlsResolved);
-    QSignalSpy failedSpy(&apiService, &APIService::encryptM3U8UrlsFailed);
-    QSignalSpy cancelledSpy(&apiService, &APIService::encryptM3U8UrlsCancelled);
-
-    apiService.startGetEncryptM3U8Urls(guid, QStringLiteral("0"));
-
-    QVERIFY(failedSpy.wait(1000));
-    QCOMPARE(failedSpy.count(), 1);
-    QCOMPARE(resolvedSpy.count(), 0);
-    QCOMPARE(cancelledSpy.count(), 0);
-    QCOMPARE(failedSpy.takeFirst().at(0).toString(), QStringLiteral("无法获取hls_h5e_url"));
-    QVERIFY(!apiService.lastM3U8ResultWas4K());
-    QCOMPARE(manager.requestCount(), 1);
-    QCOMPARE(manager.unexpectedRequestCount(), 0);
-}
-
-void CoreRegressionTests::apiservice_cancelGetEncryptM3U8Urls_abortsPendingReplyAndSuppressesSuccess()
-{
-    APIService& apiService = APIService::instance();
-    FakeNetworkAccessManager manager;
-    const QString guid = QStringLiteral("async-cancel-guid-001");
-
-    QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do"));
-    QUrlQuery infoQuery;
-    infoQuery.addQueryItem(QStringLiteral("pid"), guid);
-    infoUrl.setQuery(infoQuery);
-    manager.queueSuccess(infoUrl, QByteArray(R"({"play_channel":"CCTV-4K","hls_url":"https://4k.example/live/main/index.m3u8"})"), 200);
-
-    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
-
-    QSignalSpy resolvedSpy(&apiService, &APIService::encryptM3U8UrlsResolved);
-    QSignalSpy failedSpy(&apiService, &APIService::encryptM3U8UrlsFailed);
-    QSignalSpy cancelledSpy(&apiService, &APIService::encryptM3U8UrlsCancelled);
-
-    apiService.startGetEncryptM3U8Urls(guid, QStringLiteral("0"));
-
-    QTRY_VERIFY_WITH_TIMEOUT(manager.lastReply() != nullptr, 1000);
-    FakeNetworkReply* pendingReply = manager.lastReply();
-    QVERIFY(pendingReply != nullptr);
-
-    apiService.cancelGetEncryptM3U8Urls();
-
-    QCOMPARE(cancelledSpy.count(), 1);
-    QVERIFY(pendingReply->wasAborted());
-    QTest::qWait(250);
-    QCOMPARE(cancelledSpy.count(), 1);
-    QCOMPARE(resolvedSpy.count(), 0);
-    QCOMPARE(failedSpy.count(), 0);
-    QVERIFY(!apiService.lastM3U8ResultWas4K());
-    QCOMPARE(manager.requestCount(), 1);
-    QCOMPARE(manager.unexpectedRequestCount(), 0);
-}
-
-void CoreRegressionTests::apiservice_getEncryptM3U8Urls_cctv4kUses4000Playlist()
-{
-    APIService& apiService = APIService::instance();
-    FakeNetworkAccessManager manager;
-    const QString guid = QStringLiteral("4k-guid-003");
-
-    QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do"));
-    QUrlQuery infoQuery;
-    infoQuery.addQueryItem(QStringLiteral("pid"), guid);
-    infoUrl.setQuery(infoQuery);
-    manager.queueSuccess(infoUrl, QByteArray(R"({"play_channel":"CCTV-4K","hls_url":"https://4k.example/live/main/index.m3u8"})"));
-
-    const QUrl playlistUrl(QStringLiteral("https://4k.example/live/4000/index.m3u8"));
-    manager.queueSuccess(playlistUrl, QByteArray("#EXTM3U\r\n#EXTINF:2.0,\r\n0.ts?maxbr=2048\r\n#EXTINF:2.0,\r\n1.ts?maxbr=2048\r\n"));
-
-    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
-
-    const auto tsUrls = APIServiceTestAdapter::getEncryptM3U8Urls(apiService, guid, QStringLiteral("0"));
-
-    QCOMPARE(tsUrls.size(), 2);
-    QCOMPARE(tsUrls.at(0), QString("https://4k.example/live/4000/0.ts?maxbr=2048"));
-    QCOMPARE(tsUrls.at(1), QString("https://4k.example/live/4000/1.ts?maxbr=2048"));
-    QVERIFY(apiService.lastM3U8ResultWas4K());
-    QCOMPARE(manager.requestCount(), 2);
-    QCOMPARE(manager.unexpectedRequestCount(), 0);
-}
-
 void CoreRegressionTests::apiservice_buildVideoApiUrl_buildsExpectedQuery()
 {
     APIService& apiService = APIService::instance();
@@ -4081,18 +4335,6 @@ void CoreRegressionTests::apiservice_buildTopicVideoListUrl_buildsFragmentQuery(
     QCOMPARE(query.queryItemValue(QString("type")), QString("1"));
 }
 
-void CoreRegressionTests::apiservice_buildTsUrlsFromPlaylistData_returnsExpectedAbsoluteUrls()
-{
-    APIService& apiService = APIService::instance();
-    const QByteArray playlistData("#EXTM3U\r\n#EXTINF:2.0,\r\nsegment-0001.ts?maxbr=2048\r\n#EXTINF:2.0,\r\nsegment-0002.ts?maxbr=2048\r\n");
-
-    const auto tsUrls = APIServiceTestAdapter::buildTsUrlsFromPlaylistData(apiService, playlistData, QString("https://example.com/path/video/index.m3u8?maxbr=2048"));
-
-    QCOMPARE(tsUrls.size(), 2);
-    QCOMPARE(tsUrls.at(0), QString("https://example.com/path/video/segment-0001.ts?maxbr=2048"));
-    QCOMPARE(tsUrls.at(1), QString("https://example.com/path/video/segment-0002.ts?maxbr=2048"));
-}
-
 void CoreRegressionTests::apiservice_sendNetworkRequest_fakeSuccess_returnsDeterministicBody()
 {
     APIService& apiService = APIService::instance();
@@ -4126,36 +4368,6 @@ void CoreRegressionTests::apiservice_sendNetworkRequest_fakeError_returnsEmptyDa
     QCOMPARE(manager.requestCount(), 1);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
     QCOMPARE(manager.requestedUrls().constFirst(), url);
-}
-
-void CoreRegressionTests::apiservice_getTsFileList_returnsExpectedUrlsFromSyntheticData()
-{
-    APIService& apiService = APIService::instance();
-    FakeNetworkAccessManager manager;
-
-    const QByteArray syntheticPlaylist = R"(
-#EXTM3U
-#EXTINF:2.0,
-segment-0001.ts
-#EXTINF:2.0,
-segment-0002.ts
-)";
-
-    const QString qualityPath = QString("/asp/enc/video-123/index.m3u8");
-    const QString baseUrl = QString("https://dh5.example.com/asp/enc/video-123/index.m3u8");
-    const QUrl expectedM3u8Url(QStringLiteral("https://dh5.example.com/asp/enc/video-123/index.m3u8"));
-
-    manager.queueSuccess(expectedM3u8Url, syntheticPlaylist);
-    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
-
-    const auto tsUrls = APIServiceTestAdapter::getTsFileList(apiService, qualityPath, baseUrl);
-
-    QCOMPARE(tsUrls.size(), 2);
-    QCOMPARE(tsUrls.at(0), QString("https://dh5.example.com/asp/enc/video-123/segment-0001.ts"));
-    QCOMPARE(tsUrls.at(1), QString("https://dh5.example.com/asp/enc/video-123/segment-0002.ts"));
-    QCOMPARE(manager.requestCount(), 1);
-    QCOMPARE(manager.unexpectedRequestCount(), 0);
-    QCOMPARE(manager.requestedUrls().constFirst(), expectedM3u8Url);
 }
 
 void CoreRegressionTests::fakeNetworkReply_success_emitsReadyReadProgressAndFinished()
@@ -5099,6 +5311,58 @@ void CoreRegressionTests::downloadJob_failurePolicy_classifiesSharedEnvironmentE
     QCOMPARE(classifyFailurePolicy(DownloadErrorCategory::Unknown), BatchFailurePolicy::StopBatch);
 }
 
+void CoreRegressionTests::coordinator_skipsDecryptForClearMedia()
+{
+    FakeCoordinatorResolveService resolver;
+    FakeCoordinatorDownloadStage download;
+    FakeCoordinatorConcatStage concat;
+    FakeCoordinatorDecryptStage decrypt;
+    FakeCoordinatorDirectFinalizeStage finalize;
+    resolver.queueSuccess({QStringLiteral("https://fake.test/clear.ts")}, false, ContentParse::EncryptionMode::None);
+    download.queueSuccess({});
+    concat.queueSuccess(QString());
+    finalize.queueSuccess();
+
+    DownloadCoordinator coordinator(&resolver, &download, &concat, &decrypt, &finalize);
+    QSignalSpy batchSpy(&coordinator, &DownloadCoordinator::batchFinished);
+    DownloadJob job;
+    job.id = QStringLiteral("clear-media");
+    job.request.videoTitle = QStringLiteral("clear-media");
+    job.request.url = QStringLiteral("clear-guid");
+    job.request.savePath = QDir::tempPath();
+    QVERIFY(coordinator.startSingle(job));
+
+    QVERIFY(batchSpy.wait(1000));
+    QCOMPARE(decrypt.startCount(), 0);
+    QCOMPARE(finalize.startCount(), 1);
+}
+
+void CoreRegressionTests::coordinator_decryptsH5eFourKMedia()
+{
+    FakeCoordinatorResolveService resolver;
+    FakeCoordinatorDownloadStage download;
+    FakeCoordinatorConcatStage concat;
+    FakeCoordinatorDecryptStage decrypt;
+    FakeCoordinatorDirectFinalizeStage finalize;
+    resolver.queueSuccess({QStringLiteral("https://fake.test/h5e-4k.ts")}, true, ContentParse::EncryptionMode::H5E);
+    download.queueSuccess({});
+    concat.queueSuccess(QString());
+    decrypt.queueSuccess(QString());
+
+    DownloadCoordinator coordinator(&resolver, &download, &concat, &decrypt, &finalize);
+    QSignalSpy batchSpy(&coordinator, &DownloadCoordinator::batchFinished);
+    DownloadJob job;
+    job.id = QStringLiteral("h5e-4k-media");
+    job.request.videoTitle = QStringLiteral("h5e-4k-media");
+    job.request.url = QStringLiteral("h5e-4k-guid");
+    job.request.savePath = QDir::tempPath();
+    QVERIFY(coordinator.startSingle(job));
+
+    QVERIFY(batchSpy.wait(1000));
+    QCOMPARE(decrypt.startCount(), 1);
+    QCOMPARE(finalize.startCount(), 0);
+}
+
 void CoreRegressionTests::coordinatorFakeResolveService_supportsSuccessFailureAndCancel()
 {
     FakeCoordinatorResolveService resolver;
@@ -5115,8 +5379,9 @@ void CoreRegressionTests::coordinatorFakeResolveService_supportsSuccessFailureAn
     QCOMPARE(resolver.lastGuid(), QStringLiteral("guid-success"));
     QCOMPARE(resolver.lastQuality(), QStringLiteral("4K"));
     const auto resolvedArgs = resolvedSpy.takeFirst();
-    QCOMPARE(resolvedArgs.at(1).toBool(), true);
-    QCOMPARE(resolvedArgs.at(0).toStringList().size(), 2);
+    const ContentParse::ResolvedMedia resolvedMedia = qvariant_cast<ContentParse::ResolvedMedia>(resolvedArgs.at(0));
+    QVERIFY(resolvedMedia.is4K);
+    QCOMPARE(resolvedMedia.segmentUrls.size(), 2);
 
     resolver.queueFailure(DownloadErrorCategory::NetworkError, QStringLiteral("synthetic network failure"));
     resolver.startResolve(QStringLiteral("guid-failure"), QStringLiteral("1080P"));
@@ -5307,7 +5572,7 @@ void CoreRegressionTests::downloadCoordinator_batchSuccess_processesJobsInOrder(
     DownloadCoordinator coordinator(&resolver, &downloadStage, &concatStage, &decryptStage, &directFinalizeStage);
 
     resolver.queueSuccess({QStringLiteral("https://fake.test/a-1.ts")}, false);
-    resolver.queueSuccess({QStringLiteral("https://fake.test/b-1.ts")}, true);
+    resolver.queueSuccess({QStringLiteral("https://fake.test/b-1.ts")}, true, ContentParse::EncryptionMode::None);
     resolver.queueSuccess({QStringLiteral("https://fake.test/c-1.ts")}, false);
     downloadStage.queueSuccess({{50, 100}, {100, 100}});
     downloadStage.queueSuccess({{100, 100}});
@@ -5410,7 +5675,7 @@ void CoreRegressionTests::downloadCoordinator_4kJob_emitsConcatThenDirectFinaliz
     FakeCoordinatorDirectFinalizeStage directFinalizeStage;
     DownloadCoordinator coordinator(&resolver, &downloadStage, &concatStage, &decryptStage, &directFinalizeStage);
 
-    resolver.queueSuccess({QStringLiteral("https://fake.test/4k-1.ts")}, true);
+    resolver.queueSuccess({QStringLiteral("https://fake.test/4k-1.ts")}, true, ContentParse::EncryptionMode::None);
     downloadStage.queueSuccess({{100, 100}});
     concatStage.queueSuccess(QStringLiteral("concat-4k"));
     directFinalizeStage.queueSuccess(QStringLiteral("published_ts"), QStringLiteral("finalize-4k"), QStringLiteral("C:/fake/4k.ts"));
@@ -5607,7 +5872,7 @@ void CoreRegressionTests::downloadCoordinator_sharedEnvironmentFailure_stopsBatc
     FakeCoordinatorDirectFinalizeStage directFinalizeStage;
     DownloadCoordinator coordinator(&resolver, &downloadStage, &concatStage, &decryptStage, &directFinalizeStage);
 
-    resolver.queueSuccess({QStringLiteral("https://fake.test/a.ts")}, true);
+    resolver.queueSuccess({QStringLiteral("https://fake.test/a.ts")}, true, ContentParse::EncryptionMode::None);
     downloadStage.queueSuccess({{100, 100}});
     concatStage.queueSuccess(QStringLiteral("concat-a"));
     directFinalizeStage.queueFailure(QStringLiteral("ffmpeg_missing"), QStringLiteral("synthetic ffmpeg missing"));
@@ -5824,12 +6089,13 @@ void CoreRegressionTests::downloadCoordinator_cancelCurrentWhileResolving_apiReq
     QTRY_VERIFY_WITH_TIMEOUT(manager.lastReply() != nullptr, 1000);
     FakeNetworkReply* pendingReply = manager.lastReply();
     QVERIFY(pendingReply != nullptr);
+    QSignalSpy abortSpy(pendingReply, &FakeNetworkReply::abortCalled);
 
     coordinator.cancelCurrent();
 
     QVERIFY(batchFinishedSpy.wait(1000));
     QCOMPARE(jobFinishedSpy.count(), 1);
-    QVERIFY(pendingReply->wasAborted());
+    QCOMPARE(abortSpy.count(), 1);
     QCOMPARE(downloadStage.lastUrls(), QStringList());
     QCOMPARE(downloadStage.lastSaveDir(), QString());
 
@@ -5962,7 +6228,7 @@ void CoreRegressionTests::downloadCoordinator_cancelCurrentWhileDirectFinalizing
     FakeCoordinatorDirectFinalizeStage directFinalizeStage;
     DownloadCoordinator coordinator(&resolver, &downloadStage, &concatStage, &decryptStage, &directFinalizeStage);
 
-    resolver.queueSuccess({QStringLiteral("https://fake.test/direct-finalize-cancel.ts")}, true);
+    resolver.queueSuccess({QStringLiteral("https://fake.test/direct-finalize-cancel.ts")}, true, ContentParse::EncryptionMode::None);
     downloadStage.queueSuccess({{100, 100}});
     concatStage.queueSuccess(QStringLiteral("concat-before-direct-finalize-cancel"));
     directFinalizeStage.queueSuccess(QStringLiteral("published_ts"), QStringLiteral("finalize-should-cancel"), QStringLiteral("C:/fake/direct-finalize-cancel.ts"), 50);
@@ -6125,7 +6391,7 @@ void CoreRegressionTests::downloadCoordinator_directFinalizeSharedEnvironmentFai
     FakeCoordinatorDirectFinalizeStage directFinalizeStage;
     DownloadCoordinator coordinator(&resolver, &downloadStage, &concatStage, &decryptStage, &directFinalizeStage);
 
-    resolver.queueSuccess({QStringLiteral("https://fake.test/output-stop.ts")}, true);
+    resolver.queueSuccess({QStringLiteral("https://fake.test/output-stop.ts")}, true, ContentParse::EncryptionMode::None);
     downloadStage.queueSuccess({{100, 100}});
     concatStage.queueSuccess(QStringLiteral("concat-output-stop"));
     directFinalizeStage.queueFailure(QStringLiteral("output_unwritable"), QStringLiteral("synthetic output unwritable"));
@@ -6559,7 +6825,7 @@ void CoreRegressionTests::downloadCoordinator_ownedDirectFinalizeStage_completes
     QVERIFY(QDir().mkpath(taskDir));
     QVERIFY(createFakeTsFile(QDir(taskDir).filePath(QStringLiteral("result.ts")), 4, 601));
 
-    resolver.queueSuccess({QStringLiteral("https://fake.test/owned-direct-1.ts")}, true);
+    resolver.queueSuccess({QStringLiteral("https://fake.test/owned-direct-1.ts")}, true, ContentParse::EncryptionMode::None);
     downloadStage.queueSuccess({{100, 100}});
     concatStage.queueSuccess(QStringLiteral("concat-before-owned-direct-finalize"));
 
@@ -7009,6 +7275,7 @@ void CoreRegressionTests::cctvVideoDownloader_openDownloadDialog_usesCoordinator
 
     const QString source = QString::fromUtf8(sourceFile.readAll());
     QVERIFY(!source.contains(QStringLiteral("APIService::instance().getEncryptM3U8Urls(")));
+    QVERIFY(!source.contains(QStringLiteral("startGetEncryptM3U8Urls(")));
     QVERIFY(!source.contains(QStringLiteral("Download dialog(this)")));
     QVERIFY(!source.contains(QStringLiteral("dialog.transferDwonloadParams(")));
     QVERIFY(!source.contains(QStringLiteral("void CCTVVideoDownloader::concatVideo()")));
@@ -7027,7 +7294,7 @@ void CoreRegressionTests::importDialog_successPath_persistsProgramme()
     const QUrl url(QStringLiteral("https://tv.cctv.com/cctv4k/test-persist.shtml"));
     const QByteArray html = R"(
 <html><head><script>
-var guid = 'import-persist-guid';
+var guid = '4a0c129380f14290a4d630d69de73ba4';
 </script></head></html>
 )";
     manager.queueSuccess(url, html);
@@ -7047,11 +7314,11 @@ var guid = 'import-persist-guid';
     QCOMPARE(resolvedSpy.count(), 1);
 
     const QList<QVariant> resultArgs = resolvedSpy.takeFirst();
-    QCOMPARE(resultArgs.at(1).toStringList(), QStringList({
-        QStringLiteral("CCTV-4K"),
-        QStringLiteral("import-persist-guid"),
-        QStringLiteral("import-persist-guid")
-    }));
+    const ContentParse::ImportResult imported = resultArgs.at(1).value<ContentParse::ImportResult>();
+    QCOMPARE(imported.title, QStringLiteral("CCTV-4K"));
+    QCOMPARE(imported.rawItemId, QStringLiteral("4a0c129380f14290a4d630d69de73ba4"));
+    QCOMPARE(imported.rawColumnId, QStringLiteral("4a0c129380f14290a4d630d69de73ba4"));
+    QCOMPARE(imported.catalogId, QStringLiteral("4a0c129380f14290a4d630d69de73ba4"));
 
     QCOMPARE(manager.requestCount(), 1);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
@@ -7072,8 +7339,8 @@ var guid = 'import-persist-guid';
     QVERIFY(doc.isObject());
     const QJsonObject obj = doc.object();
     QCOMPARE(obj.value(QStringLiteral("name")).toString(), QStringLiteral("CCTV-4K"));
-    QCOMPARE(obj.value(QStringLiteral("itemid")).toString(), QStringLiteral("import-persist-guid"));
-    QCOMPARE(obj.value(QStringLiteral("columnid")).toString(), QStringLiteral("import-persist-guid"));
+    QCOMPARE(obj.value(QStringLiteral("itemid")).toString(), QStringLiteral("4a0c129380f14290a4d630d69de73ba4"));
+    QCOMPARE(obj.value(QStringLiteral("columnid")).toString(), QStringLiteral("4a0c129380f14290a4d630d69de73ba4"));
 }
 
 void CoreRegressionTests::importDialog_duplicateImport_doesNotAddExtraEntry()
@@ -7083,7 +7350,7 @@ void CoreRegressionTests::importDialog_duplicateImport_doesNotAddExtraEntry()
     const QUrl url(QStringLiteral("https://tv.cctv.com/cctv4k/test-dup.shtml"));
     const QByteArray html = R"(
 <html><head><script>
-var guid = 'dup-test-guid';
+var guid = '4a0c129380f14290a4d630d69de73ba5';
 </script></head></html>
 )";
     manager.queueSuccess(url, html);
@@ -7104,7 +7371,7 @@ var guid = 'dup-test-guid';
 
     const QList<QVariant> firstArgs = resolvedSpy.takeFirst();
     const quint64 firstRequestId = firstArgs.at(0).toULongLong();
-    const QStringList firstData = firstArgs.at(1).toStringList();
+    const ContentParse::ImportResult firstData = firstArgs.at(1).value<ContentParse::ImportResult>();
 
     g_settings->sync();
     g_settings->beginGroup("programme");
@@ -7173,11 +7440,11 @@ void CoreRegressionTests::importDialog_staleRequestIdIgnored_resolveDoesNotPersi
 
     // m_pendingPlayColumnInfoRequestId starts at 0; requestId != 0
     // should be filtered out by the request-ID guard.
-    const QStringList data{
-        QStringLiteral("StaleName"),
-        QStringLiteral("stale-guid"),
-        QStringLiteral("stale-column")
-    };
+    ContentParse::ImportResult data;
+    data.title = QStringLiteral("StaleName");
+    data.rawItemId = QStringLiteral("stale-guid");
+    data.rawColumnId = QStringLiteral("stale-column");
+    data.catalogId = QStringLiteral("stale-column");
     importDialog.handlePlayColumnInfoResolved(42, data);
 
     QVERIFY(lineEdit->isEnabled());
@@ -7192,10 +7459,10 @@ void CoreRegressionTests::importDialog_staleRequestIdIgnored_failureDoesNotReset
 {
     APIService& apiService = APIService::instance();
     FakeNetworkAccessManager manager;
-    const QUrl url(QStringLiteral("https://tv.cctv.com/stale-busy.shtml"));
+    const QUrl url(QStringLiteral("https://tv.cctv.com/cctv4k/stale-busy.shtml"));
     const QByteArray html = R"(
 <html><head><script>
-var guid = 'stale-busy-guid';
+var guid = '4a0c129380f14290a4d630d69de73ba6';
 </script></head></html>
 )";
     manager.queueSuccess(url, html);
@@ -7238,7 +7505,7 @@ void CoreRegressionTests::importDialog_asyncClose_closesOnlyAfterPersistence()
     const QUrl url(QStringLiteral("https://tv.cctv.com/cctv4k/test-close-persist.shtml"));
     const QByteArray html = R"(
 <html><head><script>
-var guid = 'close-persist-guid';
+var guid = '4a0c129380f14290a4d630d69de73ba7';
 </script></head></html>
 )";
     manager.queueSuccess(url, html);

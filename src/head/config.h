@@ -7,13 +7,27 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QPair>
+#include "../parse/contentparse.h"
 
 extern std::unique_ptr<QSettings> g_settings;
 
 QString defaultSaveDirectory();
 QString defaultConfigFilePath();
 
-extern QList<QPair<QString, QJsonObject>> readProgrammeFromConfig();
+enum class ProgrammePersistOutcome {
+    Inserted,
+    Upgraded,
+    Duplicate,
+    Failed
+};
+
+struct ProgrammePersistResult {
+    ProgrammePersistOutcome outcome = ProgrammePersistOutcome::Failed;
+    ContentParse::ProgrammeRecord record;
+};
+
+QList<ContentParse::ProgrammeRecord> readProgrammeFromConfig();
+ProgrammePersistResult persistProgrammeImport(const ContentParse::ImportResult& result);
 extern std::tuple<QString, QString> readDisplayMinAndMax();
 extern QString readQuality();
 extern QString readSavePath();

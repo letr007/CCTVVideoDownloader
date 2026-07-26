@@ -1,6 +1,9 @@
 #pragma once
 
+#include <QMetaType>
 #include <QString>
+#include <QStringList>
+#include <QVector>
 
 namespace ContentParse {
 
@@ -13,6 +16,22 @@ enum class Kind {
     FourK
 };
 
+enum class EncryptionMode {
+    None,
+    H5E
+};
+
+enum class PageProfile {
+    Standard,
+    LegacySportsEpisode
+};
+
+struct ResolvedMedia {
+    QStringList segmentUrls;
+    EncryptionMode encryptionMode = EncryptionMode::H5E;
+    bool is4K = false;
+};
+
 struct Features {
     QString title;
     QString itemId;
@@ -23,12 +42,69 @@ struct Features {
     bool hasGuid = false;
     bool hasAlbumCode = false;
     bool hasJsonEpisodeList = false;
+    bool isFourK = false;
+    PageProfile profile = PageProfile::Standard;
     Kind kind = Kind::Unknown;
+};
+
+struct ImportResult {
+    QString title;
+    QString rawItemId;
+    QString rawColumnId;
+    QString catalogId;
+    PageProfile profile = PageProfile::Standard;
+
+    bool isValid() const
+    {
+        return !title.isEmpty() && !rawItemId.isEmpty() && !rawColumnId.isEmpty()
+            && !catalogId.isEmpty();
+    }
+};
+
+struct ProgrammeRecord {
+    QString storageKey;
+    QString title;
+    QString itemId;
+    QString columnId;
+    QString catalogId;
+    PageProfile profile = PageProfile::Standard;
+
+    bool isValid() const
+    {
+        return !title.isEmpty() && !itemId.isEmpty() && !columnId.isEmpty()
+            && !catalogId.isEmpty();
+    }
 };
 
 Features parsePage(const QString& html, const QString& url);
 Features fromStoredIds(const QString& columnId, const QString& itemId);
 Kind classify(const Features& features);
+QString pageProfileName(PageProfile profile);
+PageProfile pageProfileFromName(const QString& value);
+ImportResult makeImportResult(const Features& features);
+ProgrammeRecord makeProgrammeRecord(const ImportResult& result);
+ProgrammeRecord programmeRecordFromStoredIds(const QString& columnId, const QString& itemId);
+
+enum class CatalogStrategy {
+    None,
+    SingleVideo,
+    ColumnByMonth,
+    AlbumByModes,
+    ColumnThenAlbumByModes,
+    ResolveAlbumThenByModes
+};
+
+struct Plan {
+    Features features;
+    CatalogStrategy catalogStrategy = CatalogStrategy::None;
+    QString serviceId;
+    QString catalogId;
+    QVector<int> albumModes;
+};
+
+Plan makePlan(const Features& features);
+Plan makePlan(const ProgrammeRecord& record);
+Plan makePlan(const ImportResult& result);
 
 inline bool isVidA(const QString& value)
 {
@@ -59,3 +135,9 @@ inline bool isHexGuid(const QString& value)
 }
 
 } // namespace ContentParse
+
+Q_DECLARE_METATYPE(ContentParse::EncryptionMode)
+Q_DECLARE_METATYPE(ContentParse::ResolvedMedia)
+Q_DECLARE_METATYPE(ContentParse::PageProfile)
+Q_DECLARE_METATYPE(ContentParse::ImportResult)
+Q_DECLARE_METATYPE(ContentParse::ProgrammeRecord)

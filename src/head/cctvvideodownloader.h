@@ -53,7 +53,7 @@ public:
 
     void onImportLinkSubmitted();
 
-    void handleInlineImportColumnInfoResolved(quint64 requestId, const QStringList& data);
+    void handleInlineImportColumnInfoResolved(quint64 requestId, const ContentParse::ImportResult& data);
 
     void handleInlineImportColumnInfoFailed(quint64 requestId, const QString& errorMessage);
 
@@ -81,7 +81,7 @@ private:
     bool m_importDialogActive = false;
     bool m_pendingVideoListShowHighlights = false;
     QString m_pendingPreviewImageUrl;
-    inline static std::optional<std::tuple<QString, QString>> SELECTED_ID;
+    inline static std::optional<ContentParse::ProgrammeRecord> SELECTED_PROGRAMME;
     inline static QMap<int, VideoItem> VIDEOS;
 
     DownloadCoordinator* m_downloadCoordinator = nullptr;

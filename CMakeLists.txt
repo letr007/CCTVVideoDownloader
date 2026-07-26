@@ -49,6 +49,7 @@ set(PROJECT_SOURCES
     src/source/about.cpp
     src/source/apiservice.cpp
     src/parse/contentparse.cpp
+    src/parse/contentresolver.cpp
     src/source/cctvvideodownloader.cpp
     src/source/concatworker.cpp
     src/source/config.cpp
@@ -73,6 +74,7 @@ set(PROJECT_SOURCES
     src/head/about.h
     src/head/apiservice.h
     src/parse/contentparse.h
+    src/parse/contentresolver.h
     src/head/cctvvideodownloader.h
     src/head/concatworker.h
     src/head/config.h
