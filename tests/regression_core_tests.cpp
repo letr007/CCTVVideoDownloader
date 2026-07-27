@@ -1154,6 +1154,11 @@ private slots:
     void contentResolver_clearOnlyNetworkErrorTriesNextQuality();
     void contentResolver_resolves4KPlaylist();
     void contentResolver_fourKQualityUrl_preservesFilenameAndQuery();
+    void contentResolver_fourKMainQualityUrl_replacesFilenameAndPreservesQueryAndFragment();
+    void contentResolver_selectsCctv16HighBandwidthVariantAndMarksHighQuality();
+    void contentResolver_selectsCctv4kBandwidthVariantAndMarksHighQuality();
+    void contentResolver_selectsLegacyCctv16VariantWhen3000IsUnavailable();
+    void contentResolver_selectsOrdinaryH5eUserQualityVariants();
     void contentResolver_cancelledReplyDoesNotFallbackOrConsumeReplacement();
     void contentResolver_cancelResolveMedia_emitsCancelled();
     void apiservice_getPlayColumnInfo_usesGuidFallbackForCctv4k();
@@ -3790,10 +3795,12 @@ void CoreRegressionTests::contentResolver_clearOnlyNetworkErrorTriesNextQuality(
     APIService& apiService = APIService::instance();
     FakeNetworkAccessManager manager;
     const QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=clear-error-guid"));
-    const QUrl unavailable4000(QStringLiteral("https://media.example/asp/hls/4000/video/main.m3u8"));
-    const QUrl available2000(QStringLiteral("https://media.example/asp/hls/2000/video/main.m3u8"));
+    const QUrl unavailable4000(QStringLiteral("https://media.example/asp/hls/4000/video/4000.m3u8"));
+    const QUrl unavailable3000(QStringLiteral("https://media.example/asp/hls/3000/video/3000.m3u8"));
+    const QUrl available2000(QStringLiteral("https://media.example/asp/hls/2000/video/2000.m3u8"));
     manager.queueSuccess(infoUrl, R"({"hls_url":"https://media.example/asp/hls/main/video/main.m3u8"})");
     manager.queueError(unavailable4000, QNetworkReply::ContentNotFoundError, QStringLiteral("not found"));
+    manager.queueError(unavailable3000, QNetworkReply::ContentNotFoundError, QStringLiteral("not found"));
     manager.queueSuccess(available2000, R"(#EXTM3U
 clear-segment.ts
 )");
@@ -3808,7 +3815,7 @@ clear-segment.ts
     const ContentParse::ResolvedMedia media = qvariant_cast<ContentParse::ResolvedMedia>(resolvedSpy.takeFirst().at(0));
     QCOMPARE(media.segmentUrls, QStringList({QStringLiteral("https://media.example/asp/hls/2000/video/clear-segment.ts")}));
     QCOMPARE(media.encryptionMode, ContentParse::EncryptionMode::None);
-    QCOMPARE(manager.requestedUrls(), QList<QUrl>({infoUrl, unavailable4000, available2000}));
+    QCOMPARE(manager.requestedUrls(), QList<QUrl>({infoUrl, unavailable4000, unavailable3000, available2000}));
     QCOMPARE(manager.unexpectedRequestCount(), 0);
     APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
 }
@@ -3861,13 +3868,163 @@ segment-4k.ts
     APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
 }
 
+void CoreRegressionTests::contentResolver_fourKMainQualityUrl_replacesFilenameAndPreservesQueryAndFragment()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=4k-main-guid"));
+    const QUrl playlistUrl(QStringLiteral("https://4k.example/asp/hls/4000/program/4000.m3u8?token=abc#fragment"));
+    manager.queueSuccess(infoUrl, R"({"play_channel":"CCTV-4K","hls_url":"https://4k.example/asp/hls/main/program/main.m3u8?token=abc#fragment"})");
+    manager.queueSuccess(playlistUrl, R"(#EXTM3U
+segment-4k.ts
+)");
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    ContentParse::ContentResolver resolver(apiService);
+    QSignalSpy resolvedSpy(&resolver, &ContentParse::ContentResolver::mediaResolved);
+    resolver.startResolveMedia(QStringLiteral("4k-main-guid"), QStringLiteral("5"));
+
+    QVERIFY(resolvedSpy.wait(1000));
+    QCOMPARE(manager.requestedUrls().at(1), playlistUrl);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::contentResolver_selectsCctv16HighBandwidthVariantAndMarksHighQuality()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=cctv16-guid"));
+    const QUrl masterUrl(QStringLiteral("https://media.example/asp/h5e/master.m3u8"));
+    const QUrl variantUrl(QStringLiteral("https://media.example/asp/h5e/cctv16-1080.m3u8"));
+    manager.queueSuccess(infoUrl, R"({"manifest":{"hls_h5e_url":"https://media.example/asp/h5e/master.m3u8"}})");
+    manager.queueSuccess(masterUrl, R"(#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=2048000,RESOLUTION=1280x720
+cctv16-720.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=3072000,RESOLUTION=1920x1080
+cctv16-1080.m3u8
+)");
+    manager.queueSuccess(variantUrl, R"(#EXTM3U
+segment.ts
+)");
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    ContentParse::ContentResolver resolver(apiService);
+    QSignalSpy resolvedSpy(&resolver, &ContentParse::ContentResolver::mediaResolved);
+    resolver.startResolveMedia(QStringLiteral("cctv16-guid"), QStringLiteral("0"));
+
+    QVERIFY(resolvedSpy.wait(1000));
+    const ContentParse::ResolvedMedia media = qvariant_cast<ContentParse::ResolvedMedia>(resolvedSpy.takeFirst().at(0));
+    QCOMPARE(manager.requestedUrls(), QList<QUrl>({infoUrl, masterUrl, variantUrl}));
+    QVERIFY(media.is4K);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::contentResolver_selectsCctv4kBandwidthVariantAndMarksHighQuality()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=cctv4k-bandwidth-guid"));
+    const QUrl masterUrl(QStringLiteral("https://media.example/asp/h5e/master.m3u8"));
+    const QUrl variantUrl(QStringLiteral("https://media.example/asp/h5e/cctv4k.m3u8"));
+    manager.queueSuccess(infoUrl, R"({"manifest":{"hls_h5e_url":"https://media.example/asp/h5e/master.m3u8"}})");
+    manager.queueSuccess(masterUrl, R"(#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=3072000,RESOLUTION=1920x1080
+cctv16-1080.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=4096000,RESOLUTION=3840x2160
+cctv4k.m3u8
+)");
+    manager.queueSuccess(variantUrl, R"(#EXTM3U
+segment.ts
+)");
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    ContentParse::ContentResolver resolver(apiService);
+    QSignalSpy resolvedSpy(&resolver, &ContentParse::ContentResolver::mediaResolved);
+    resolver.startResolveMedia(QStringLiteral("cctv4k-bandwidth-guid"), QStringLiteral("5"));
+
+    QVERIFY(resolvedSpy.wait(1000));
+    const ContentParse::ResolvedMedia media = qvariant_cast<ContentParse::ResolvedMedia>(resolvedSpy.takeFirst().at(0));
+    QCOMPARE(manager.requestedUrls(), QList<QUrl>({infoUrl, masterUrl, variantUrl}));
+    QVERIFY(media.is4K);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::contentResolver_selectsLegacyCctv16VariantWhen3000IsUnavailable()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=legacy-cctv16-guid"));
+    const QUrl masterUrl(QStringLiteral("https://media.example/asp/h5e/master.m3u8"));
+    const QUrl variantUrl(QStringLiteral("https://media.example/asp/h5e/cctv16-720.m3u8"));
+    manager.queueSuccess(infoUrl, R"({"manifest":{"hls_h5e_url":"https://media.example/asp/h5e/master.m3u8"}})");
+    manager.queueSuccess(masterUrl, R"(#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=460800,RESOLUTION=640x360
+low.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=2048000,RESOLUTION=1280x720
+cctv16-720.m3u8
+)");
+    manager.queueSuccess(variantUrl, R"(#EXTM3U
+segment.ts
+)");
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    ContentParse::ContentResolver resolver(apiService);
+    QSignalSpy resolvedSpy(&resolver, &ContentParse::ContentResolver::mediaResolved);
+    resolver.startResolveMedia(QStringLiteral("legacy-cctv16-guid"), QStringLiteral("0"));
+
+    QVERIFY(resolvedSpy.wait(1000));
+    const ContentParse::ResolvedMedia media = qvariant_cast<ContentParse::ResolvedMedia>(resolvedSpy.takeFirst().at(0));
+    QCOMPARE(manager.requestedUrls(), QList<QUrl>({infoUrl, masterUrl, variantUrl}));
+    QVERIFY(!media.is4K);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::contentResolver_selectsOrdinaryH5eUserQualityVariants()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=ordinary-h5e-guid"));
+    const QUrl masterUrl(QStringLiteral("https://media.example/asp/h5e/master.m3u8"));
+    const QUrl variantUrl(QStringLiteral("https://media.example/asp/h5e/quality-2.m3u8"));
+    manager.queueSuccess(infoUrl, R"({"manifest":{"hls_h5e_url":"https://media.example/asp/h5e/master.m3u8"}})");
+    manager.queueSuccess(masterUrl, R"(#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=460800,RESOLUTION=640x360
+quality-4.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=870400,RESOLUTION=854x480
+quality-3.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=1228800,RESOLUTION=1280x720
+quality-2.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=2048000,RESOLUTION=1920x1080
+quality-1.m3u8
+)");
+    manager.queueSuccess(variantUrl, R"(#EXTM3U
+segment.ts
+)");
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    ContentParse::ContentResolver resolver(apiService);
+    QSignalSpy resolvedSpy(&resolver, &ContentParse::ContentResolver::mediaResolved);
+    resolver.startResolveMedia(QStringLiteral("ordinary-h5e-guid"), QStringLiteral("2"));
+
+    QVERIFY(resolvedSpy.wait(1000));
+    const ContentParse::ResolvedMedia media = qvariant_cast<ContentParse::ResolvedMedia>(resolvedSpy.takeFirst().at(0));
+    QCOMPARE(manager.requestedUrls(), QList<QUrl>({infoUrl, masterUrl, variantUrl}));
+    QVERIFY(!media.is4K);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
 void CoreRegressionTests::contentResolver_cancelledReplyDoesNotFallbackOrConsumeReplacement()
 {
     APIService& apiService = APIService::instance();
     FakeNetworkAccessManager manager;
     const QUrl firstInfoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=first-guid"));
     const QUrl secondInfoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=second-guid"));
-    const QUrl secondPlaylistUrl(QStringLiteral("https://clear.example/asp/hls/4000/program/main.m3u8"));
+    const QUrl secondPlaylistUrl(QStringLiteral("https://clear.example/asp/hls/4000/program/4000.m3u8"));
     manager.queueSuccess(firstInfoUrl, QByteArray(), 100);
     manager.queueSuccess(secondInfoUrl, R"({"hls_url":"https://clear.example/asp/hls/main/program/main.m3u8"})");
     manager.queueSuccess(secondPlaylistUrl, R"(#EXTM3U

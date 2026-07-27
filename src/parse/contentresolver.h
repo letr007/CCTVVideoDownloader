@@ -52,8 +52,15 @@ private:
     void handleMediaReplyFinished(quint64 requestId, QNetworkReply* reply);
     void finishMediaResolveSuccess(quint64 requestId, const ContentParse::ResolvedMedia& media);
     void finishMediaResolveFailure(quint64 requestId, const QString& errorMessage);
-    QHash<QString, QString> parseQualityUrls(const QByteArray& playlistData) const;
-    QString selectQuality(const QString& requestedQuality, const QHash<QString, QString>& availableQualities) const;
+    struct MediaVariant {
+        qint64 bandwidth = 0;
+        QString resolution;
+        QString url;
+    };
+
+    QVector<MediaVariant> parseVariants(const QByteArray& playlistData) const;
+    int selectVariantIndex(const QString& requestedQuality, const QVector<MediaVariant>& variants) const;
+    bool isHighQualityVariant(const MediaVariant& variant) const;
     QStringList buildTsUrls(const QByteArray& playlistData, const QString& playlistUrl) const;
     QString normalizeEncryptedPlaylistUrl(QString url) const;
     QString clearVariantUrl(const QString& hlsUrl, const QString& quality) const;
@@ -67,6 +74,7 @@ private:
     QString m_pendingQuality;
     QString m_pendingMasterPlaylistUrl;
     QStringList m_pendingClearQualities;
+    bool m_pendingSelectedVariantIsHighQuality = false;
 };
 
 } // namespace ContentParse

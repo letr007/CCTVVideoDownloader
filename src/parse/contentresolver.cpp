@@ -136,6 +136,7 @@ void ContentResolver::startResolveMedia(const QString& guid, const QString& qual
     m_pendingQuality = quality;
     m_pendingMasterPlaylistUrl.clear();
     m_pendingClearQualities.clear();
+    m_pendingSelectedVariantIsHighQuality = false;
     m_mediaResolveStage = MediaResolveStage::FetchInfo;
     m_activeMediaResolveId = ++m_nextMediaResolveId;
 
@@ -159,6 +160,7 @@ void ContentResolver::cancelResolveMedia()
     m_pendingQuality.clear();
     m_pendingMasterPlaylistUrl.clear();
     m_pendingClearQualities.clear();
+    m_pendingSelectedVariantIsHighQuality = false;
     emit mediaResolveCancelled();
 
     if (reply) {
@@ -202,6 +204,7 @@ void ContentResolver::handleMediaReplyFinished(quint64 requestId, QNetworkReply*
             m_pendingQuality.clear();
             m_pendingMasterPlaylistUrl.clear();
             m_pendingClearQualities.clear();
+            m_pendingSelectedVariantIsHighQuality = false;
             emit mediaResolveCancelled();
             return;
         }
@@ -323,16 +326,18 @@ void ContentResolver::handleMediaReplyFinished(quint64 requestId, QNetworkReply*
     }
 
     if (stage == MediaResolveStage::FetchMasterPlaylist) {
-        const QHash<QString, QString> qualityUrls = parseQualityUrls(responseData);
-        const QString selectedQuality = selectQuality(m_pendingQuality, qualityUrls);
-        if (selectedQuality.isEmpty()) {
-            finishMediaResolveFailure(requestId, qualityUrls.isEmpty()
+        const QVector<MediaVariant> variants = parseVariants(responseData);
+        const int selectedIndex = selectVariantIndex(m_pendingQuality, variants);
+        if (selectedIndex < 0) {
+            finishMediaResolveFailure(requestId, variants.isEmpty()
                 ? QStringLiteral("解析M3U8质量信息失败")
                 : QStringLiteral("选择质量失败"));
             return;
         }
+        const MediaVariant& selectedVariant = variants.at(selectedIndex);
         const QUrl masterUrl(m_pendingMasterPlaylistUrl);
-        const QUrl variantUrl = masterUrl.resolved(QUrl(qualityUrls.value(selectedQuality)));
+        const QUrl variantUrl = masterUrl.resolved(QUrl(selectedVariant.url));
+        m_pendingSelectedVariantIsHighQuality = isHighQualityVariant(selectedVariant);
         m_mediaResolveStage = MediaResolveStage::FetchVariantPlaylist;
         startMediaRequest(requestId, variantUrl);
         return;
@@ -344,7 +349,7 @@ void ContentResolver::handleMediaReplyFinished(quint64 requestId, QNetworkReply*
             finishMediaResolveFailure(requestId, QStringLiteral("未解析到TS切片"));
             return;
         }
-        finishMediaResolveSuccess(requestId, {urls, EncryptionMode::H5E, false});
+        finishMediaResolveSuccess(requestId, {urls, EncryptionMode::H5E, m_pendingSelectedVariantIsHighQuality});
         return;
     }
 
@@ -361,6 +366,7 @@ void ContentResolver::finishMediaResolveSuccess(quint64 requestId, const Content
     m_pendingQuality.clear();
     m_pendingMasterPlaylistUrl.clear();
     m_pendingClearQualities.clear();
+    m_pendingSelectedVariantIsHighQuality = false;
     emit mediaResolved(media);
 }
 
@@ -374,61 +380,89 @@ void ContentResolver::finishMediaResolveFailure(quint64 requestId, const QString
     m_pendingQuality.clear();
     m_pendingMasterPlaylistUrl.clear();
     m_pendingClearQualities.clear();
+    m_pendingSelectedVariantIsHighQuality = false;
     emit mediaResolveFailed(errorMessage);
 }
 
-QHash<QString, QString> ContentResolver::parseQualityUrls(const QByteArray& playlistData) const
+QVector<ContentResolver::MediaVariant> ContentResolver::parseVariants(const QByteArray& playlistData) const
 {
-    const QHash<QString, int> qualityBandwidths = {
-        {QStringLiteral("5"), 4000000}, {QStringLiteral("4"), 460800},
-        {QStringLiteral("3"), 870400}, {QStringLiteral("2"), 1228800},
-        {QStringLiteral("1"), 2048000}
-    };
-    QHash<QString, QString> qualityUrls;
-    QString currentQuality;
+    QVector<MediaVariant> variants;
+    const QRegularExpression bandwidthExpression(QStringLiteral(R"((?:^|[,:])\s*BANDWIDTH=(\d+))"));
+    const QRegularExpression resolutionExpression(QStringLiteral(R"((?:^|[,:])\s*RESOLUTION=(\d+x\d+))"));
+    qint64 pendingBandwidth = -1;
+    QString pendingResolution;
+
     for (const QString& line : QString::fromUtf8(playlistData).split(QLatin1Char('\n'))) {
         const QString trimmed = line.trimmed();
         if (trimmed.startsWith(QStringLiteral("#EXT-X-STREAM-INF"))) {
-            const QRegularExpressionMatch match = QRegularExpression(QStringLiteral("BANDWIDTH=(\\d+)")).match(trimmed);
-            if (!match.hasMatch()) {
-                currentQuality.clear();
-                continue;
-            }
-            const int bandwidth = match.captured(1).toInt();
-            currentQuality.clear();
-            for (auto it = qualityBandwidths.cbegin(); it != qualityBandwidths.cend(); ++it) {
-                if (it.value() == bandwidth || (bandwidth >= 4000000 && it.key() == QStringLiteral("5"))) {
-                    currentQuality = it.key();
-                    break;
-                }
-            }
-        } else if (!trimmed.isEmpty() && !trimmed.startsWith(QLatin1Char('#')) && !currentQuality.isEmpty()) {
-            qualityUrls.insert(currentQuality, trimmed);
-            currentQuality.clear();
+            const QRegularExpressionMatch bandwidthMatch = bandwidthExpression.match(trimmed);
+            pendingBandwidth = bandwidthMatch.hasMatch() ? bandwidthMatch.captured(1).toLongLong() : -1;
+            const QRegularExpressionMatch resolutionMatch = resolutionExpression.match(trimmed);
+            pendingResolution = resolutionMatch.hasMatch() ? resolutionMatch.captured(1) : QString();
+        } else if (!trimmed.isEmpty() && !trimmed.startsWith(QLatin1Char('#')) && pendingBandwidth >= 0) {
+            variants.append({pendingBandwidth, pendingResolution, trimmed});
+            pendingBandwidth = -1;
+            pendingResolution.clear();
         }
     }
-    return qualityUrls;
+    return variants;
 }
 
-QString ContentResolver::selectQuality(const QString& requestedQuality, const QHash<QString, QString>& availableQualities) const
+int ContentResolver::selectVariantIndex(const QString& requestedQuality, const QVector<MediaVariant>& variants) const
 {
-    if (requestedQuality != QStringLiteral("0")) {
-        return availableQualities.contains(requestedQuality) ? requestedQuality : QString();
+    if (variants.isEmpty()) {
+        return -1;
     }
-    const QHash<QString, int> qualityBandwidths = {
+
+    if (requestedQuality == QStringLiteral("0") || requestedQuality == QStringLiteral("5")) {
+        int selectedIndex = 0;
+        for (int index = 1; index < variants.size(); ++index) {
+            if (variants.at(index).bandwidth > variants.at(selectedIndex).bandwidth) {
+                selectedIndex = index;
+            }
+        }
+        return selectedIndex;
+    }
+
+    const QHash<QString, qint64> targetBandwidths = {
         {QStringLiteral("5"), 4000000}, {QStringLiteral("1"), 2048000},
-        {QStringLiteral("2"), 1228800}, {QStringLiteral("3"), 870400}, {QStringLiteral("4"), 460800}
+        {QStringLiteral("2"), 1228800}, {QStringLiteral("3"), 870400},
+        {QStringLiteral("4"), 460800}
     };
-    QString selected;
-    int maxBandwidth = -1;
-    for (auto it = availableQualities.cbegin(); it != availableQualities.cend(); ++it) {
-        const int bandwidth = qualityBandwidths.value(it.key(), -1);
-        if (bandwidth > maxBandwidth) {
-            maxBandwidth = bandwidth;
-            selected = it.key();
+    const auto target = targetBandwidths.constFind(requestedQuality);
+    if (target == targetBandwidths.cend()) {
+        return -1;
+    }
+
+    int selectedIndex = -1;
+    for (int index = 0; index < variants.size(); ++index) {
+        if (variants.at(index).bandwidth <= target.value()
+            && (selectedIndex < 0 || variants.at(index).bandwidth > variants.at(selectedIndex).bandwidth)) {
+            selectedIndex = index;
         }
     }
-    return selected.isEmpty() && !availableQualities.isEmpty() ? availableQualities.constBegin().key() : selected;
+    if (selectedIndex >= 0) {
+        return selectedIndex;
+    }
+
+    selectedIndex = 0;
+    for (int index = 1; index < variants.size(); ++index) {
+        if (variants.at(index).bandwidth < variants.at(selectedIndex).bandwidth) {
+            selectedIndex = index;
+        }
+    }
+    return selectedIndex;
+}
+
+bool ContentResolver::isHighQualityVariant(const MediaVariant& variant) const
+{
+    if (variant.bandwidth >= 3000000) {
+        return true;
+    }
+
+    const QRegularExpressionMatch resolutionMatch = QRegularExpression(QStringLiteral(R"(^\d+x(\d+)$)"))
+                                                        .match(variant.resolution);
+    return resolutionMatch.hasMatch() && resolutionMatch.captured(1).toInt() >= 1080;
 }
 
 QStringList ContentResolver::buildTsUrls(const QByteArray& playlistData, const QString& playlistUrl) const
@@ -460,18 +494,20 @@ QStringList ContentResolver::buildTsUrls(const QByteArray& playlistData, const Q
 
 QString ContentResolver::clearVariantUrl(const QString& hlsUrl, const QString& quality) const
 {
-    const QRegularExpression pattern(QStringLiteral(R"(/asp/hls/(main|4000|2000|1200|850|450)(?=/))"));
+    const QRegularExpression directoryPattern(QStringLiteral(R"(/asp/hls/(main|4000|3000|2000|1200|850|450)(?=/))"));
     QString result = hlsUrl;
-    if (!result.contains(pattern)) {
+    if (!result.contains(directoryPattern)) {
         return {};
     }
-    result.replace(pattern, QStringLiteral("/asp/hls/") + quality);
+    result.replace(directoryPattern, QStringLiteral("/asp/hls/") + quality);
+    result.replace(QRegularExpression(QStringLiteral(R"(/main\.m3u8(?=([?#]|$)))")),
+        QStringLiteral("/") + quality + QStringLiteral(".m3u8"));
     return result;
 }
 
 QStringList ContentResolver::qualityFallbacks(const QString& quality) const
 {
-    const QStringList qualities = {QStringLiteral("4000"), QStringLiteral("2000"), QStringLiteral("1200"), QStringLiteral("850"), QStringLiteral("450")};
+    const QStringList qualities = {QStringLiteral("4000"), QStringLiteral("3000"), QStringLiteral("2000"), QStringLiteral("1200"), QStringLiteral("850"), QStringLiteral("450")};
     if (quality == QStringLiteral("0")) {
         return qualities;
     }
