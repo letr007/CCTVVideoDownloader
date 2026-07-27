@@ -164,6 +164,8 @@ void CCTVVideoDownloader::signalConnect()
     connect(ui.lineEdit_import, &QLineEdit::returnPressed, this, &CCTVVideoDownloader::onImportLinkSubmitted); // 输入框回车导入
     connect(&APIService::instance(), &APIService::browseVideoListResolved, this, &CCTVVideoDownloader::handleBrowseVideoListResolved);
     connect(&APIService::instance(), &APIService::imageResolved, this, &CCTVVideoDownloader::handlePreviewImageResolved);
+    connect(&APIService::instance(), &APIService::videoInfoResolved, this, &CCTVVideoDownloader::handleVideoInfoResolved);
+    connect(&APIService::instance(), &APIService::videoInfoFailed, this, &CCTVVideoDownloader::handleVideoInfoFailed);
     connect(&APIService::instance(), &APIService::playColumnInfoResolved, this, &CCTVVideoDownloader::handleInlineImportColumnInfoResolved);
     connect(&APIService::instance(), &APIService::playColumnInfoFailed, this, &CCTVVideoDownloader::handleInlineImportColumnInfoFailed);
     ui.tableWidget_Config->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -350,28 +352,88 @@ void CCTVVideoDownloader::isVideoSelected(int r, int c)
         qWarning() << "无效的video index:" << selectedIndex;
         return;
     }
-    auto title = it->title;
-    auto GUID = it->guid;
-    auto brief = it->brief;
-    auto time = it->time;
-    auto imageUrl = it->image;
+    const VideoItem video = it.value();
+    showVideoDetails(video);
 
-    // 文本处理
-    brief.replace(' ', '\n').replace('\r', '\n');
-    brief.replace(QRegularExpression("\n+"), "\n");
-    time.replace(' ', '\n');
-    //qDebug() << brief;
-    ui.label_title->setText(title);
-    ui.label_introduce->setText(brief);
-    ui.label_introduce->setWordWrap(true);
-    ui.label_time->setText(time);
-
-    m_pendingPreviewImageUrl = imageUrl;
+    m_pendingPreviewImageUrl = video.image;
     m_previewPixmap = QPixmap();
     ui.label_img->setPixmap(QPixmap());
-    ui.label_img->setText(imageUrl.isEmpty() ? QStringLiteral("图片加载失败") : QStringLiteral("图片加载中..."));
-    if (!imageUrl.isEmpty()) {
-        m_pendingImageRequestId = APIService::instance().startGetImage(imageUrl);
+    ui.label_img->setText(video.image.isEmpty() ? QStringLiteral("图片加载失败") : QStringLiteral("图片加载中..."));
+    if (!video.image.isEmpty()) {
+        m_pendingImageRequestId = APIService::instance().startGetImage(video.image);
+    }
+
+    m_pendingVideoInfoGuid = video.guid;
+    m_pendingVideoInfoRequestId = APIService::instance().startGetVideoInfo(video.guid);
+}
+
+QString CCTVVideoDownloader::formatDuration(qint64 seconds)
+{
+    if (seconds < 0) {
+        return QString();
+    }
+
+    const qint64 hours = seconds / 3600;
+    const qint64 minutes = (seconds % 3600) / 60;
+    const qint64 remainingSeconds = seconds % 60;
+    if (hours > 0) {
+        return QStringLiteral("%1:%2:%3")
+            .arg(hours)
+            .arg(minutes, 2, 10, QLatin1Char('0'))
+            .arg(remainingSeconds, 2, 10, QLatin1Char('0'));
+    }
+    return QStringLiteral("%1:%2")
+        .arg(minutes, 2, 10, QLatin1Char('0'))
+        .arg(remainingSeconds, 2, 10, QLatin1Char('0'));
+}
+
+void CCTVVideoDownloader::showVideoDetails(const VideoItem& video)
+{
+    QString brief = video.brief;
+    brief.replace(' ', '\n').replace('\r', '\n');
+    brief.replace(QRegularExpression("\n+"), "\n");
+
+    ui.label_title->setText(video.title);
+    ui.label_introduce->setText(brief);
+    ui.label_introduce->setWordWrap(true);
+
+    const QString publishedAt = video.time.isEmpty() ? QStringLiteral("—") : video.time;
+    const QString channel = video.channel.isEmpty() ? QStringLiteral("—") : video.channel;
+    const QString duration = video.length >= 0 ? formatDuration(video.length) : QStringLiteral("—");
+    ui.label_time->setText(QStringLiteral("发布时间：%1\n频道：%2\n时长：%3")
+        .arg(publishedAt, channel, duration));
+}
+
+void CCTVVideoDownloader::handleVideoInfoResolved(quint64 requestId,
+    const QString& guid,
+    const QString& channel,
+    qint64 length)
+{
+    if (requestId != m_pendingVideoInfoRequestId || guid != m_pendingVideoInfoGuid) {
+        return;
+    }
+
+    const int selectedIndex = ui.tableWidget_List->currentRow();
+    auto selectedVideo = VIDEOS.find(selectedIndex);
+    if (selectedVideo == VIDEOS.end() || selectedVideo->guid != guid) {
+        return;
+    }
+
+    if (!channel.isEmpty()) {
+        selectedVideo->channel = channel;
+    }
+    if (length >= 0) {
+        selectedVideo->length = length;
+    }
+    showVideoDetails(selectedVideo.value());
+}
+
+void CCTVVideoDownloader::handleVideoInfoFailed(quint64 requestId,
+    const QString& guid,
+    const QString& errorMessage)
+{
+    if (requestId == m_pendingVideoInfoRequestId && guid == m_pendingVideoInfoGuid) {
+        qWarning() << "获取视频详情失败:" << errorMessage;
     }
 }
 

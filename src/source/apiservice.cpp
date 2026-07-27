@@ -26,6 +26,41 @@
 QPointer<APIService> APIService::m_instance = nullptr;
 QMutex APIService::m_instanceMutex;
 
+namespace {
+
+qint64 parseDurationSeconds(const QJsonValue& value)
+{
+    if (value.isDouble()) {
+        const double seconds = value.toDouble(-1.0);
+        return seconds >= 0.0 ? static_cast<qint64>(seconds) : -1;
+    }
+
+    const QString text = value.toString().trimmed();
+    if (text.isEmpty()) {
+        return -1;
+    }
+
+    const QStringList parts = text.split(QLatin1Char(':'));
+    if (parts.size() == 2 || parts.size() == 3) {
+        bool hoursOk = true;
+        bool minutesOk = false;
+        bool secondsOk = false;
+        const qint64 hours = parts.size() == 3 ? parts[0].toLongLong(&hoursOk) : 0;
+        const qint64 minutes = parts[parts.size() - 2].toLongLong(&minutesOk);
+        const double seconds = parts.last().toDouble(&secondsOk);
+        if (hoursOk && minutesOk && secondsOk && hours >= 0 && minutes >= 0 && seconds >= 0.0) {
+            return hours * 3600 + minutes * 60 + static_cast<qint64>(seconds);
+        }
+        return -1;
+    }
+
+    bool ok = false;
+    const double seconds = text.toDouble(&ok);
+    return ok && seconds >= 0.0 ? static_cast<qint64>(seconds) : -1;
+}
+
+} // namespace
+
 APIService& APIService::instance() {
     if (m_instance.isNull()) {
         QMutexLocker locker(&m_instanceMutex);
@@ -165,6 +200,8 @@ QMap<int, VideoItem> APIService::fetchSingleVideoByGuid(const QString& serviceId
     videoItem.brief = videoObj.value(QStringLiteral("brief")).toString();
     videoItem.image = videoObj.value(QStringLiteral("img")).toString();
     videoItem.time = videoObj.value(QStringLiteral("time")).toString();
+    videoItem.channel = videoObj.value(QStringLiteral("play_channel")).toString();
+    videoItem.length = parseDurationSeconds(videoObj.value(QStringLiteral("length")));
     if (videoItem.guid.isEmpty()) {
         videoItem.guid = guid;
     }
@@ -531,6 +568,8 @@ void APIService::processMonthData(
         videoItem.title = item["title"].toString();
         videoItem.image = item["image"].toString();
         videoItem.brief = item["brief"].toString();
+        videoItem.channel = item["play_channel"].toString();
+        videoItem.length = parseDurationSeconds(item["length"]);
         videoItem.isHighlight = isHighlight;
         videoItem.listType = listType;
 
@@ -566,6 +605,8 @@ void APIService::processTopicVideoData(const QJsonArray& items, QMap<int, VideoI
         videoItem.title = item["video_title"].toString();
         videoItem.image = item["video_key_frame_url"].toString();
         videoItem.brief = item["sc"].toString();
+        videoItem.channel = item["play_channel"].toString();
+        videoItem.length = parseDurationSeconds(item["length"]);
         videoItem.isHighlight = true;
         videoItem.listType = QStringLiteral("片段");
 
@@ -575,6 +616,21 @@ void APIService::processTopicVideoData(const QJsonArray& items, QMap<int, VideoI
 
     qInfo() << "片段数据处理完成 - 成功处理:" << processedCount
         << "个，跳过:" << skippedCount << "个";
+}
+
+bool APIService::parseVideoInfo(const QByteArray& data, QString& channel, qint64& length)
+{
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(data, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        return false;
+    }
+
+    const QJsonObject root = document.object();
+    const QJsonObject video = root.value(QStringLiteral("video")).toObject();
+    channel = root.value(QStringLiteral("play_channel")).toString();
+    length = parseDurationSeconds(video.value(QStringLiteral("totalLength")));
+    return !channel.isEmpty() || length >= 0;
 }
 
 QImage APIService::getImage(const QString& url)
@@ -823,6 +879,56 @@ quint64 APIService::startGetBrowseVideoList(const QString& column_id,
     workerThread->setObjectName(QStringLiteral("APIServiceBrowseVideoListWorker"));
     connect(workerThread, &QThread::finished, workerThread, &QObject::deleteLater);
     workerThread->start();
+    return requestId;
+}
+
+quint64 APIService::startGetVideoInfo(const QString& guid)
+{
+    const quint64 requestId = nextAsyncBrowseRequestId();
+    {
+        QMutexLocker locker(&m_mutex);
+        m_activeVideoInfoRequestId = requestId;
+    }
+
+    QUrl url(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("pid"), guid);
+    url.setQuery(query);
+
+    QNetworkReply* reply = networkAccessManager()->get(buildNetworkRequest(url));
+    connect(reply, &QNetworkReply::errorOccurred, [reply](QNetworkReply::NetworkError error) {
+        if (error == QNetworkReply::SslHandshakeFailedError) {
+            reply->ignoreSslErrors();
+        }
+    });
+    connect(reply, &QNetworkReply::finished, this, [this, requestId, guid, reply]() {
+        const bool matchesActiveRequest = [this, requestId]() {
+            QMutexLocker locker(&m_mutex);
+            return m_activeVideoInfoRequestId == requestId;
+        }();
+        if (!matchesActiveRequest) {
+            reply->deleteLater();
+            return;
+        }
+
+        if (reply->error() != QNetworkReply::NoError) {
+            const QString errorMessage = reply->errorString();
+            reply->deleteLater();
+            emit videoInfoFailed(requestId, guid, errorMessage);
+            return;
+        }
+
+        QString channel;
+        qint64 length = -1;
+        const bool parsed = parseVideoInfo(reply->readAll(), channel, length);
+        reply->deleteLater();
+        if (!parsed) {
+            emit videoInfoFailed(requestId, guid, QStringLiteral("视频详情数据格式无效"));
+            return;
+        }
+
+        emit videoInfoResolved(requestId, guid, channel, length);
+    });
     return requestId;
 }
 

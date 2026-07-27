@@ -70,17 +70,23 @@ private:
     bool isInlineImportPending() const;
     void handleBrowseVideoListResolved(quint64 requestId, const QMap<int, VideoItem>& videos);
     void handlePreviewImageResolved(quint64 requestId, const QString& url, const QImage& image);
+    void handleVideoInfoResolved(quint64 requestId, const QString& guid, const QString& channel, qint64 length);
+    void handleVideoInfoFailed(quint64 requestId, const QString& guid, const QString& errorMessage);
     void renderVideoList(bool showHighlights);
     void updatePreviewImage();
+    void showVideoDetails(const VideoItem& video);
+    static QString formatDuration(qint64 seconds);
 
     Ui::MainWindow ui;
     QPixmap m_previewPixmap;
     quint64 m_pendingVideoListRequestId = 0;
     quint64 m_pendingImageRequestId = 0;
+    quint64 m_pendingVideoInfoRequestId = 0;
     quint64 m_pendingInlineImportRequestId = 0;
     bool m_importDialogActive = false;
     bool m_pendingVideoListShowHighlights = false;
     QString m_pendingPreviewImageUrl;
+    QString m_pendingVideoInfoGuid;
     inline static std::optional<ContentParse::ProgrammeRecord> SELECTED_PROGRAMME;
     inline static QMap<int, VideoItem> VIDEOS;
 

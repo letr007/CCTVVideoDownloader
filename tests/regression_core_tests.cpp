@@ -1147,6 +1147,7 @@ private slots:
     void apiservice_parseJsonArray_missingObjectOrArrayKey_returnsEmptyArray();
     void apiservice_processMonthData_skipsItemsWithoutGuidOrTitle();
     void apiservice_processMonthData_marksHighlightItems();
+    void apiservice_processMonthData_preservesListLength();
     void apiservice_processTopicVideoData_marksFragments();
     void contentResolver_resolvesH5eVariantPlaylist();
     void contentResolver_prefersEncryptedH5eOverClearHls();
@@ -1169,6 +1170,8 @@ private slots:
     void apiservice_getVideoList_usesCctv4kGuidFallback();
     void apiservice_startGetPlayColumnInfo_asyncSuccess_emitsResolvedData();
     void apiservice_startGetBrowseVideoList_asyncSuccess_preservesHighlightAndFragmentBrowseSemantics();
+    void apiservice_startGetVideoInfo_asyncSuccess_parsesChannelAndLength();
+    void apiservice_startGetVideoInfo_ignoresStaleResponse();
     void apiservice_startGetImage_asyncSuccess_emitsLoadedImage();
     void apiservice_buildVideoApiUrl_buildsExpectedQuery();
     void apiservice_buildAlbumVideoListUrl_buildsHighlightQuery();
@@ -3673,6 +3676,24 @@ void CoreRegressionTests::apiservice_processMonthData_marksHighlightItems()
     QCOMPARE(result.value(0).guid, QString("highlight-guid"));
 }
 
+void CoreRegressionTests::apiservice_processMonthData_preservesListLength()
+{
+    APIService& apiService = APIService::instance();
+    QJsonArray items{
+        QJsonObject{
+            {"guid", "length-guid"},
+            {"title", "Length Video"},
+            {"length", "01:02:03"}
+        }
+    };
+    QMap<int, VideoItem> result;
+    int index = 0;
+
+    APIServiceTestAdapter::processMonthData(apiService, items, QStringLiteral("202501"), result, index);
+
+    QCOMPARE(result.value(0).length, qint64(3723));
+}
+
 void CoreRegressionTests::apiservice_processTopicVideoData_marksFragments()
 {
     APIService& apiService = APIService::instance();
@@ -4308,6 +4329,59 @@ void CoreRegressionTests::apiservice_startGetBrowseVideoList_asyncSuccess_preser
     QCOMPARE(videos.value(2).isHighlight, true);
     QCOMPARE(videos.value(2).listType, QStringLiteral("片段"));
     QCOMPARE(manager.requestCount(), 4);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::apiservice_startGetVideoInfo_asyncSuccess_parsesChannelAndLength()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QString guid = QStringLiteral("video-info-guid");
+    const QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=video-info-guid"));
+    manager.queueSuccess(infoUrl, QByteArray(R"({"play_channel":"CCTV-1 综合","video":{"totalLength":"3723.84"}})"));
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    QSignalSpy resolvedSpy(&apiService, &APIService::videoInfoResolved);
+    QSignalSpy failedSpy(&apiService, &APIService::videoInfoFailed);
+    const quint64 requestId = apiService.startGetVideoInfo(guid);
+
+    QVERIFY(resolvedSpy.wait(1000));
+    QCOMPARE(resolvedSpy.count(), 1);
+    QCOMPARE(failedSpy.count(), 0);
+    const QList<QVariant> resultArgs = resolvedSpy.takeFirst();
+    QCOMPARE(resultArgs.at(0).toULongLong(), requestId);
+    QCOMPARE(resultArgs.at(1).toString(), guid);
+    QCOMPARE(resultArgs.at(2).toString(), QStringLiteral("CCTV-1 综合"));
+    QCOMPARE(resultArgs.at(3).toLongLong(), qint64(3723));
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::apiservice_startGetVideoInfo_ignoresStaleResponse()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QString firstGuid = QStringLiteral("first-video-guid");
+    const QString secondGuid = QStringLiteral("second-video-guid");
+    manager.queueSuccess(QUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=first-video-guid")),
+        QByteArray(R"({"play_channel":"旧频道","video":{"totalLength":1}})"), 100);
+    manager.queueSuccess(QUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=second-video-guid")),
+        QByteArray(R"({"play_channel":"新频道","video":{"totalLength":2}})"));
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    QSignalSpy resolvedSpy(&apiService, &APIService::videoInfoResolved);
+    const quint64 firstRequestId = apiService.startGetVideoInfo(firstGuid);
+    const quint64 secondRequestId = apiService.startGetVideoInfo(secondGuid);
+
+    QVERIFY(resolvedSpy.wait(1000));
+    QCOMPARE(resolvedSpy.count(), 1);
+    const QList<QVariant> resultArgs = resolvedSpy.takeFirst();
+    QCOMPARE(resultArgs.at(0).toULongLong(), secondRequestId);
+    QCOMPARE(resultArgs.at(1).toString(), secondGuid);
+    QCOMPARE(resultArgs.at(2).toString(), QStringLiteral("新频道"));
+    QCOMPARE(resultArgs.at(3).toLongLong(), qint64(2));
+    QTest::qWait(150);
+    QCOMPARE(resolvedSpy.count(), 0);
+    QVERIFY(firstRequestId != secondRequestId);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
 }
 

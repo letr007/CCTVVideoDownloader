@@ -24,6 +24,8 @@ struct VideoItem {
     QString title;
     QString image;
     QString brief;
+    QString channel;
+    qint64 length = -1;
     bool isHighlight = false;
     QString listType = QStringLiteral("完整");
 
@@ -101,12 +103,15 @@ public:
     quint64 startGetBrowseVideoList(const ContentParse::ImportResult& result, const QString& start_date, const QString& end_date, bool includeHighlights);
     quint64 startGetBrowseVideoList(const ContentParse::ProgrammeRecord& record, const QString& start_date, const QString& end_date, bool includeHighlights);
     quint64 startGetImage(const QString& url);
+    quint64 startGetVideoInfo(const QString& guid);
 
 signals:
     void playColumnInfoResolved(quint64 requestId, const ContentParse::ImportResult& data);
     void playColumnInfoFailed(quint64 requestId, const QString& errorMessage);
     void browseVideoListResolved(quint64 requestId, const QMap<int, VideoItem>& videos);
     void imageResolved(quint64 requestId, const QString& url, const QImage& image);
+    void videoInfoResolved(quint64 requestId, const QString& guid, const QString& channel, qint64 length);
+    void videoInfoFailed(quint64 requestId, const QString& guid, const QString& errorMessage);
 
 private:
     // 构造函数和析构函数
@@ -121,6 +126,7 @@ private:
     // JSON解析相关方法
     QJsonObject parseJsonObject(const QByteArray& data, const QString& key = QString());
     QJsonArray parseJsonArray(const QByteArray& data, const QString& objectKey = QString(), const QString& arrayKey = QString());
+    bool parseVideoInfo(const QByteArray& data, QString& channel, qint64& length);
 
     // URL构建方法
     QUrl buildVideoApiUrl(FetchType fetch_type, const QString& id, const QString& date, int page, int page_size);
@@ -153,6 +159,7 @@ private:
     quint64 m_activePlayColumnInfoRequestId = 0;
     quint64 m_activeBrowseVideoListRequestId = 0;
     quint64 m_activeImageRequestId = 0;
+    quint64 m_activeVideoInfoRequestId = 0;
 
 #ifdef CORE_REGRESSION_TESTS
     QPointer<QNetworkAccessManager> m_testNetworkAccessManager;
