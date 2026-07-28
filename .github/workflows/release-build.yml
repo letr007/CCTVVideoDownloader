@@ -120,6 +120,10 @@ jobs:
           $zipPath = "artifact/CCTVVideoDownloader.$env:PACKAGE_ID.win.x64.zip"
           New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
           Copy-Item "build/$env:BUILD_CONFIG/CCTVVideoDownloader.exe" $packageDir
+          Copy-Item "build/$env:BUILD_CONFIG/cctv-dl.exe" $packageDir
+          if (-not (Test-Path (Join-Path $packageDir "cctv-dl.exe"))) {
+            throw "CLI executable missing from Windows release package"
+          }
           & "$env:QT_ROOT_DIR/bin/windeployqt.exe" --release --no-translations "$packageDir/CCTVVideoDownloader.exe"
           $vcRuntimeDir = Join-Path $env:VCToolsRedistDir "x64\Microsoft.VC143.CRT"
           foreach ($runtime in "MSVCP140.dll", "VCRUNTIME140.dll", "VCRUNTIME140_1.dll") {
@@ -154,12 +158,24 @@ jobs:
           zip="artifact/CCTVVideoDownloader.${PACKAGE_ID}.macos.arm64.zip"
           dmg="artifact/CCTVVideoDownloader.${PACKAGE_ID}.macos.arm64.dmg"
           test -x "$app/Contents/MacOS/CCTVVideoDownloader"
+          test -x "artifact/CCTVVideoDownloader/bin/cctv-dl"
+          cp "artifact/CCTVVideoDownloader/bin/cctv-dl" "$app/Contents/MacOS/cctv-dl"
+          "${QT_ROOT_DIR}/bin/macdeployqt" "$app" \
+            -appstore-compliant \
+            -always-overwrite \
+            -executable="$app/Contents/MacOS/cctv-dl"
+          test -x "$app/Contents/MacOS/cctv-dl"
+          if otool -L "$app/Contents/MacOS/cctv-dl" | grep -F "${QT_ROOT_DIR}"; then
+            echo "cctv-dl still references the build-time Qt installation" >&2
+            exit 1
+          fi
           test -d "$app/Contents/Frameworks/QtCore.framework"
           test -f "$app/Contents/PlugIns/platforms/libqcocoa.dylib"
           # Seal the complete deployed bundle. The linker signature on the main
           # executable alone is invalid once frameworks and resources are added.
           codesign --force --deep --sign - "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
+          "$app/Contents/MacOS/cctv-dl" --version
           python3 - "$app" <<'PY'
           import subprocess, sys, time
           process = subprocess.Popen([f"{sys.argv[1]}/Contents/MacOS/CCTVVideoDownloader"])
@@ -187,6 +203,7 @@ jobs:
           archive="artifact/CCTVVideoDownloader.${PACKAGE_ID}.linux.x86_64.tar.gz"
           appimage="artifact/CCTVVideoDownloader.${PACKAGE_ID}.linux.x86_64.AppImage"
           test -x "$package_dir/bin/CCTVVideoDownloader"
+          test -x "$package_dir/bin/cctv-dl"
           find "$package_dir" -name 'libQt6Core.so*' -print -quit | grep -q .
           find "$package_dir" -path '*/platforms/libqxcb.so' -print -quit | grep -q .
           tar -C artifact -czf "$archive" CCTVVideoDownloader

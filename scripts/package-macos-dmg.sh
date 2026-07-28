@@ -65,6 +65,7 @@ BG_USE="$WORK_DIR/background.png"
 
 mkdir -p "$STAGE/.background"
 ditto "$APP_PATH" "$STAGE/CCTVVideoDownloader.app"
+test -x "$STAGE/CCTVVideoDownloader.app/Contents/MacOS/cctv-dl"
 codesign --verify --deep --strict --verbose=2 "$STAGE/CCTVVideoDownloader.app"
 ln -s /Applications "$STAGE/Applications"
 
@@ -138,6 +139,8 @@ if [[ -z "$VERIFY_DEVICE" || ! -d "$VERIFY_MOUNT/CCTVVideoDownloader.app" ]]; th
   exit 1
 fi
 codesign --verify --deep --strict --verbose=2 "$VERIFY_MOUNT/CCTVVideoDownloader.app"
+test -x "$VERIFY_MOUNT/CCTVVideoDownloader.app/Contents/MacOS/cctv-dl"
+"$VERIFY_MOUNT/CCTVVideoDownloader.app/Contents/MacOS/cctv-dl" --version
 python3 - "$VERIFY_MOUNT/CCTVVideoDownloader.app" <<'PY'
 import subprocess
 import sys

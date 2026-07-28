@@ -12,12 +12,12 @@ int main(int argc, char* argv[])
     Cli::installFfmpegLogCallback();
 
     QCoreApplication application(argc, argv);
-    application.setApplicationName(QStringLiteral("cctv-video"));
+    application.setApplicationName(QStringLiteral("cctv-dl"));
     application.setApplicationVersion(QStringLiteral(CCTV_VIDEO_DOWNLOADER_BUILD_VERSION));
 
     const Cli::ParseResult parsed = Cli::parseArguments(application.arguments());
     Cli::setQtDebugLoggingEnabled(parsed.options.debug);
-    qInfo() << "cctv-video started";
+    qInfo() << "cctv-dl started";
     if (parsed.shouldExit) {
         QTextStream stream(parsed.error.isEmpty() ? stdout : stderr);
         stream << (parsed.error.isEmpty() ? parsed.output : parsed.error) << Qt::endl;

@@ -120,22 +120,22 @@ jobs:
             -DCMAKE_CONFIGURATION_TYPES="$env:BUILD_CONFIG" `
             -DBUILD_TESTING=ON
 
-      - name: Build test target (Unix)
+      - name: Build test targets (Unix)
         if: runner.os != 'Windows'
         shell: bash
-        run: cmake --build build --target core_regression_tests --parallel
+        run: cmake --build build --parallel
 
-      - name: Build test target (Windows)
+      - name: Build test targets (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: cmake --build build --config "$env:BUILD_CONFIG" --target core_regression_tests --parallel
+        run: cmake --build build --config "$env:BUILD_CONFIG" --parallel
 
-      - name: Run regression tests (Unix)
+      - name: Run tests (Unix)
         if: runner.os != 'Windows'
         shell: bash
-        run: ctest --test-dir build --output-on-failure -R core_regression_tests
+        run: ctest --test-dir build --output-on-failure
 
-      - name: Run regression tests (Windows)
+      - name: Run tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ctest --test-dir build --build-config "$env:BUILD_CONFIG" --output-on-failure -R core_regression_tests
+        run: ctest --test-dir build --build-config "$env:BUILD_CONFIG" --output-on-failure

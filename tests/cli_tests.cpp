@@ -364,7 +364,7 @@ void CliTests::executableSilencesQtLogsByDefault()
     runCli(process, {QStringLiteral("--version")});
     QCOMPARE(process.exitStatus(), QProcess::NormalExit);
     QCOMPARE(process.exitCode(), 0);
-    QVERIFY(process.readAllStandardOutput().startsWith("cctv-video "));
+    QVERIFY(process.readAllStandardOutput().startsWith("cctv-dl "));
     QCOMPARE(process.readAllStandardError(), QByteArray());
 }
 
@@ -375,9 +375,9 @@ void CliTests::executableWritesQtLogsToStderrWithDebug()
     QCOMPARE(process.exitStatus(), QProcess::NormalExit);
     QCOMPARE(process.exitCode(), 0);
     const QByteArray standardOutput = process.readAllStandardOutput();
-    QVERIFY(standardOutput.startsWith("cctv-video "));
+    QVERIFY(standardOutput.startsWith("cctv-dl "));
     QVERIFY(!standardOutput.contains("INFO:"));
-    QVERIFY(process.readAllStandardError().contains("INFO: cctv-video started"));
+    QVERIFY(process.readAllStandardError().contains("INFO: cctv-dl started"));
 }
 
 void CliTests::ffmpegLogsAreSilentByDefault()

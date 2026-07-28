@@ -108,4 +108,9 @@ fi
 
 mv "${produced[0]}" "$OUTPUT_PATH"
 chmod +x "$OUTPUT_PATH"
+(
+  cd "$WORK_DIR"
+  "$OUTPUT_PATH" --appimage-extract >/dev/null
+  test -x "squashfs-root/bin/cctv-dl"
+)
 echo "created $OUTPUT_PATH"

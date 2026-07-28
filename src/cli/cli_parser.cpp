@@ -43,7 +43,7 @@ Cli::ParseResult usageError(const QString& message)
 {
     Cli::ParseResult result;
     result.exitCode = static_cast<int>(Cli::ExitCode::Usage);
-    result.error = QStringLiteral("error: %1\nRun cctv-video --help for usage.").arg(message);
+    result.error = QStringLiteral("error: %1\nRun cctv-dl --help for usage.").arg(message);
     result.shouldExit = true;
     return result;
 }

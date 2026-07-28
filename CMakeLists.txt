@@ -161,7 +161,7 @@ target_compile_definitions(CCTVVideoDownloader
     PRIVATE CCTV_VIDEO_DOWNLOADER_BUILD_VERSION="${CCTV_VIDEO_DOWNLOADER_BUILD_VERSION}"
 )
 
-qt_add_executable(cctv-video
+qt_add_executable(cctv-dl
     src/cli/main.cpp
     src/cli/cli_controller.cpp
     src/cli/cli_controller.h
@@ -176,18 +176,18 @@ qt_add_executable(cctv-video
     src/cli/signal_bridge.cpp
     src/cli/signal_bridge.h
 )
-target_link_libraries(cctv-video
+target_link_libraries(cctv-dl
     PRIVATE
         CCTVVideoDownloaderCore
 )
-target_compile_definitions(cctv-video
+target_compile_definitions(cctv-dl
     PRIVATE CCTV_VIDEO_DOWNLOADER_BUILD_VERSION="${CCTV_VIDEO_DOWNLOADER_BUILD_VERSION}"
 )
 
 if (MSVC)
     target_compile_options(CCTVVideoDownloaderCore PRIVATE /utf-8)
     target_compile_options(CCTVVideoDownloader PRIVATE /utf-8)
-    target_compile_options(cctv-video PRIVATE /utf-8)
+    target_compile_options(cctv-dl PRIVATE /utf-8)
 endif()
 
 # CTest defines option(BUILD_TESTING) with default ON. Include it before the
@@ -201,7 +201,7 @@ endif()
 
 # Native Qt deployment produces install trees for the macOS and Linux release
 # archives. Windows keeps its explicit windeployqt release staging below.
-install(TARGETS cctv-video
+install(TARGETS cctv-dl
     RUNTIME DESTINATION bin
 )
 

@@ -76,9 +76,9 @@ target_link_libraries(cli_tests
         Qt6::Test
 )
 target_compile_definitions(cli_tests
-    PRIVATE CLI_EXECUTABLE="$<TARGET_FILE:cctv-video>"
+    PRIVATE CLI_EXECUTABLE="$<TARGET_FILE:cctv-dl>"
 )
-add_dependencies(cli_tests cctv-video)
+add_dependencies(cli_tests cctv-dl)
 if (MSVC)
     target_compile_options(core_headless_tests PRIVATE /utf-8)
     target_compile_options(cli_tests PRIVATE /utf-8)

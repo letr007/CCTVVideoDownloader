@@ -20,7 +20,7 @@
 - 单集或批量下载，多线程获取视频分片
 - 支持 H5E 视频解密、TS 合并和 MP4 封装
 - 下载进度、失败原因和批量结果集中展示
-- 提供无图形界面的命令行工具 `cctv-video`
+- 提供无图形界面的命令行工具 `cctv-dl`
 
 ## 桌面应用
 
@@ -30,27 +30,27 @@
 
 ## 命令行工具
 
-源码构建会同时生成 `cctv-video`。它适合 SSH、容器和脚本任务，不需要图形环境。
+源码构建会同时生成 `cctv-dl`。它适合 SSH、容器和脚本任务，不需要图形环境。
 
 列出节目，再按相同 URL 和序号下载：
 
 ```bash
 URL='https://tv.cctv.com/lm/xwlb/index.shtml'
 
-cctv-video list "$URL"
-cctv-video download "$URL" --select 3
+cctv-dl list "$URL"
+cctv-dl download "$URL" --select 3
 ```
 
 批量选择和下载参数：
 
 ```bash
 # 最新一期、全部、第 1/3/5 项
-cctv-video download "$URL" --select latest
-cctv-video download "$URL" --select all
-cctv-video download "$URL" --select 1,3,5
+cctv-dl download "$URL" --select latest
+cctv-dl download "$URL" --select all
+cctv-dl download "$URL" --select 1,3,5
 
 # 指定目录、线程、清晰度和输出格式
-cctv-video download "$URL" --select 3 \
+cctv-dl download "$URL" --select 3 \
   --output ./videos \
   --threads 8 \
   --quality 0 \
@@ -60,7 +60,7 @@ cctv-video download "$URL" --select 3 \
 已知视频 GUID 时可直接下载：
 
 ```bash
-cctv-video download \
+cctv-dl download \
   --guid 0123456789abcdef0123456789abcdef \
   --title '视频标题'
 ```
@@ -77,7 +77,7 @@ cctv-video download \
 完整参数见：
 
 ```bash
-cctv-video --help
+cctv-dl --help
 ```
 
 ## 下载
@@ -118,13 +118,13 @@ ctest --test-dir build --output-on-failure
 主要目标：
 
 - `CCTVVideoDownloader`：桌面应用
-- `cctv-video`：命令行工具
+- `cctv-dl`：命令行工具
 - `CCTVVideoDownloaderCore`：下载核心静态库
 
 只构建命令行工具：
 
 ```bash
-cmake --build build --target cctv-video --parallel
+cmake --build build --target cctv-dl --parallel
 ```
 
 Windows 使用 Visual Studio 生成器时，在构建和测试命令中分别添加 `--config Release` 和 `-C Release`。
