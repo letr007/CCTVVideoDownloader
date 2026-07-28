@@ -183,6 +183,11 @@ target_link_libraries(cctv-dl
 target_compile_definitions(cctv-dl
     PRIVATE CCTV_VIDEO_DOWNLOADER_BUILD_VERSION="${CCTV_VIDEO_DOWNLOADER_BUILD_VERSION}"
 )
+if (UNIX AND NOT APPLE)
+    set_target_properties(cctv-dl PROPERTIES
+        INSTALL_RPATH "$ORIGIN/../lib"
+    )
+endif()
 
 if (MSVC)
     target_compile_options(CCTVVideoDownloaderCore PRIVATE /utf-8)
@@ -199,23 +204,32 @@ if (BUILD_TESTING)
     add_subdirectory(tests)
 endif()
 
-# Native Qt deployment produces install trees for the macOS and Linux release
-# archives. Windows keeps its explicit windeployqt release staging below.
+# Native Qt deployment produces separate GUI and CLI install trees on macOS and
+# Linux. Windows keeps its explicit windeployqt release staging below.
 install(TARGETS cctv-dl
-    RUNTIME DESTINATION bin
+    RUNTIME DESTINATION bin COMPONENT cli
 )
+
+if (UNIX AND NOT APPLE)
+    qt_generate_deploy_app_script(
+        TARGET cctv-dl
+        OUTPUT_SCRIPT CCTV_DL_DEPLOY_SCRIPT
+        NO_TRANSLATIONS
+    )
+    install(SCRIPT "${CCTV_DL_DEPLOY_SCRIPT}" COMPONENT cli)
+endif()
 
 if (APPLE OR (UNIX AND NOT APPLE))
     install(TARGETS CCTVVideoDownloader
-        BUNDLE DESTINATION .
-        RUNTIME DESTINATION bin
+        BUNDLE DESTINATION . COMPONENT gui
+        RUNTIME DESTINATION bin COMPONENT gui
     )
     qt_generate_deploy_app_script(
         TARGET CCTVVideoDownloader
         OUTPUT_SCRIPT CCTVVideoDownloader_DEPLOY_SCRIPT
         NO_TRANSLATIONS
     )
-    install(SCRIPT "${CCTVVideoDownloader_DEPLOY_SCRIPT}")
+    install(SCRIPT "${CCTVVideoDownloader_DEPLOY_SCRIPT}" COMPONENT gui)
 endif()
 
 if (WIN32)
