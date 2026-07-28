@@ -91,6 +91,8 @@ public:
     QByteArray fetchPageHtml(const QUrl& url);
     QMap<int, VideoItem> fetchSingleVideoByGuid(const QString& serviceId, const QString& guid);
     QMap<int, VideoItem> fetchColumnVideoList(const QString& columnId, const QStringList& dates);
+    QMap<int, VideoItem> fetchVcctvProgrammeVideoList(const QString& mid, const QString& chid,
+        const QString& startDate, const QString& endDate);
     QMap<int, VideoItem> fetchAlbumVideoList(const QString& albumId, int mode);
     QString resolveAlbumId(const QString& itemId);
 
@@ -130,6 +132,7 @@ private:
 
     // URL构建方法
     QUrl buildVideoApiUrl(FetchType fetch_type, const QString& id, const QString& date, int page, int page_size);
+    QUrl buildVcctvProgrammeVideoListUrl(const QString& mid, const QString& chid, int page, int pageSize);
     QUrl buildAlbumVideoListUrl(const QString& album_id, int mode, int page, int page_size);
     QUrl buildTopicVideoListUrl(const QString& column_id, const QString& item_id, int type);
 

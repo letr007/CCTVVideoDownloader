@@ -12,6 +12,7 @@ enum class Kind {
     Episode,
     Album,
     Column,
+    VcctvProgramme,
     News,
     FourK
 };
@@ -23,7 +24,8 @@ enum class EncryptionMode {
 
 enum class PageProfile {
     Standard,
-    LegacySportsEpisode
+    LegacySportsEpisode,
+    VcctvProgramme
 };
 
 struct ResolvedMedia {
@@ -38,6 +40,8 @@ struct Features {
     QString columnId;
     QString guid;
     QString albumId;
+    QString mid;
+    QString chid;
     QString urlToken;
     bool hasGuid = false;
     bool hasAlbumCode = false;
@@ -89,6 +93,7 @@ enum class CatalogStrategy {
     None,
     SingleVideo,
     ColumnByMonth,
+    VcctvProgrammeByPage,
     AlbumByModes,
     ColumnThenAlbumByModes,
     ResolveAlbumThenByModes
@@ -99,6 +104,7 @@ struct Plan {
     CatalogStrategy catalogStrategy = CatalogStrategy::None;
     QString serviceId;
     QString catalogId;
+    QString chid;
     QVector<int> albumModes;
 };
 

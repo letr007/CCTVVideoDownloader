@@ -38,6 +38,7 @@
 #include <tuple>
 
 #include "config.h"
+#include "cctv_h5e_decrypt.hpp"
 #include "setting.h"
 #include "apiservice.h"
 #include "contentparse.h"
@@ -193,6 +194,12 @@ public:
         return apiService.sendNetworkRequest(url, headers);
     }
 
+    static QNetworkRequest buildNetworkRequest(APIService& apiService, const QUrl& url,
+        const QHash<QString, QString>& headers = {})
+    {
+        return apiService.buildNetworkRequest(url, headers);
+    }
+
     static QJsonObject parseJsonObject(APIService& apiService, const QByteArray& data, const QString& key = QString())
     {
         return apiService.parseJsonObject(data, key);
@@ -226,6 +233,12 @@ public:
     static QUrl buildAlbumVideoListUrl(APIService& apiService, const QString& albumId, int mode, int page, int pageSize)
     {
         return apiService.buildAlbumVideoListUrl(albumId, mode, page, pageSize);
+    }
+
+    static QUrl buildVcctvProgrammeVideoListUrl(APIService& apiService, const QString& mid,
+        const QString& chid, int page, int pageSize)
+    {
+        return apiService.buildVcctvProgrammeVideoListUrl(mid, chid, page, pageSize);
     }
 
     static QUrl buildTopicVideoListUrl(APIService& apiService, const QString& columnId, const QString& itemId, int type)
@@ -1058,6 +1071,7 @@ private slots:
     void decryptWorker_processFailed_preservesPreExistingLicense();
     void decryptWorker_success_preservesPreExistingLicense();
     void decryptWorker_success_canKeepDecryptedTs();
+    void cctvH5e_type1FlipMask_supportsCurrentNalFamilies();
     void decryptWorker_invalidCboxOutput_rejectsAndDoesNotPublish();
     void decryptWorker_crashExitWithZeroExitCode_emitsProcessFailure();
     void decryptWorker_cancelDuringProcess_emitsCancelledAndDoesNotPublish();
@@ -1166,6 +1180,9 @@ private slots:
     void contentparse_fourKNavigationTextDoesNotMisclassifyOrdinaryPage();
     void contentparse_cctv4kBodyTextDoesNotRewriteOrdinaryIdentity();
     void apiservice_getPlayColumnInfo_routesVCctvGuidPageToSingleVideo();
+    void apiservice_vcctvProgrammeRequest_allowsLegacyRenegotiationOnlyForListEndpoint();
+    void apiservice_getPlayColumnInfo_importsVCctvProgrammePagesAndFetchesPagedVideos();
+    void programmePersistence_restoresVCctvProgrammeStrategy();
     void apiservice_getPlayColumnInfo_importsLegacyGuidWithoutSemicolon();
     void contentparse_legacySportsProfileOwnsCatalogIdentity();
     void programmePersistence_reimportUpgradesLegacyRecord();
@@ -3441,6 +3458,20 @@ void CoreRegressionTests::decryptWorker_success_canKeepDecryptedTs()
     QCOMPARE(arguments.at(0).toBool(), true);
 }
 
+void CoreRegressionTests::cctvH5e_type1FlipMask_supportsCurrentNalFamilies()
+{
+    const auto mask = [](uint8_t b0, uint8_t b1, uint8_t b2) {
+        const uint8_t header[3]{b0, b1, b2};
+        return cctv_h5e::type1_flip_mask_from_header(header);
+    };
+
+    QCOMPARE(mask(0x01, 0x9E, 0x45), uint16_t(0x7EA6));
+    QCOMPARE(mask(0x01, 0x9F, 0x15), uint16_t(0xFEAC));
+    QCOMPARE(mask(0x41, 0x9A, 0x28), uint16_t(0x5E10));
+    QCOMPARE(mask(0x41, 0x9B, 0x78), uint16_t(0xDE1A));
+    QCOMPARE(mask(0x01, 0xA8, 0x00), uint16_t(0x1204));
+}
+
 void CoreRegressionTests::decryptWorker_invalidCboxOutput_rejectsAndDoesNotPublish()
 {
     DecryptWorker worker;
@@ -4207,6 +4238,168 @@ var guid = '%3';
     QCOMPARE(videos.value(0).guid, guid);
     QCOMPARE(videos.value(0).title, QStringLiteral("【央视全程报道】60秒直击重庆彭水山体崩塌紧急救援现场"));
     QCOMPARE(manager.requestCount(), 2);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::apiservice_vcctvProgrammeRequest_allowsLegacyRenegotiationOnlyForListEndpoint()
+{
+    APIService& apiService = APIService::instance();
+    const QUrl listUrl(QStringLiteral("https://media.app.cctv.com:443/vapi/video/vplist.do?mid=24iQzAZ30426&chid=EPGC1525679284945000&p=1&n=100"));
+    const QNetworkRequest listRequest = APIServiceTestAdapter::buildNetworkRequest(apiService, listUrl);
+    QVERIFY(!listRequest.sslConfiguration().testSslOption(QSsl::SslOptionDisableLegacyRenegotiation));
+
+    const QUrl nonStandardPort(QStringLiteral("https://media.app.cctv.com:8443/vapi/video/vplist.do"));
+    const QNetworkRequest nonStandardPortRequest = APIServiceTestAdapter::buildNetworkRequest(apiService, nonStandardPort);
+    QVERIFY(nonStandardPortRequest.sslConfiguration().testSslOption(QSsl::SslOptionDisableLegacyRenegotiation));
+
+    const QUrl httpUrl(QStringLiteral("http://media.app.cctv.com/vapi/video/vplist.do"));
+    const QNetworkRequest httpRequest = APIServiceTestAdapter::buildNetworkRequest(apiService, httpUrl);
+    QVERIFY(httpRequest.sslConfiguration().testSslOption(QSsl::SslOptionDisableLegacyRenegotiation));
+
+    const QUrl otherPath(QStringLiteral("https://media.app.cctv.com/vapi/video/other.do"));
+    const QNetworkRequest otherPathRequest = APIServiceTestAdapter::buildNetworkRequest(apiService, otherPath);
+    QVERIFY(otherPathRequest.sslConfiguration().testSslOption(QSsl::SslOptionDisableLegacyRenegotiation));
+
+    const QUrl otherHost(QStringLiteral("https://api.cntv.cn/vapi/video/vplist.do"));
+    const QNetworkRequest otherHostRequest = APIServiceTestAdapter::buildNetworkRequest(apiService, otherHost);
+    QVERIFY(otherHostRequest.sslConfiguration().testSslOption(QSsl::SslOptionDisableLegacyRenegotiation));
+}
+
+void CoreRegressionTests::apiservice_getPlayColumnInfo_importsVCctvProgrammePagesAndFetchesPagedVideos()
+{
+    APIService& apiService = APIService::instance();
+    const QString mid = QStringLiteral("24iQzAZ30426");
+    const QString chid = QStringLiteral("EPGC123456789");
+    const QUrl url(QStringLiteral("https://v.cctv.com/programme/whgc.shtml"));
+    struct PageFixture {
+        QString title;
+        QString script;
+        QString expectedMid;
+    };
+    const QList<PageFixture> pages{
+        {QStringLiteral("望海观潮"), QStringLiteral("var lm_midELMTEWgTnrmXoXYcfVbSTs3F240426 = '24iQzAZ30426\t'; var pd_idELMTEWgTnrmXoXYcfVbSTs3F240426 = 'EPGC1525679284945000'; var api = 'vapi/video/vplist.do?chid='+pd_idELMTEWgTnrmXoXYcfVbSTs3F240426+'&mid='+lm_midELMTEWgTnrmXoXYcfVbSTs3F240426+'&p=1';"), QStringLiteral("24iQzAZ30426")},
+        {QStringLiteral("习式妙语"), QStringLiteral("var xsmy_midELMTyUa4wUOgDBLmn3pPRini190903 = '18AvMrU30926'; var api = 'vapi/video/vplist.do?chid=EPGC1525679284945000&mid='+xsmy_midELMTyUa4wUOgDBLmn3pPRini190903+'&p=1';"), QStringLiteral("18AvMrU30926")},
+        {QStringLiteral("谁是王牌"), QStringLiteral("var lm_midELMTUqfvPZEjknu9fC6zg7Oc190908 = '18BVjmIr0926'; var pd_idELMTUqfvPZEjknu9fC6zg7Oc190908 = 'EPGC1525679284945000'; var api = 'vapi/video/vplist.do?chid='+pd_idELMTUqfvPZEjknu9fC6zg7Oc190908+'&mid='+lm_midELMTUqfvPZEjknu9fC6zg7Oc190908+'&p=1';"), QStringLiteral("18BVjmIr0926")}
+    };
+
+    for (const PageFixture& page : pages) {
+        const ContentParse::Features features = ContentParse::parsePage(
+            QStringLiteral("<meta property='og:title' content='%1'><script>%2</script>").arg(page.title, page.script),
+            url.toString());
+        QCOMPARE(features.title, page.title);
+        QCOMPARE(features.kind, ContentParse::Kind::VcctvProgramme);
+        QCOMPARE(features.mid, page.expectedMid);
+        QCOMPARE(features.chid, QStringLiteral("EPGC1525679284945000"));
+        QCOMPARE(features.itemId, features.mid);
+        QCOMPARE(features.columnId, features.chid);
+        const ContentParse::Plan plan = ContentParse::makePlan(features);
+        QCOMPARE(plan.catalogStrategy, ContentParse::CatalogStrategy::VcctvProgrammeByPage);
+        QCOMPARE(plan.catalogId, features.mid);
+        QCOMPARE(plan.chid, features.chid);
+    }
+
+    const QUrl pageOne = APIServiceTestAdapter::buildVcctvProgrammeVideoListUrl(apiService, mid, chid, 1, 100);
+    const QUrl pageTwo = APIServiceTestAdapter::buildVcctvProgrammeVideoListUrl(apiService, mid, chid, 2, 100);
+    const QUrl pageThree = APIServiceTestAdapter::buildVcctvProgrammeVideoListUrl(apiService, mid, chid, 3, 100);
+    QCOMPARE(pageOne.host(), QStringLiteral("media.app.cctv.com"));
+    QCOMPARE(pageOne.path(), QStringLiteral("/vapi/video/vplist.do"));
+    const QUrlQuery pageOneQuery(pageOne);
+    QCOMPARE(pageOneQuery.queryItemValue(QStringLiteral("mid")), mid);
+    QCOMPARE(pageOneQuery.queryItemValue(QStringLiteral("chid")), chid);
+    QCOMPARE(pageOneQuery.queryItemValue(QStringLiteral("p")), QStringLiteral("1"));
+    QCOMPARE(pageOneQuery.queryItemValue(QStringLiteral("n")), QStringLiteral("100"));
+    QVERIFY(pageOneQuery.queryItemValue(QStringLiteral("cb")).isEmpty());
+
+    QJsonArray firstPageItems;
+    for (int i = 0; i < 20; ++i) {
+        firstPageItems.append(QJsonObject{
+            {QStringLiteral("guid"), QStringLiteral("guid-%1").arg(i)},
+            {QStringLiteral("title"), QStringLiteral("视频%1").arg(i)},
+            {QStringLiteral("vbrief"), QStringLiteral("简介%1").arg(i)},
+            {QStringLiteral("image1"), QStringLiteral("%1.jpg").arg(i)},
+            {QStringLiteral("pubTime"), qint64(1784980800000LL)},
+            {QStringLiteral("vduration"), QStringLiteral("01:02:03")},
+            {QStringLiteral("mediaName"), QStringLiteral("栏目名")}
+        });
+    }
+    const QByteArray firstPage = QJsonDocument(QJsonObject{
+        {QStringLiteral("count"), QStringLiteral("41")}, {QStringLiteral("data"), firstPageItems}
+    }).toJson(QJsonDocument::Compact);
+    QJsonArray secondPageItems;
+    for (int i = 0; i < 20; ++i) {
+        secondPageItems.append(QJsonObject{
+            {QStringLiteral("guid"), QStringLiteral("old-guid-%1").arg(i)},
+            {QStringLiteral("title"), QStringLiteral("旧视频%1").arg(i)},
+            {QStringLiteral("pubTime"), qint64(1777564800000LL)},
+            {QStringLiteral("vduration"), 99},
+            {QStringLiteral("mediaName"), QStringLiteral("栏目名")}
+        });
+    }
+    const QByteArray secondPage = QJsonDocument(QJsonObject{
+        {QStringLiteral("count"), 41}, {QStringLiteral("data"), secondPageItems}
+    }).toJson(QJsonDocument::Compact);
+    const QByteArray thirdPage = QByteArray(R"({"count":41,"data":[{"guid":"june-guid","title":"六月乱序视频","vbrief":"应导入","image1":"june.jpg","pubTime":1780243200000,"vduration":99,"mediaName":"栏目名"}]})");
+
+    FakeNetworkAccessManager manager;
+    manager.queueSuccess(url, QStringLiteral("<meta property='og:title' content='望海观潮'><script>var lm_midELMTEWgTnrmXoXYcfVbSTs3F240426 = '24iQzAZ30426\t'; var pd_idELMTEWgTnrmXoXYcfVbSTs3F240426 = 'EPGC123456789'; var api = 'vapi/video/vplist.do?chid='+pd_idELMTEWgTnrmXoXYcfVbSTs3F240426+'&mid='+lm_midELMTEWgTnrmXoXYcfVbSTs3F240426+'&p=1';</script>").toUtf8());
+    manager.queueSuccess(pageOne, firstPage);
+    manager.queueSuccess(pageTwo, secondPage);
+    manager.queueSuccess(pageThree, thirdPage);
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const auto imported = apiService.getPlayColumnInfo(url.toString());
+    QVERIFY(!imported.isNull());
+    QCOMPARE(imported->rawItemId, mid);
+    QCOMPARE(imported->rawColumnId, chid);
+    QCOMPARE(imported->catalogId, mid);
+    const QMap<int, VideoItem> videos = apiService.getVideoList(*imported,
+        QStringLiteral("202607"), QStringLiteral("202606"));
+    QCOMPARE(videos.size(), 21);
+    const VideoItem video = videos.value(0);
+    QCOMPARE(video.guid, QStringLiteral("guid-0"));
+    QCOMPARE(video.title, QStringLiteral("视频0"));
+    QCOMPARE(video.brief, QStringLiteral("简介0"));
+    QCOMPARE(video.image, QStringLiteral("0.jpg"));
+    QCOMPARE(video.time, QStringLiteral("2026-07-25 20:00:00"));
+    QCOMPARE(video.length, qint64(3723));
+    QCOMPARE(video.channel, QStringLiteral("栏目名"));
+    QCOMPARE(videos.value(20).guid, QStringLiteral("june-guid"));
+    QCOMPARE(manager.requestCount(), 4);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::programmePersistence_restoresVCctvProgrammeStrategy()
+{
+    initializeSettingsSandbox();
+    ContentParse::ImportResult result;
+    result.title = QStringLiteral("望海观潮");
+    result.rawItemId = QStringLiteral("24iQzAZ30426");
+    result.rawColumnId = QStringLiteral("EPGC123456789");
+    result.catalogId = result.rawItemId;
+    result.profile = ContentParse::PageProfile::VcctvProgramme;
+
+    const ProgrammePersistResult persisted = persistProgrammeImport(result);
+    QCOMPARE(persisted.outcome, ProgrammePersistOutcome::Inserted);
+    const QList<ContentParse::ProgrammeRecord> records = readProgrammeFromConfig();
+    QCOMPARE(records.size(), 1);
+    QCOMPARE(records.first().profile, ContentParse::PageProfile::VcctvProgramme);
+    const ContentParse::Plan plan = ContentParse::makePlan(records.first());
+    QCOMPARE(plan.catalogStrategy, ContentParse::CatalogStrategy::VcctvProgrammeByPage);
+    QCOMPARE(plan.catalogId, result.rawItemId);
+    QCOMPARE(plan.chid, result.rawColumnId);
+
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl listUrl = APIServiceTestAdapter::buildVcctvProgrammeVideoListUrl(
+        apiService, result.rawItemId, result.rawColumnId, 1, 100);
+    manager.queueSuccess(listUrl, QByteArray(R"({"count":1,"data":[{"guid":"persisted-guid","title":"持久化视频","pubTime":1784705060842,"vduration":187,"mediaName":"望海观潮"}]})"));
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+    const QMap<int, VideoItem> videos = apiService.getVideoList(records.first(),
+        QStringLiteral("202607"), QStringLiteral("202607"));
+    QCOMPARE(videos.size(), 1);
+    QCOMPARE(videos.first().guid, QStringLiteral("persisted-guid"));
     QCOMPARE(manager.unexpectedRequestCount(), 0);
     APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
 }

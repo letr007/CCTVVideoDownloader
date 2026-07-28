@@ -26,6 +26,43 @@ QString extractOgTitle(const QString& html)
     return m.hasMatch() ? m.captured(1).trimmed() : QString();
 }
 
+QString normalizeVcctvId(QString value)
+{
+    value = value.trimmed();
+    if (value.endsWith(QStringLiteral("\\t"))) {
+        value.chop(2);
+    }
+    return value.trimmed();
+}
+
+QString extractVcctvQueryValue(const QString& html, const QString& parameter)
+{
+    int offset = html.indexOf(QStringLiteral("vplist.do?"), 0, Qt::CaseInsensitive);
+    while (offset >= 0) {
+        const QString requestSource = html.mid(offset, 1000);
+        const QString escapedParameter = QRegularExpression::escape(parameter);
+        const QString variable = matchOne(requestSource,
+            QStringLiteral(R"(\b%1\s*=\s*["']?\s*\+\s*([A-Za-z_$][A-Za-z0-9_$]*))")
+                .arg(escapedParameter));
+        if (!variable.isEmpty()) {
+            const QString value = matchOne(html,
+                QStringLiteral(R"(\b%1\s*=\s*["']([^"']+)["'])")
+                    .arg(QRegularExpression::escape(variable)));
+            if (!value.isEmpty()) {
+                return normalizeVcctvId(value);
+            }
+        }
+
+        const QString literal = matchOne(requestSource,
+            QStringLiteral(R"(\b%1\s*=\s*([A-Za-z0-9_-]+))").arg(escapedParameter));
+        if (!literal.isEmpty()) {
+            return normalizeVcctvId(literal);
+        }
+        offset = html.indexOf(QStringLiteral("vplist.do?"), offset + 1, Qt::CaseInsensitive);
+    }
+    return {};
+}
+
 void finalize(Features& features)
 {
     features.hasGuid = isHexGuid(features.guid);
@@ -49,6 +86,8 @@ QString pageProfileName(PageProfile profile)
     switch (profile) {
     case PageProfile::LegacySportsEpisode:
         return QStringLiteral("LegacySportsEpisode");
+    case PageProfile::VcctvProgramme:
+        return QStringLiteral("VcctvProgramme");
     case PageProfile::Standard:
         return QStringLiteral("Standard");
     }
@@ -57,8 +96,13 @@ QString pageProfileName(PageProfile profile)
 
 PageProfile pageProfileFromName(const QString& value)
 {
-    return value.compare(QStringLiteral("LegacySportsEpisode"), Qt::CaseInsensitive) == 0
-        ? PageProfile::LegacySportsEpisode : PageProfile::Standard;
+    if (value.compare(QStringLiteral("LegacySportsEpisode"), Qt::CaseInsensitive) == 0) {
+        return PageProfile::LegacySportsEpisode;
+    }
+    if (value.compare(QStringLiteral("VcctvProgramme"), Qt::CaseInsensitive) == 0) {
+        return PageProfile::VcctvProgramme;
+    }
+    return PageProfile::Standard;
 }
 
 Kind classify(const Features& features)
@@ -71,6 +115,9 @@ Kind classify(const Features& features)
     }
     if (vide) {
         return Kind::Episode;
+    }
+    if (features.profile == PageProfile::VcctvProgramme) {
+        return Kind::VcctvProgramme;
     }
     if (isTopc(features.columnId) || isTopc(features.itemId)) {
         return Kind::Column;
@@ -87,6 +134,7 @@ Kind classify(const Features& features)
 Features parsePage(const QString& html, const QString& url)
 {
     Features features;
+    const QUrl pageUrl(url);
     features.urlToken = extractUrlToken(url);
     features.title = matchOne(html, QStringLiteral(R"(var commentTitle\s*=\s*["'](.*?)["'];)")).split(QLatin1Char(' ')).value(0);
     if (features.title.isEmpty()) {
@@ -96,6 +144,10 @@ Features parsePage(const QString& html, const QString& url)
     features.columnId = matchOne(html, QStringLiteral(R"(var column_id\s*=\s*["'](.*?)["'];)"));
     features.guid = matchOne(html, QStringLiteral(R"(\bvar\s+guid\s*=\s*["']([0-9a-fA-F]{32})["']\s*;?)"));
     features.albumId = matchOne(html, QStringLiteral(R"(var videotvCodes\s*=\s*["'](.*?)["'];)"));
+    if (pageUrl.host().compare(QStringLiteral("v.cctv.com"), Qt::CaseInsensitive) == 0) {
+        features.mid = extractVcctvQueryValue(html, QStringLiteral("mid"));
+        features.chid = extractVcctvQueryValue(html, QStringLiteral("chid"));
+    }
     features.hasJsonEpisodeList = html.contains(QStringLiteral("var jsonData2="))
         || html.contains(QStringLiteral("var jsonData2 ="));
 
@@ -111,6 +163,11 @@ Features parsePage(const QString& html, const QString& url)
 
     if (features.itemId.isEmpty() && !features.urlToken.isEmpty()) {
         features.itemId = features.urlToken;
+    }
+    if (!features.mid.isEmpty() && !features.chid.isEmpty()) {
+        features.itemId = features.mid;
+        features.columnId = features.chid;
+        features.profile = PageProfile::VcctvProgramme;
     }
 
     if (features.title.isEmpty() || features.itemId.isEmpty() || features.columnId.isEmpty()) {
@@ -129,7 +186,6 @@ Features parsePage(const QString& html, const QString& url)
         }
     }
 
-    const QUrl pageUrl(url);
     const QRegularExpression fourKTitleRegex(
         QStringLiteral(R"(<title\b[^>]*>[^<]*4K专区[^<]*</title>)"),
         QRegularExpression::CaseInsensitiveOption);
@@ -143,7 +199,8 @@ Features parsePage(const QString& html, const QString& url)
         features.title = features.title.isEmpty() ? QStringLiteral("CCTV-4K") : features.title;
         features.itemId = features.guid;
         features.columnId = features.guid;
-    } else if (pageUrl.host().compare(QStringLiteral("v.cctv.cn"), Qt::CaseInsensitive) == 0
+    } else if (features.profile != PageProfile::VcctvProgramme
+        && pageUrl.host().compare(QStringLiteral("v.cctv.cn"), Qt::CaseInsensitive) == 0
         && isHexGuid(features.guid)) {
         features.columnId = features.guid;
     }
@@ -257,6 +314,11 @@ Plan makePlan(const Features& features)
         plan.catalogStrategy = CatalogStrategy::ColumnByMonth;
         plan.catalogId = features.columnId;
         break;
+    case Kind::VcctvProgramme:
+        plan.catalogStrategy = CatalogStrategy::VcctvProgrammeByPage;
+        plan.catalogId = features.mid;
+        plan.chid = features.chid;
+        break;
     case Kind::News:
         plan.catalogStrategy = CatalogStrategy::SingleVideo;
         plan.serviceId = QStringLiteral("tvcctv");
@@ -277,6 +339,10 @@ Plan makePlan(const ProgrammeRecord& record)
 {
     Features features = fromStoredIds(record.columnId, record.itemId);
     features.title = record.title;
+    if (record.profile == PageProfile::VcctvProgramme) {
+        features.mid = record.itemId;
+        features.chid = record.columnId;
+    }
     features.profile = record.profile;
     if (record.profile == PageProfile::LegacySportsEpisode) {
         features.guid = record.catalogId;

@@ -209,6 +209,23 @@ inline uint16_t type1_flip_mask_from_header(const uint8_t hdr[3]) {
         if ((b2 >> 2) & 1) setb(15);
         return m;
     }
+    // Slice-header family: nal_type=1 and b1 high nibble 0x9
+    // (41 9a/9b, 01 9e/9f, … — vertical / mobile h5e).
+    if ((b0 & 0x1f) == 1 && (b1 & 0xf0) == 0x90) {
+        if ((b2 >> 7) & 1) setb(0);
+        if ((b2 >> 6) & 1) setb(1);
+        if (((b0 >> 0) & 1) ^ ((b2 >> 5) & 1)) setb(2);
+        if ((b2 >> 4) & 1) setb(3);
+        if ((b2 >> 3) & 1) setb(4);
+        if ((b2 >> 2) & 1) setb(5);
+        if (((b0 >> 0) & 1) ^ ((b0 >> 6) & 1)) setb(7);
+        if ((b0 >> 0) & 1) {
+            setb(9); setb(10); setb(11); setb(12); setb(14);
+        }
+        if (((b0 >> 0) & 1) ^ ((b0 >> 6) & 1)) setb(13);
+        if ((b1 >> 0) & 1) setb(15);
+        return m;
+    }
     // Unknown family: no flips (same as 61e020 core only).
     return 0;
 }
@@ -316,6 +333,8 @@ struct Session {
     bool new_mode = false;
     size_t type1_start = 64;
     size_t type1_guard = 17;
+    // Worker leaves type1 NALs shorter than this untouched (no grid, no EPB drop).
+    size_t type1_min_len = 126;
 
     uint32_t resolve_type5_stride(const uint8_t* nal, size_t len) const {
         return type5_stride_from_nal(nal, len);
@@ -343,6 +362,7 @@ struct Session {
             return;
         }
         if (ntype == 1) {
+            if (len < type1_min_len) return;
             uint32_t S = resolve_type1_stride(nal, len);
             *io_len = decrypt_type1_new(nal, len, S, type1_start, type1_guard);
         }

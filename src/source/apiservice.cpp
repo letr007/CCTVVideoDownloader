@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <QDate>
 #include <QDateTime>
+#include <QTimeZone>
 #include <QStringList>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -27,6 +28,33 @@ QPointer<APIService> APIService::m_instance = nullptr;
 QMutex APIService::m_instanceMutex;
 
 namespace {
+
+QString formatPublishedTime(const QJsonValue& value)
+{
+    if (value.isDouble()) {
+        return QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(value.toDouble()), QTimeZone("Asia/Shanghai"))
+            .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    }
+
+    const QString text = value.toString().trimmed();
+    bool millisecondsOk = false;
+    const qint64 milliseconds = text.toLongLong(&millisecondsOk);
+    if (millisecondsOk) {
+        return QDateTime::fromMSecsSinceEpoch(milliseconds, QTimeZone("Asia/Shanghai"))
+            .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    }
+    return text;
+}
+
+QDate parsePublishedDate(const QJsonValue& value)
+{
+    const QString dateText = formatPublishedTime(value);
+    QDate date = QDate::fromString(dateText.left(10), QStringLiteral("yyyy-MM-dd"));
+    if (date.isValid()) {
+        return date;
+    }
+    return QDate::fromString(dateText.left(8), QStringLiteral("yyyyMMdd"));
+}
 
 qint64 parseDurationSeconds(const QJsonValue& value)
 {
@@ -96,6 +124,12 @@ QNetworkRequest APIService::buildNetworkRequest(const QUrl& url, const QHash<QSt
 
     QSslConfiguration sslConfig = request.sslConfiguration();
     sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+    if (url.scheme() == QStringLiteral("https")
+        && url.host() == QStringLiteral("media.app.cctv.com")
+        && url.port(443) == 443
+        && url.path() == QStringLiteral("/vapi/video/vplist.do")) {
+        sslConfig.setSslOption(QSsl::SslOptionDisableLegacyRenegotiation, false);
+    }
     request.setSslConfiguration(sslConfig);
     request.setHeader(QNetworkRequest::UserAgentHeader, "Lavf/60.10.100");
 
@@ -212,6 +246,87 @@ QMap<int, VideoItem> APIService::fetchSingleVideoByGuid(const QString& serviceId
 QMap<int, VideoItem> APIService::fetchColumnVideoList(const QString& columnId, const QStringList& dates)
 {
     return fetchVideoData(columnId, dates, FetchType::Column);
+}
+
+QMap<int, VideoItem> APIService::fetchVcctvProgrammeVideoList(const QString& mid, const QString& chid,
+    const QString& startDate, const QString& endDate)
+{
+    QMap<int, VideoItem> result;
+    if (mid.isEmpty() || chid.isEmpty()) {
+        return result;
+    }
+
+    const QDate startMonth = QDate::fromString(startDate + QStringLiteral("01"), QStringLiteral("yyyyMMdd"));
+    const QDate endMonth = QDate::fromString(endDate + QStringLiteral("01"), QStringLiteral("yyyyMMdd"));
+    if (!startMonth.isValid() || !endMonth.isValid()) {
+        return result;
+    }
+    const QDate latestMonth = qMax(startMonth, endMonth);
+    const QDate earliestMonth = qMin(startMonth, endMonth);
+
+    constexpr int requestedPageSize = 100;
+    int resultIndex = 0;
+    int page = 1;
+    int totalPages = 1;
+    do {
+        const QByteArray responseData = sendNetworkRequest(
+            buildVcctvProgrammeVideoListUrl(mid, chid, page, requestedPageSize));
+        if (responseData.isEmpty()) {
+            break;
+        }
+
+        const QJsonObject root = parseJsonObject(responseData);
+        const QJsonArray items = root.value(QStringLiteral("data")).toArray();
+        if (items.isEmpty()) {
+            break;
+        }
+        if (page == 1) {
+            const QJsonValue countValue = root.value(QStringLiteral("count"));
+            bool countOk = countValue.isDouble();
+            int total = countValue.isDouble() ? countValue.toInt() : countValue.toString().toInt(&countOk);
+            if (!countOk || total <= 0) {
+                total = items.size();
+            }
+            const int actualPageSize = items.size();
+            totalPages = std::max(1, (total + actualPageSize - 1) / actualPageSize);
+        }
+
+        for (const QJsonValue& value : items) {
+            const QJsonObject item = value.toObject();
+            const QJsonValue pubTimeValue = item.value(QStringLiteral("pubTime"));
+            const QString pubTime = formatPublishedTime(pubTimeValue);
+            const QDate published = parsePublishedDate(pubTimeValue);
+            const QDate month(published.year(), published.month(), 1);
+            if (!month.isValid()) {
+                continue;
+            }
+            if (month < earliestMonth) {
+                continue;
+            }
+            if (month > latestMonth) {
+                continue;
+            }
+
+            const QString guid = item.value(QStringLiteral("guid")).toString();
+            const QString title = item.value(QStringLiteral("title")).toString();
+            if (guid.isEmpty() || title.isEmpty()) {
+                continue;
+            }
+
+            VideoItem videoItem;
+            videoItem.guid = guid;
+            videoItem.title = title;
+            videoItem.brief = item.value(QStringLiteral("vbrief")).toString();
+            videoItem.image = item.value(QStringLiteral("image1")).toString();
+            videoItem.time = pubTime;
+            videoItem.length = parseDurationSeconds(item.value(QStringLiteral("vduration")));
+            videoItem.channel = item.value(QStringLiteral("mediaName")).toString();
+            result.insert(resultIndex++, videoItem);
+        }
+        QCoreApplication::processEvents();
+        ++page;
+    } while (page <= totalPages);
+    return result;
 }
 
 QMap<int, VideoItem> APIService::fetchAlbumVideoList(const QString& albumId, int mode)
@@ -472,6 +587,19 @@ QUrl APIService::buildVideoApiUrl(FetchType fetch_type, const QString& id, const
     url.setQuery(query);
     qInfo() << "构建的API URL:" << url.toString();
     
+    return url;
+}
+
+QUrl APIService::buildVcctvProgrammeVideoListUrl(const QString& mid, const QString& chid,
+    int page, int pageSize)
+{
+    QUrl url(QStringLiteral("https://media.app.cctv.com/vapi/video/vplist.do"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("mid"), mid);
+    query.addQueryItem(QStringLiteral("chid"), chid);
+    query.addQueryItem(QStringLiteral("p"), QString::number(page));
+    query.addQueryItem(QStringLiteral("n"), QString::number(pageSize));
+    url.setQuery(query);
     return url;
 }
 

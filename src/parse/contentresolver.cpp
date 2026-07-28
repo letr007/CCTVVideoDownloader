@@ -93,6 +93,8 @@ QMap<int, VideoItem> ContentResolver::resolveVideoList(const ProgrammeRecord& re
         return m_apiService.fetchSingleVideoByGuid(plan.serviceId, plan.catalogId);
     case CatalogStrategy::ColumnByMonth:
         return m_apiService.fetchColumnVideoList(plan.catalogId, dates);
+    case CatalogStrategy::VcctvProgrammeByPage:
+        return m_apiService.fetchVcctvProgrammeVideoList(plan.catalogId, plan.chid, startDate, endDate);
     case CatalogStrategy::AlbumByModes:
         return fetchAlbumByModes(m_apiService, plan.catalogId, plan.albumModes);
     case CatalogStrategy::ColumnThenAlbumByModes: {
