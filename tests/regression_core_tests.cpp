@@ -1162,6 +1162,10 @@ private slots:
     void contentResolver_cancelledReplyDoesNotFallbackOrConsumeReplacement();
     void contentResolver_cancelResolveMedia_emitsCancelled();
     void apiservice_getPlayColumnInfo_usesGuidFallbackForCctv4k();
+    void apiservice_getPlayColumnInfo_importsFourKZonePageByGuid();
+    void contentparse_fourKNavigationTextDoesNotMisclassifyOrdinaryPage();
+    void contentparse_cctv4kBodyTextDoesNotRewriteOrdinaryIdentity();
+    void apiservice_getPlayColumnInfo_routesVCctvGuidPageToSingleVideo();
     void apiservice_getPlayColumnInfo_importsLegacyGuidWithoutSemicolon();
     void contentparse_legacySportsProfileOwnsCatalogIdentity();
     void programmePersistence_reimportUpgradesLegacyRecord();
@@ -4086,6 +4090,125 @@ var guid = '4a0c129380f14290a4d630d69de73ba1';
     QCOMPARE(result->catalogId, QString("4a0c129380f14290a4d630d69de73ba1"));
     QCOMPARE(manager.requestCount(), 1);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::apiservice_getPlayColumnInfo_importsFourKZonePageByGuid()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl url(QStringLiteral("https://tv.cctv.cn/2026/02/26/VIDEOMEaXWYElaqyY5SPe0vS260226.shtml"));
+    const QString guid = QStringLiteral("04cbff564af04a6789ae77eda082dca7");
+    const QString itemId = QStringLiteral("VIDEOMEaXWYElaqyY5SPe0vS260226");
+    manager.queueSuccess(url, QStringLiteral(R"(
+<html><head>
+<title>《记住乡愁——门楣之上》 让一步 天地宽_4K专区_央视网(cctv.com)</title>
+<meta property='og:title' content='《记住乡愁——门楣之上》 让一步 天地宽'>
+<script>
+var itemid1 = '%1';
+var guid = '%2';
+</script></head><body></body></html>
+)").arg(itemId, guid).toUtf8());
+    QUrl videoInfoUrl(QStringLiteral("https://zy.api.cntv.cn/video/videoinfoByGuid"));
+    QUrlQuery videoInfoQuery;
+    videoInfoQuery.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("cctv4k"));
+    videoInfoQuery.addQueryItem(QStringLiteral("guid"), guid);
+    videoInfoUrl.setQuery(videoInfoQuery);
+    manager.queueSuccess(videoInfoUrl, QByteArray(R"({"vid":"04cbff564af04a6789ae77eda082dca7","title":"《记住乡愁——门楣之上》 让一步 天地宽"})"));
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const auto result = apiService.getPlayColumnInfo(url.toString());
+    QVERIFY(!result.isNull());
+    QCOMPARE(result->title, QStringLiteral("《记住乡愁——门楣之上》 让一步 天地宽"));
+    QCOMPARE(result->rawItemId, guid);
+    QCOMPARE(result->rawColumnId, guid);
+    QCOMPARE(result->catalogId, guid);
+    QCOMPARE(ContentParse::makePlan(*result).catalogStrategy, ContentParse::CatalogStrategy::SingleVideo);
+    QCOMPARE(ContentParse::makePlan(*result).serviceId, QStringLiteral("cctv4k"));
+    const auto videos = apiService.getVideoList(*result, QStringLiteral("202602"), QStringLiteral("202602"));
+    QCOMPARE(videos.size(), 1);
+    QCOMPARE(videos.value(0).guid, guid);
+    QCOMPARE(manager.requestCount(), 2);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::contentparse_fourKNavigationTextDoesNotMisclassifyOrdinaryPage()
+{
+    const QString guid = QStringLiteral("6ef3fbbea4924a0a87a8cb12b76cc109");
+    const ContentParse::Features features = ContentParse::parsePage(QStringLiteral(R"(
+<html><head>
+<meta property='og:title' content='Ordinary Episode'>
+<script>var itemid1='VIDEOrdinaryExample'; var guid='%1';</script>
+</head><body><a href='/4K/index.shtml'>4K专区</a></body></html>
+)").arg(guid), QStringLiteral("https://tv.cctv.cn/2026/07/28/VIDEOrdinaryExample.shtml"));
+
+    QVERIFY(!features.isFourK);
+    QCOMPARE(features.kind, ContentParse::Kind::Episode);
+    QCOMPARE(features.itemId, QStringLiteral("VIDEOrdinaryExample"));
+    QCOMPARE(features.columnId, guid);
+    const ContentParse::Plan plan = ContentParse::makePlan(features);
+    QCOMPARE(plan.serviceId, QStringLiteral("tvcctv"));
+    QCOMPARE(plan.catalogId, guid);
+}
+
+void CoreRegressionTests::contentparse_cctv4kBodyTextDoesNotRewriteOrdinaryIdentity()
+{
+    const QString guid = QStringLiteral("5ef3fbbea4924a0a87a8cb12b76cc109");
+    const ContentParse::Features features = ContentParse::parsePage(QStringLiteral(R"(
+<html><head>
+<meta property='og:title' content='Ordinary Episode'>
+<script>var itemid1='VIDEOrdinaryCctv4kText'; var guid='%1';</script>
+</head><body><span>CCTV-4K</span></body></html>
+)").arg(guid), QStringLiteral("https://tv.cctv.cn/2026/07/28/VIDEOrdinaryCctv4kText.shtml"));
+
+    QVERIFY(features.isFourK);
+    QCOMPARE(features.kind, ContentParse::Kind::Episode);
+    QCOMPARE(features.itemId, QStringLiteral("VIDEOrdinaryCctv4kText"));
+    QCOMPARE(features.columnId, guid);
+    const ContentParse::Plan plan = ContentParse::makePlan(features);
+    QCOMPARE(plan.serviceId, QStringLiteral("tvcctv"));
+    QCOMPARE(plan.catalogId, guid);
+}
+
+void CoreRegressionTests::apiservice_getPlayColumnInfo_routesVCctvGuidPageToSingleVideo()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl url(QStringLiteral("https://v.cctv.cn/2026/07/18/VIDEvSapW0ENsGAGPErIYKui260718.shtml"));
+    const QString guid = QStringLiteral("82f9d4347bf34247bed770802a7c8d09");
+    const QString itemId = QStringLiteral("VIDEvSapW0ENsGAGPErIYKui260718");
+    const QString topc = QStringLiteral("TOPC1565938154916720");
+    manager.queueSuccess(url, QStringLiteral(R"(
+<script>
+var commentTitle = '【央视全程报道】60秒直击重庆彭水山体崩塌紧急救援现场';
+var itemid1 = '%1';
+var column_id = '%2';
+var guid = '%3';
+</script>
+)").arg(itemId, topc, guid).toUtf8());
+    QUrl videoInfoUrl(QStringLiteral("https://zy.api.cntv.cn/video/videoinfoByGuid"));
+    QUrlQuery videoInfoQuery;
+    videoInfoQuery.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("tvcctv"));
+    videoInfoQuery.addQueryItem(QStringLiteral("guid"), guid);
+    videoInfoUrl.setQuery(videoInfoQuery);
+    manager.queueSuccess(videoInfoUrl, QByteArray(R"({"vid":"82f9d4347bf34247bed770802a7c8d09","title":"【央视全程报道】60秒直击重庆彭水山体崩塌紧急救援现场"})"));
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const auto result = apiService.getPlayColumnInfo(url.toString());
+    QVERIFY(!result.isNull());
+    QCOMPARE(result->title, QStringLiteral("【央视全程报道】60秒直击重庆彭水山体崩塌紧急救援现场"));
+    QCOMPARE(result->rawItemId, itemId);
+    QCOMPARE(result->rawColumnId, guid);
+    QCOMPARE(result->catalogId, guid);
+    QCOMPARE(ContentParse::makePlan(*result).catalogStrategy, ContentParse::CatalogStrategy::SingleVideo);
+    QCOMPARE(ContentParse::makePlan(*result).serviceId, QStringLiteral("tvcctv"));
+    const auto videos = apiService.getVideoList(*result, QStringLiteral("202607"), QStringLiteral("202607"));
+    QCOMPARE(videos.size(), 1);
+    QCOMPARE(videos.value(0).guid, guid);
+    QCOMPARE(videos.value(0).title, QStringLiteral("【央视全程报道】60秒直击重庆彭水山体崩塌紧急救援现场"));
+    QCOMPARE(manager.requestCount(), 2);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
 }
 
 void CoreRegressionTests::apiservice_getPlayColumnInfo_extractsNewsArticleVideoCenterId()

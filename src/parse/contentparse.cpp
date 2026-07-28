@@ -18,6 +18,14 @@ QString extractUrlToken(const QString& url)
     return matchOne(url, QStringLiteral(R"((VID[A-Z][A-Za-z0-9]+))"));
 }
 
+QString extractOgTitle(const QString& html)
+{
+    const QRegularExpression re(QStringLiteral(R"(<meta\b(?=[^>]*\bproperty\s*=\s*["']og:title["'])(?=[^>]*\bcontent\s*=\s*["']([^"']*)["'])[^>]*>)"),
+        QRegularExpression::CaseInsensitiveOption);
+    const auto m = re.match(html);
+    return m.hasMatch() ? m.captured(1).trimmed() : QString();
+}
+
 void finalize(Features& features)
 {
     features.hasGuid = isHexGuid(features.guid);
@@ -81,6 +89,9 @@ Features parsePage(const QString& html, const QString& url)
     Features features;
     features.urlToken = extractUrlToken(url);
     features.title = matchOne(html, QStringLiteral(R"(var commentTitle\s*=\s*["'](.*?)["'];)")).split(QLatin1Char(' ')).value(0);
+    if (features.title.isEmpty()) {
+        features.title = extractOgTitle(html);
+    }
     features.itemId = matchOne(html, QStringLiteral(R"(var itemid1\s*=\s*["'](.*?)["'];)"));
     features.columnId = matchOne(html, QStringLiteral(R"(var column_id\s*=\s*["'](.*?)["'];)"));
     features.guid = matchOne(html, QStringLiteral(R"(\bvar\s+guid\s*=\s*["']([0-9a-fA-F]{32})["']\s*;?)"));
@@ -118,9 +129,25 @@ Features parsePage(const QString& html, const QString& url)
         }
     }
 
-    features.isFourK = url.contains(QStringLiteral("cctv4k"), Qt::CaseInsensitive)
+    const QUrl pageUrl(url);
+    const QRegularExpression fourKTitleRegex(
+        QStringLiteral(R"(<title\b[^>]*>[^<]*4K专区[^<]*</title>)"),
+        QRegularExpression::CaseInsensitiveOption);
+    const bool hasFourKPath = pageUrl.path().contains(QStringLiteral("/cctv4k/"), Qt::CaseInsensitive)
+        || pageUrl.path().contains(QStringLiteral("/4K/"), Qt::CaseInsensitive);
+    const bool hasFourKTitle = fourKTitleRegex.match(html).hasMatch();
+    features.isFourK = hasFourKPath
+        || hasFourKTitle
         || html.contains(QStringLiteral("CCTV-4K"), Qt::CaseInsensitive);
-    if (QUrl(url).host().compare(QStringLiteral("sports.cctv.com"), Qt::CaseInsensitive) == 0
+    if ((hasFourKPath || hasFourKTitle) && isHexGuid(features.guid)) {
+        features.title = features.title.isEmpty() ? QStringLiteral("CCTV-4K") : features.title;
+        features.itemId = features.guid;
+        features.columnId = features.guid;
+    } else if (pageUrl.host().compare(QStringLiteral("v.cctv.cn"), Qt::CaseInsensitive) == 0
+        && isHexGuid(features.guid)) {
+        features.columnId = features.guid;
+    }
+    if (pageUrl.host().compare(QStringLiteral("sports.cctv.com"), Qt::CaseInsensitive) == 0
         && isVidE(features.itemId)
         && isTopc(features.columnId)
         && isHexGuid(features.guid)) {
