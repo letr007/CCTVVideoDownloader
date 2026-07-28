@@ -10,7 +10,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC_SEARCH_PATHS
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/gui/ui
 )
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Widgets Network)
@@ -37,89 +37,103 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(FindFFmpegMin)
 
-# CTest defines option(BUILD_TESTING) with default ON. Include it before the
-# conditional so a bare configure actually enables tests unless -DBUILD_TESTING=OFF.
-include(CTest)
-if (BUILD_TESTING)
-    find_package(Qt6 6.8 REQUIRED COMPONENTS Test)
-    add_subdirectory(tests)
-endif()
+set(CORE_SOURCES
+    src/core/src/apiservice.cpp
+    src/core/src/concatworker.cpp
+    src/core/src/config.cpp
+    src/core/src/decryptworker.cpp
+    src/core/src/directmediafinalizer.cpp
+    src/core/src/downloadcoordinator.cpp
+    src/core/src/downloadengine.cpp
+    src/core/src/downloadtask.cpp
+    src/core/src/libavremuxer.cpp
+    src/core/src/logger.cpp
+    src/core/src/mediacontainervalidator.cpp
+    src/core/src/mediafinalizer.cpp
+    src/core/src/tsmerger.cpp
+    src/core/src/parse/contentparse.cpp
+    src/core/src/parse/contentresolver.cpp
+    src/core/src/crypto/cctv_h5e_decrypt.cpp
 
-set(PROJECT_SOURCES
-    src/source/about.cpp
-    src/source/apiservice.cpp
-    src/parse/contentparse.cpp
-    src/parse/contentresolver.cpp
-    src/source/cctvvideodownloader.cpp
-    src/source/concatworker.cpp
-    src/source/config.cpp
-    src/source/downloadcoordinator.cpp
-    src/source/directmediafinalizer.cpp
-    src/source/decryptworker.cpp
-    src/source/downloaddialog.cpp
-    src/source/downloadengine.cpp
-    src/source/downloadmodel.cpp
-    src/source/downloadprogresswindow.cpp
-    src/source/downloadtask.cpp
-    src/source/import.cpp
-    src/source/logger.cpp
-    src/source/monthcalendarwidget.cpp
-    src/source/mediacontainervalidator.cpp
-    src/source/mediafinalizer.cpp
-    src/source/libavremuxer.cpp
-    src/source/main.cpp
-    src/source/setting.cpp
-    src/source/theme.cpp
-    src/source/tsmerger.cpp
-    src/crypto/cctv_h5e_decrypt.cpp
+    src/core/include/apiservice.h
+    src/core/include/concatworker.h
+    src/core/include/config.h
+    src/core/include/contentparse.h
+    src/core/include/contentresolver.h
+    src/core/include/decryptworker.h
+    src/core/include/directmediafinalizer.h
+    src/core/include/downloadcoordinator.h
+    src/core/include/downloadcoordinatorseams.h
+    src/core/include/downloadengine.h
+    src/core/include/downloadinfo.h
+    src/core/include/downloadjob.h
+    src/core/include/downloadtask.h
+    src/core/include/libavremuxer.h
+    src/core/include/logger.h
+    src/core/include/mediacontainervalidator.h
+    src/core/include/mediafinalizer.h
+    src/core/include/tsmerger.h
+)
 
-    src/head/about.h
-    src/head/apiservice.h
-    src/parse/contentparse.h
-    src/parse/contentresolver.h
-    src/head/cctvvideodownloader.h
-    src/head/concatworker.h
-    src/head/config.h
-    src/head/downloadcoordinator.h
-    src/head/directmediafinalizer.h
-    src/head/downloadcoordinatorseams.h
-    src/head/decryptworker.h
-    src/head/downloadengine.h
-    src/head/downloaddialog.h
-    src/head/downloadmodel.h
-    src/head/downloadprogresswindow.h
-    src/head/downloadtask.h
-    src/head/import.h
-    src/head/logger.h
-    src/head/monthcalendarwidget.h
-    src/head/mediacontainervalidator.h
-    src/head/mediafinalizer.h
-    src/head/libavremuxer.h
-    src/head/setting.h
-    src/head/theme.h
-    src/head/tsmerger.h
+add_library(CCTVVideoDownloaderCore STATIC ${CORE_SOURCES})
+target_include_directories(CCTVVideoDownloaderCore
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/core/include
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/core/src/crypto
+)
+target_link_libraries(CCTVVideoDownloaderCore
+    PUBLIC
+        Qt6::Core
+        Qt6::Network
+        FFmpegMin::ffmpeg_min
+)
 
-    src/ui/about.ui
-    src/ui/cctvvideodownloader.ui
-    src/ui/ctvd.ui
-    src/ui/ctvd_setting.ui
-    src/ui/dialog.ui
-    src/ui/import.ui
+set(GUI_SOURCES
+    src/gui/src/about.cpp
+    src/gui/src/cctvvideodownloader.cpp
+    src/gui/src/downloaddialog.cpp
+    src/gui/src/downloadmodel.cpp
+    src/gui/src/downloadprogresswindow.cpp
+    src/gui/src/imageloader.cpp
+    src/gui/src/import.cpp
+    src/gui/src/main.cpp
+    src/gui/src/monthcalendarwidget.cpp
+    src/gui/src/setting.cpp
+    src/gui/src/theme.cpp
 
-    src/resources/cctvvideodownloader.qrc
-    src/resources/resources.qrc
-    src/resources/CCTVVideoDownloader.rc
+    src/gui/include/about.h
+    src/gui/include/cctvvideodownloader.h
+    src/gui/include/downloaddialog.h
+    src/gui/include/downloadmodel.h
+    src/gui/include/downloadprogresswindow.h
+    src/gui/include/imageloader.h
+    src/gui/include/import.h
+    src/gui/include/monthcalendarwidget.h
+    src/gui/include/setting.h
+    src/gui/include/theme.h
+
+    src/gui/ui/about.ui
+    src/gui/ui/cctvvideodownloader.ui
+    src/gui/ui/ctvd.ui
+    src/gui/ui/ctvd_setting.ui
+    src/gui/ui/dialog.ui
+    src/gui/ui/import.ui
+
+    src/gui/resources/cctvvideodownloader.qrc
+    src/gui/resources/resources.qrc
+    src/gui/resources/CCTVVideoDownloader.rc
 )
 
 qt_add_executable(CCTVVideoDownloader
     WIN32
     MACOSX_BUNDLE
-    ${PROJECT_SOURCES}
+    ${GUI_SOURCES}
 )
 
 if (APPLE)
     set(CCTV_VIDEO_DOWNLOADER_MAC_ICON
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/resources/CCTVVideoDownloader.icns"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/gui/resources/CCTVVideoDownloader.icns"
     )
     target_sources(CCTVVideoDownloader PRIVATE "${CCTV_VIDEO_DOWNLOADER_MAC_ICON}")
     set_source_files_properties("${CCTV_VIDEO_DOWNLOADER_MAC_ICON}" PROPERTIES
@@ -134,32 +148,63 @@ endif()
 
 target_include_directories(CCTVVideoDownloader
     PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/head
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/parse
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/resources
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/crypto
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/gui/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/core/include
 )
-
-# Includes and whole-archive static libs come from the imported target.
 target_link_libraries(CCTVVideoDownloader
     PRIVATE
-        Qt6::Core
+        CCTVVideoDownloaderCore
         Qt6::Gui
         Qt6::Widgets
-        Qt6::Network
-        FFmpegMin::ffmpeg_min
 )
-
 target_compile_definitions(CCTVVideoDownloader
     PRIVATE CCTV_VIDEO_DOWNLOADER_BUILD_VERSION="${CCTV_VIDEO_DOWNLOADER_BUILD_VERSION}"
 )
 
+qt_add_executable(cctv-video
+    src/cli/main.cpp
+    src/cli/cli_controller.cpp
+    src/cli/cli_controller.h
+    src/cli/cli_logging.cpp
+    src/cli/cli_logging.h
+    src/cli/cli_output.cpp
+    src/cli/cli_output.h
+    src/cli/cli_parser.cpp
+    src/cli/cli_parser.h
+    src/cli/cli_support.cpp
+    src/cli/cli_support.h
+    src/cli/signal_bridge.cpp
+    src/cli/signal_bridge.h
+)
+target_link_libraries(cctv-video
+    PRIVATE
+        CCTVVideoDownloaderCore
+)
+target_compile_definitions(cctv-video
+    PRIVATE CCTV_VIDEO_DOWNLOADER_BUILD_VERSION="${CCTV_VIDEO_DOWNLOADER_BUILD_VERSION}"
+)
+
 if (MSVC)
+    target_compile_options(CCTVVideoDownloaderCore PRIVATE /utf-8)
     target_compile_options(CCTVVideoDownloader PRIVATE /utf-8)
+    target_compile_options(cctv-video PRIVATE /utf-8)
+endif()
+
+# CTest defines option(BUILD_TESTING) with default ON. Include it before the
+# conditional so a bare configure actually enables tests unless -DBUILD_TESTING=OFF.
+include(CTest)
+if (BUILD_TESTING)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Test)
+    target_compile_definitions(CCTVVideoDownloaderCore PRIVATE CORE_REGRESSION_TESTS)
+    add_subdirectory(tests)
 endif()
 
 # Native Qt deployment produces install trees for the macOS and Linux release
 # archives. Windows keeps its explicit windeployqt release staging below.
+install(TARGETS cctv-video
+    RUNTIME DESTINATION bin
+)
+
 if (APPLE OR (UNIX AND NOT APPLE))
     install(TARGETS CCTVVideoDownloader
         BUNDLE DESTINATION .

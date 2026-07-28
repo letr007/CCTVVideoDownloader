@@ -1,82 +1,40 @@
-qt6_wrap_cpp(core_regression_tests_moc
-    ${PROJECT_SOURCE_DIR}/src/head/apiservice.h
-    ${PROJECT_SOURCE_DIR}/src/head/downloadtask.h
-    ${PROJECT_SOURCE_DIR}/src/head/downloadengine.h
-    ${PROJECT_SOURCE_DIR}/src/head/decryptworker.h
-    ${PROJECT_SOURCE_DIR}/src/head/concatworker.h
-    ${PROJECT_SOURCE_DIR}/src/head/downloadcoordinator.h
-    ${PROJECT_SOURCE_DIR}/src/head/downloadcoordinatorseams.h
-    ${PROJECT_SOURCE_DIR}/src/head/downloadprogresswindow.h
-    ${PROJECT_SOURCE_DIR}/src/head/import.h
-    ${PROJECT_SOURCE_DIR}/src/parse/contentresolver.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/fakes/fake_networkreply.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/fakes/fake_networkaccessmanager.h
-)
-
 qt_add_executable(core_regression_tests
     regression_core_tests.cpp
     fakes/fake_networkreply.cpp
     fakes/fake_networkaccessmanager.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/config.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/directmediafinalizer.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/setting.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/theme.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/apiservice.cpp
-    ${PROJECT_SOURCE_DIR}/src/parse/contentparse.cpp
-    ${PROJECT_SOURCE_DIR}/src/parse/contentresolver.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/downloadtask.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/downloadengine.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/downloadmodel.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/downloadcoordinator.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/downloaddialog.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/downloadprogresswindow.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/decryptworker.cpp
-    ${PROJECT_SOURCE_DIR}/src/crypto/cctv_h5e_decrypt.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/concatworker.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/libavremuxer.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/mediacontainervalidator.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/mediafinalizer.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/tsmerger.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/import.cpp
-    ${PROJECT_SOURCE_DIR}/src/source/monthcalendarwidget.cpp
-    ${PROJECT_SOURCE_DIR}/src/ui/import.ui
-    ${core_regression_tests_moc}
-    ${PROJECT_SOURCE_DIR}/src/head/config.h
-    ${PROJECT_SOURCE_DIR}/src/head/directmediafinalizer.h
-    ${PROJECT_SOURCE_DIR}/src/head/setting.h
-    ${PROJECT_SOURCE_DIR}/src/head/theme.h
-    ${PROJECT_SOURCE_DIR}/src/head/downloadtask.h
-    ${PROJECT_SOURCE_DIR}/src/head/downloadengine.h
-    ${PROJECT_SOURCE_DIR}/src/head/downloadmodel.h
-    ${PROJECT_SOURCE_DIR}/src/head/downloadcoordinator.h
-    ${PROJECT_SOURCE_DIR}/src/head/downloadcoordinatorseams.h
-    ${PROJECT_SOURCE_DIR}/src/head/downloaddialog.h
-    ${PROJECT_SOURCE_DIR}/src/head/downloadprogresswindow.h
-    ${PROJECT_SOURCE_DIR}/src/head/decryptworker.h
-    ${PROJECT_SOURCE_DIR}/src/head/concatworker.h
-    ${PROJECT_SOURCE_DIR}/src/head/libavremuxer.h
-    ${PROJECT_SOURCE_DIR}/src/head/mediacontainervalidator.h
-    ${PROJECT_SOURCE_DIR}/src/head/mediafinalizer.h
-    ${PROJECT_SOURCE_DIR}/src/head/tsmerger.h
-    ${PROJECT_SOURCE_DIR}/src/head/import.h
-    ${PROJECT_SOURCE_DIR}/src/head/monthcalendarwidget.h
+    ${PROJECT_SOURCE_DIR}/src/gui/src/imageloader.cpp
+    ${PROJECT_SOURCE_DIR}/src/gui/src/setting.cpp
+    ${PROJECT_SOURCE_DIR}/src/gui/src/theme.cpp
+    ${PROJECT_SOURCE_DIR}/src/gui/src/downloadmodel.cpp
+    ${PROJECT_SOURCE_DIR}/src/gui/src/downloaddialog.cpp
+    ${PROJECT_SOURCE_DIR}/src/gui/src/downloadprogresswindow.cpp
+    ${PROJECT_SOURCE_DIR}/src/gui/src/import.cpp
+    ${PROJECT_SOURCE_DIR}/src/gui/src/monthcalendarwidget.cpp
+    ${PROJECT_SOURCE_DIR}/src/gui/ui/import.ui
+    ${PROJECT_SOURCE_DIR}/src/gui/include/imageloader.h
+    ${PROJECT_SOURCE_DIR}/src/gui/include/setting.h
+    ${PROJECT_SOURCE_DIR}/src/gui/include/theme.h
+    ${PROJECT_SOURCE_DIR}/src/gui/include/downloadmodel.h
+    ${PROJECT_SOURCE_DIR}/src/gui/include/downloaddialog.h
+    ${PROJECT_SOURCE_DIR}/src/gui/include/downloadprogresswindow.h
+    ${PROJECT_SOURCE_DIR}/src/gui/include/import.h
+    ${PROJECT_SOURCE_DIR}/src/gui/include/monthcalendarwidget.h
 )
 
 target_include_directories(core_regression_tests
     PRIVATE
-        ${PROJECT_SOURCE_DIR}/src/head
-        ${PROJECT_SOURCE_DIR}/src/parse
-        ${PROJECT_SOURCE_DIR}/src/crypto
+        ${PROJECT_SOURCE_DIR}/src/core/include
+        ${PROJECT_SOURCE_DIR}/src/core/src/crypto
+        ${PROJECT_SOURCE_DIR}/src/gui/include
 )
 
 target_link_libraries(core_regression_tests
     PRIVATE
-        Qt6::Core
+        CCTVVideoDownloaderCore
+        Qt6::Gui
         Qt6::Widgets
         Qt6::Test
-        Qt6::Network
-        FFmpegMin::ffmpeg_min
-    )
+)
 
 target_compile_definitions(core_regression_tests
     PRIVATE
@@ -88,7 +46,47 @@ if (MSVC)
     target_compile_options(core_regression_tests PRIVATE /utf-8)
 endif()
 
+qt_add_executable(core_headless_tests
+    core_headless_tests.cpp
+)
+target_link_libraries(core_headless_tests
+    PRIVATE
+        CCTVVideoDownloaderCore
+        Qt6::Test
+)
+
+qt_add_executable(cli_tests
+    cli_tests.cpp
+    ${PROJECT_SOURCE_DIR}/src/cli/cli_logging.cpp
+    ${PROJECT_SOURCE_DIR}/src/cli/cli_logging.h
+    ${PROJECT_SOURCE_DIR}/src/cli/cli_output.cpp
+    ${PROJECT_SOURCE_DIR}/src/cli/cli_output.h
+    ${PROJECT_SOURCE_DIR}/src/cli/cli_support.cpp
+    ${PROJECT_SOURCE_DIR}/src/cli/cli_support.h
+)
+target_include_directories(cli_tests
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/cli
+        ${PROJECT_SOURCE_DIR}/src/core/include
+)
+target_link_libraries(cli_tests
+    PRIVATE
+        FFmpegMin::ffmpeg_min
+        Qt6::Core
+        Qt6::Test
+)
+target_compile_definitions(cli_tests
+    PRIVATE CLI_EXECUTABLE="$<TARGET_FILE:cctv-video>"
+)
+add_dependencies(cli_tests cctv-video)
+if (MSVC)
+    target_compile_options(core_headless_tests PRIVATE /utf-8)
+    target_compile_options(cli_tests PRIVATE /utf-8)
+endif()
+
 add_test(NAME core_regression_tests COMMAND core_regression_tests)
+add_test(NAME core_headless_tests COMMAND core_headless_tests)
+add_test(NAME cli_tests COMMAND cli_tests)
 set_tests_properties(core_regression_tests PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     REPEAT UNTIL_PASS:3

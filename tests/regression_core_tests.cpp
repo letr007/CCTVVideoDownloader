@@ -59,6 +59,7 @@
 #include "downloadprogresswindow.h"
 #include "tsmerger.h"
 #include "import.h"
+#include "imageloader.h"
 #include "fakes/fake_networkaccessmanager.h"
 #include "fakes/fake_networkreply.h"
 
@@ -273,6 +274,19 @@ public:
         apiService.clearTestCallScopedNetworkAccessManagerFactory();
     }
 
+};
+
+class ImageLoaderTestAdapter {
+public:
+    static void setTestNetworkAccessManager(ImageLoader& imageLoader, QNetworkAccessManager* networkAccessManager)
+    {
+        imageLoader.setTestNetworkAccessManager(networkAccessManager);
+    }
+
+    static void clearTestNetworkAccessManager(ImageLoader& imageLoader)
+    {
+        imageLoader.clearTestNetworkAccessManager();
+    }
 };
 
 class DownloadTaskTestAdapter {
@@ -1193,6 +1207,7 @@ private slots:
     void contentResolver_cancelledReplyDoesNotFallbackOrConsumeReplacement();
     void contentResolver_cancelResolveMedia_emitsCancelled();
     void apiservice_getPlayColumnInfo_usesGuidFallbackForCctv4k();
+    void apiservice_getPlayColumnInfo_importsLmPageWithTopicId();
     void apiservice_getPlayColumnInfo_importsFourKZonePageByGuid();
     void contentparse_fourKNavigationTextDoesNotMisclassifyOrdinaryPage();
     void contentparse_cctv4kBodyTextDoesNotRewriteOrdinaryIdentity();
@@ -1268,6 +1283,7 @@ void CoreRegressionTests::cleanup()
 {
     APIServiceTestAdapter::clearTestNetworkAccessManager(APIService::instance());
     APIServiceTestAdapter::clearTestCallScopedNetworkAccessManagerFactory(APIService::instance());
+    ImageLoaderTestAdapter::clearTestNetworkAccessManager(ImageLoader::instance());
     g_settings.reset();
     const QString configPath = defaultConfigFilePath();
     QFile::remove(configPath);
@@ -4148,6 +4164,32 @@ var guid = '4a0c129380f14290a4d630d69de73ba1';
     QCOMPARE(manager.unexpectedRequestCount(), 0);
 }
 
+void CoreRegressionTests::apiservice_getPlayColumnInfo_importsLmPageWithTopicId()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl url(QStringLiteral("https://tv.cctv.com/lm/xwlb/index.shtml?spm=test"));
+    const QString topicId = QStringLiteral("TOPC1451528971114112");
+    manager.queueSuccess(url, QStringLiteral(R"(
+<html><head>
+<meta property='og:title' content='新闻联播'>
+<script>var topicID = '%1';</script>
+</head><body></body></html>
+)").arg(topicId).toUtf8());
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const auto result = apiService.getPlayColumnInfo(url.toString());
+
+    QVERIFY(!result.isNull());
+    QCOMPARE(result->title, QStringLiteral("新闻联播"));
+    QCOMPARE(result->rawItemId, topicId);
+    QCOMPARE(result->rawColumnId, topicId);
+    QCOMPARE(result->catalogId, topicId);
+    QCOMPARE(ContentParse::makePlan(*result).catalogStrategy, ContentParse::CatalogStrategy::ColumnByMonth);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
 void CoreRegressionTests::apiservice_getPlayColumnInfo_importsFourKZonePageByGuid()
 {
     APIService& apiService = APIService::instance();
@@ -5163,7 +5205,7 @@ void CoreRegressionTests::apiservice_startGetVideoInfo_ignoresStaleResponse()
 
 void CoreRegressionTests::apiservice_startGetImage_asyncSuccess_emitsLoadedImage()
 {
-    APIService& apiService = APIService::instance();
+    ImageLoader& imageLoader = ImageLoader::instance();
     FakeNetworkAccessManager manager;
     const QUrl url(QStringLiteral("https://example.test/preview.png"));
 
@@ -5175,11 +5217,11 @@ void CoreRegressionTests::apiservice_startGetImage_asyncSuccess_emitsLoadedImage
     QVERIFY(sourceImage.save(&buffer, "PNG"));
 
     manager.queueSuccess(url, encodedImage);
-    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+    ImageLoaderTestAdapter::setTestNetworkAccessManager(imageLoader, &manager);
 
-    QSignalSpy resolvedSpy(&apiService, &APIService::imageResolved);
+    QSignalSpy resolvedSpy(&imageLoader, &ImageLoader::imageResolved);
 
-    const quint64 requestId = apiService.startGetImage(url.toString());
+    const quint64 requestId = imageLoader.startGetImage(url.toString());
 
     QVERIFY(resolvedSpy.wait(1000));
     QCOMPARE(resolvedSpy.count(), 1);
@@ -7785,7 +7827,7 @@ void CoreRegressionTests::cctvVideoDownloader_openDownloadDialog_withoutSelectio
     QCOMPARE(batchStartedSpy.count(), 0);
 
     const QString sourcePath = QDir(QStringLiteral(PROJECT_SOURCE_DIR))
-        .filePath(QStringLiteral("src/source/cctvvideodownloader.cpp"));
+        .filePath(QStringLiteral("src/gui/src/cctvvideodownloader.cpp"));
     QFile sourceFile(sourcePath);
     QVERIFY2(sourceFile.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(sourcePath));
 
@@ -8188,7 +8230,7 @@ void CoreRegressionTests::downloadCoordinator_eventLoopRemainsResponsiveDuringFa
 void CoreRegressionTests::cctvVideoDownloader_openDownloadDialog_usesCoordinatorOnly()
 {
     const QString sourcePath = QDir(QStringLiteral(PROJECT_SOURCE_DIR))
-        .filePath(QStringLiteral("src/source/cctvvideodownloader.cpp"));
+        .filePath(QStringLiteral("src/gui/src/cctvvideodownloader.cpp"));
     QFile sourceFile(sourcePath);
     QVERIFY2(sourceFile.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(sourcePath));
 
