@@ -30,6 +30,21 @@ fi
 
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cctv-dmg.XXXXXX")"
 VERIFY_DEVICE=""
+detach_device() {
+  local device="$1"
+  local attempt
+  local error=""
+  for attempt in {1..5}; do
+    if error="$(hdiutil detach "$device" 2>&1)"; then
+      return 0
+    fi
+    if (( attempt < 5 )); then
+      sleep 2
+    fi
+  done
+  echo "failed to detach $device after $attempt attempts: $error" >&2
+  return 1
+}
 cleanup() {
   local mount
   if [[ -n "$VERIFY_DEVICE" ]]; then
@@ -135,7 +150,7 @@ if process.poll() is not None:
 process.terminate()
 process.wait(timeout=5)
 PY
-hdiutil detach "$VERIFY_DEVICE" >/dev/null
+detach_device "$VERIFY_DEVICE"
 VERIFY_DEVICE=""
 
 echo "created $OUTPUT_DMG"
