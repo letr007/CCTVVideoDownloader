@@ -305,22 +305,38 @@ inline size_t drop_epb_03(uint8_t* nal, size_t len, const std::vector<size_t>& e
     return nlen;
 }
 
-// Grid guard: require ``guard`` bytes remaining at logical cell start (default 17)
-// even though only 4 bytes are rewritten. EPB-aware: cells after EPB use
-// EBSP offset o + n_epb_before; then drop 0x03. Returns new NAL length.
+// Grid guard: require ``guard`` bytes remaining at RBSP cell start (default 17)
+// even though only 4 bytes are rewritten. Cell bytes via RBSP→EBSP map
+// (skip EPB 0x03); then drop still-intact 0x03. Returns new NAL length.
 inline size_t decrypt_type1_new(uint8_t* nal, size_t len, uint32_t stride = 511,
                                 size_t start = 64, size_t guard = 17) {
     if (!nal || stride < 4 || len < 3) return len;
     const uint8_t hdr[3] = {nal[0], nal[1], nal[2]};
     std::vector<size_t> epbs;
     collect_epb_positions(nal, len, epbs);
+    std::vector<size_t> r2e;
+    r2e.reserve(len);
+    for (size_t i = 0; i < len; ) {
+        if (i + 2 < len && nal[i] == 0 && nal[i + 1] == 0 && nal[i + 2] == 3) {
+            r2e.push_back(i);
+            r2e.push_back(i + 1);
+            i += 3;
+        } else {
+            r2e.push_back(i);
+            i++;
+        }
+    }
+    const size_t rbsp_len = r2e.size();
     for (size_t k = 0;; k++) {
         size_t o = start + k * (size_t)stride;
-        if (o + guard > len || o + 4 > len) break;
-        size_t adj = epb_adj_before(epbs, o);
-        size_t oo = o + adj;
-        if (oo + 4 > len) break;
-        type1_decrypt_block_nal(nal + oo, hdr);
+        if (o + guard > rbsp_len || o + 4 > rbsp_len) break;
+        uint8_t blk[4] = {nal[r2e[o]], nal[r2e[o + 1]], nal[r2e[o + 2]],
+                          nal[r2e[o + 3]]};
+        type1_decrypt_block_nal(blk, hdr);
+        nal[r2e[o]] = blk[0];
+        nal[r2e[o + 1]] = blk[1];
+        nal[r2e[o + 2]] = blk[2];
+        nal[r2e[o + 3]] = blk[3];
     }
     if (epbs.empty()) return len;
     return drop_epb_03(nal, len, epbs);
@@ -334,7 +350,7 @@ struct Session {
     size_t type1_start = 64;
     size_t type1_guard = 17;
     // Worker leaves type1 NALs shorter than this untouched (no grid, no EPB drop).
-    size_t type1_min_len = 126;
+    size_t type1_min_len = 129;
 
     uint32_t resolve_type5_stride(const uint8_t* nal, size_t len) const {
         return type5_stride_from_nal(nal, len);
