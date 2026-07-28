@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QPointer>
+#include <functional>
 #include <QMutex>
 #include <QString>
 #include <QHash>
@@ -122,8 +123,11 @@ private:
 
     // 内部辅助方法
     QString getRealAlbumId(const QString& item_id);
+    QString getRealAlbumId(const QString& item_id, QNetworkAccessManager* networkAccessManager);
     QMap<int, VideoItem> fetchVideoData(const QString& id, const QStringList dataList, FetchType fetch_type);
-    QByteArray sendNetworkRequest(const QUrl& url, const QHash<QString, QString>& headers = QHash<QString, QString>());    
+    QByteArray sendNetworkRequest(const QUrl& url, const QHash<QString, QString>& headers = QHash<QString, QString>());
+    QByteArray sendNetworkRequest(QNetworkAccessManager* networkAccessManager, const QUrl& url,
+        const QHash<QString, QString>& headers = QHash<QString, QString>());
 
     // JSON解析相关方法
     QJsonObject parseJsonObject(const QByteArray& data, const QString& key = QString());
@@ -141,12 +145,16 @@ private:
     void processTopicVideoData(const QJsonArray& items, QMap<int, VideoItem>& result, int& result_index);
 
     QNetworkAccessManager* networkAccessManager();
+    QNetworkAccessManager* callScopedNetworkAccessManager(QNetworkAccessManager& localManager);
     QNetworkRequest buildNetworkRequest(const QUrl& url, const QHash<QString, QString>& headers = QHash<QString, QString>()) const;
     quint64 nextAsyncBrowseRequestId();
 
 #ifdef CORE_REGRESSION_TESTS
     void setTestNetworkAccessManager(QNetworkAccessManager* networkAccessManager);
     void clearTestNetworkAccessManager();
+    void setTestCallScopedNetworkAccessManagerFactory(
+        std::function<QNetworkAccessManager*()> networkAccessManagerFactory);
+    void clearTestCallScopedNetworkAccessManagerFactory();
 #endif
 
 
@@ -166,6 +174,7 @@ private:
 
 #ifdef CORE_REGRESSION_TESTS
     QPointer<QNetworkAccessManager> m_testNetworkAccessManager;
+    std::function<QNetworkAccessManager*()> m_testCallScopedNetworkAccessManagerFactory;
 #endif
 };
 

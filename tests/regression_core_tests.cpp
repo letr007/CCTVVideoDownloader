@@ -241,6 +241,12 @@ public:
         return apiService.buildVcctvProgrammeVideoListUrl(mid, chid, page, pageSize);
     }
 
+    static QMap<int, VideoItem> fetchVcctvProgrammeVideoList(APIService& apiService,
+        const QString& mid, const QString& chid, const QString& startDate, const QString& endDate)
+    {
+        return apiService.fetchVcctvProgrammeVideoList(mid, chid, startDate, endDate);
+    }
+
     static QUrl buildTopicVideoListUrl(APIService& apiService, const QString& columnId, const QString& itemId, int type)
     {
         return apiService.buildTopicVideoListUrl(columnId, itemId, type);
@@ -254,6 +260,17 @@ public:
     static void clearTestNetworkAccessManager(APIService& apiService)
     {
         apiService.clearTestNetworkAccessManager();
+    }
+
+    static void setTestCallScopedNetworkAccessManagerFactory(APIService& apiService,
+        std::function<QNetworkAccessManager*()> networkAccessManagerFactory)
+    {
+        apiService.setTestCallScopedNetworkAccessManagerFactory(std::move(networkAccessManagerFactory));
+    }
+
+    static void clearTestCallScopedNetworkAccessManagerFactory(APIService& apiService)
+    {
+        apiService.clearTestCallScopedNetworkAccessManagerFactory();
     }
 
 };
@@ -1182,6 +1199,13 @@ private slots:
     void apiservice_getPlayColumnInfo_routesVCctvGuidPageToSingleVideo();
     void apiservice_vcctvProgrammeRequest_allowsLegacyRenegotiationOnlyForListEndpoint();
     void apiservice_getPlayColumnInfo_importsVCctvProgrammePagesAndFetchesPagedVideos();
+    void apiservice_vcctvProgrammeVideoList_binarySearchesMonthRange();
+    void apiservice_vcctvProgrammeVideoList_usesCachedFirstPageForRecentMonth();
+    void apiservice_vcctvProgrammeVideoList_reusesInjectedManagerForAllPages();
+    void apiservice_fetchVideoData_reusesCallScopedManagerAcrossMonthsAndPages();
+    void apiservice_fetchAlbumVideoList_reusesCallScopedManagerAcrossPages();
+    void apiservice_getHighlightList_reusesCallScopedManagerForResolutionAndPages();
+    void apiservice_vcctvProgrammeVideoList_rejectsOutOfOrderPages();
     void programmePersistence_restoresVCctvProgrammeStrategy();
     void apiservice_getPlayColumnInfo_importsLegacyGuidWithoutSemicolon();
     void contentparse_legacySportsProfileOwnsCatalogIdentity();
@@ -1243,6 +1267,7 @@ void CoreRegressionTests::init()
 void CoreRegressionTests::cleanup()
 {
     APIServiceTestAdapter::clearTestNetworkAccessManager(APIService::instance());
+    APIServiceTestAdapter::clearTestCallScopedNetworkAccessManagerFactory(APIService::instance());
     g_settings.reset();
     const QString configPath = defaultConfigFilePath();
     QFile::remove(configPath);
@@ -4331,7 +4356,7 @@ void CoreRegressionTests::apiservice_getPlayColumnInfo_importsVCctvProgrammePage
         secondPageItems.append(QJsonObject{
             {QStringLiteral("guid"), QStringLiteral("old-guid-%1").arg(i)},
             {QStringLiteral("title"), QStringLiteral("旧视频%1").arg(i)},
-            {QStringLiteral("pubTime"), qint64(1777564800000LL)},
+            {QStringLiteral("pubTime"), qint64(1782777600000LL)},
             {QStringLiteral("vduration"), 99},
             {QStringLiteral("mediaName"), QStringLiteral("栏目名")}
         });
@@ -4339,7 +4364,7 @@ void CoreRegressionTests::apiservice_getPlayColumnInfo_importsVCctvProgrammePage
     const QByteArray secondPage = QJsonDocument(QJsonObject{
         {QStringLiteral("count"), 41}, {QStringLiteral("data"), secondPageItems}
     }).toJson(QJsonDocument::Compact);
-    const QByteArray thirdPage = QByteArray(R"({"count":41,"data":[{"guid":"june-guid","title":"六月乱序视频","vbrief":"应导入","image1":"june.jpg","pubTime":1780243200000,"vduration":99,"mediaName":"栏目名"}]})");
+    const QByteArray thirdPage = QByteArray(R"({"count":41,"data":[{"guid":"may-guid","title":"五月视频","vbrief":"不应导入","image1":"may.jpg","pubTime":1777564800000,"vduration":99,"mediaName":"栏目名"}]})");
 
     FakeNetworkAccessManager manager;
     manager.queueSuccess(url, QStringLiteral("<meta property='og:title' content='望海观潮'><script>var lm_midELMTEWgTnrmXoXYcfVbSTs3F240426 = '24iQzAZ30426\t'; var pd_idELMTEWgTnrmXoXYcfVbSTs3F240426 = 'EPGC123456789'; var api = 'vapi/video/vplist.do?chid='+pd_idELMTEWgTnrmXoXYcfVbSTs3F240426+'&mid='+lm_midELMTEWgTnrmXoXYcfVbSTs3F240426+'&p=1';</script>").toUtf8());
@@ -4355,7 +4380,7 @@ void CoreRegressionTests::apiservice_getPlayColumnInfo_importsVCctvProgrammePage
     QCOMPARE(imported->catalogId, mid);
     const QMap<int, VideoItem> videos = apiService.getVideoList(*imported,
         QStringLiteral("202607"), QStringLiteral("202606"));
-    QCOMPARE(videos.size(), 21);
+    QCOMPARE(videos.size(), 40);
     const VideoItem video = videos.value(0);
     QCOMPARE(video.guid, QStringLiteral("guid-0"));
     QCOMPARE(video.title, QStringLiteral("视频0"));
@@ -4364,8 +4389,286 @@ void CoreRegressionTests::apiservice_getPlayColumnInfo_importsVCctvProgrammePage
     QCOMPARE(video.time, QStringLiteral("2026-07-25 20:00:00"));
     QCOMPARE(video.length, qint64(3723));
     QCOMPARE(video.channel, QStringLiteral("栏目名"));
-    QCOMPARE(videos.value(20).guid, QStringLiteral("june-guid"));
+    QCOMPARE(videos.value(20).guid, QStringLiteral("old-guid-0"));
     QCOMPARE(manager.requestCount(), 4);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::apiservice_vcctvProgrammeVideoList_binarySearchesMonthRange()
+{
+    APIService& apiService = APIService::instance();
+    const QString mid = QStringLiteral("binary-search-mid");
+    const QString chid = QStringLiteral("binary-search-chid");
+    constexpr int pageCount = 1000;
+    constexpr int actualPageSize = 10;
+
+    QMap<int, QByteArray> pageResponses;
+    for (int page = 1; page <= pageCount; ++page) {
+        const QDate published = page <= 100 ? QDate(2026, 8, 1)
+            : page <= 110 ? QDate(2026, 7, 1)
+            : QDate(2026, 6, 1);
+        const qint64 pubTime = QDateTime(published, QTime(12, 0), QTimeZone("Asia/Shanghai")).toMSecsSinceEpoch();
+        QJsonArray items;
+        for (int item = 0; item < actualPageSize; ++item) {
+            items.append(QJsonObject{
+                {QStringLiteral("guid"), QStringLiteral("page-%1-item-%2").arg(page).arg(item)},
+                {QStringLiteral("title"), QStringLiteral("视频%1-%2").arg(page).arg(item)},
+                {QStringLiteral("pubTime"), pubTime}
+            });
+        }
+        pageResponses.insert(page, QJsonDocument(QJsonObject{
+            {QStringLiteral("count"), pageCount * actualPageSize}, {QStringLiteral("data"), items}
+        }).toJson(QJsonDocument::Compact));
+    }
+
+    const QList<int> expectedPages{
+        1, 501, 251, 126, 63, 94, 110, 102, 98, 100, 101,
+        103, 104, 105, 106, 107, 108, 109, 111
+    };
+    FakeNetworkAccessManager manager;
+    for (const int page : expectedPages) {
+        manager.queueSuccess(APIServiceTestAdapter::buildVcctvProgrammeVideoListUrl(
+            apiService, mid, chid, page, 100), pageResponses.value(page));
+    }
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const QMap<int, VideoItem> videos = APIServiceTestAdapter::fetchVcctvProgrammeVideoList(
+        apiService, mid, chid, QStringLiteral("202607"), QStringLiteral("202607"));
+
+    QCOMPARE(videos.size(), 100);
+    QCOMPARE(videos.first().guid, QStringLiteral("page-101-item-0"));
+    QCOMPARE(videos.last().guid, QStringLiteral("page-110-item-9"));
+    QCOMPARE(manager.requestCount(), expectedPages.size());
+    QVERIFY(manager.requestCount() < 50);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::apiservice_vcctvProgrammeVideoList_usesCachedFirstPageForRecentMonth()
+{
+    APIService& apiService = APIService::instance();
+    const QString mid = QStringLiteral("recent-month-mid");
+    const QString chid = QStringLiteral("recent-month-chid");
+    const QUrl pageOne = APIServiceTestAdapter::buildVcctvProgrammeVideoListUrl(apiService, mid, chid, 1, 100);
+    const QUrl pageTwo = APIServiceTestAdapter::buildVcctvProgrammeVideoListUrl(apiService, mid, chid, 2, 100);
+    const auto pageResponse = [](const QString& guid, const QDate& published) {
+        return QJsonDocument(QJsonObject{
+            {QStringLiteral("count"), 100000},
+            {QStringLiteral("data"), QJsonArray{QJsonObject{
+                {QStringLiteral("guid"), guid},
+                {QStringLiteral("title"), guid},
+                {QStringLiteral("pubTime"), QDateTime(published, QTime(12, 0),
+                    QTimeZone("Asia/Shanghai")).toMSecsSinceEpoch()}
+            }}}
+        }).toJson(QJsonDocument::Compact);
+    };
+
+    FakeNetworkAccessManager manager;
+    manager.queueSuccess(pageOne, pageResponse(QStringLiteral("recent-month"), QDate(2026, 7, 31)));
+    manager.queueSuccess(pageTwo, pageResponse(QStringLiteral("older-month"), QDate(2026, 6, 30)));
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const QMap<int, VideoItem> videos = APIServiceTestAdapter::fetchVcctvProgrammeVideoList(
+        apiService, mid, chid, QStringLiteral("202607"), QStringLiteral("202607"));
+
+    QCOMPARE(videos.size(), 1);
+    QCOMPARE(videos.first().guid, QStringLiteral("recent-month"));
+    QCOMPARE(manager.requestedUrls(), (QList<QUrl>{pageOne, pageTwo}));
+    QCOMPARE(manager.requestCount(), 2);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::apiservice_vcctvProgrammeVideoList_reusesInjectedManagerForAllPages()
+{
+    APIService& apiService = APIService::instance();
+    const QString mid = QStringLiteral("shared-manager-mid");
+    const QString chid = QStringLiteral("shared-manager-chid");
+    const QUrl pageOne = APIServiceTestAdapter::buildVcctvProgrammeVideoListUrl(apiService, mid, chid, 1, 100);
+    const QUrl pageTwo = APIServiceTestAdapter::buildVcctvProgrammeVideoListUrl(apiService, mid, chid, 2, 100);
+    const auto pageResponse = [](const QString& guid, const QDate& published) {
+        return QJsonDocument(QJsonObject{
+            {QStringLiteral("count"), 2},
+            {QStringLiteral("data"), QJsonArray{QJsonObject{
+                {QStringLiteral("guid"), guid},
+                {QStringLiteral("title"), guid},
+                {QStringLiteral("pubTime"), QDateTime(published, QTime(12, 0),
+                    QTimeZone("Asia/Shanghai")).toMSecsSinceEpoch()}
+            }}}
+        }).toJson(QJsonDocument::Compact);
+    };
+
+    FakeNetworkAccessManager manager;
+    manager.queueSuccess(pageOne, pageResponse(QStringLiteral("page-one"), QDate(2026, 7, 2)));
+    manager.queueSuccess(pageTwo, pageResponse(QStringLiteral("page-two"), QDate(2026, 7, 1)));
+    int managerFactoryCalls = 0;
+    APIServiceTestAdapter::setTestCallScopedNetworkAccessManagerFactory(apiService,
+        [&manager, &managerFactoryCalls]() {
+            ++managerFactoryCalls;
+            return &manager;
+        });
+
+    const QMap<int, VideoItem> videos = APIServiceTestAdapter::fetchVcctvProgrammeVideoList(
+        apiService, mid, chid, QStringLiteral("202607"), QStringLiteral("202607"));
+
+    QCOMPARE(videos.size(), 2);
+    QCOMPARE(managerFactoryCalls, 1);
+    QCOMPARE(manager.requestedUrls(), (QList<QUrl>{pageOne, pageTwo}));
+    QCOMPARE(manager.requestCount(), 2);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestCallScopedNetworkAccessManagerFactory(apiService);
+}
+
+void CoreRegressionTests::apiservice_fetchVideoData_reusesCallScopedManagerAcrossMonthsAndPages()
+{
+    APIService& apiService = APIService::instance();
+    const QString columnId = QStringLiteral("shared-column-id");
+    const QStringList months{QStringLiteral("202607"), QStringLiteral("202606")};
+    const QList<QUrl> urls{
+        APIServiceTestAdapter::buildVideoApiUrl(apiService, FetchType::Column, columnId, months.at(0), 1, 100),
+        APIServiceTestAdapter::buildVideoApiUrl(apiService, FetchType::Column, columnId, months.at(0), 2, 100),
+        APIServiceTestAdapter::buildVideoApiUrl(apiService, FetchType::Column, columnId, months.at(1), 1, 100)
+    };
+    const auto response = [](const QString& guid, int total) {
+        return QJsonDocument(QJsonObject{{QStringLiteral("data"), QJsonObject{
+            {QStringLiteral("list"), QJsonArray{QJsonObject{
+                {QStringLiteral("guid"), guid}, {QStringLiteral("title"), guid}}}},
+            {QStringLiteral("total"), total}}}}).toJson(QJsonDocument::Compact);
+    };
+
+    FakeNetworkAccessManager manager;
+    manager.queueSuccess(urls.at(0), response(QStringLiteral("july-page-one"), 101));
+    manager.queueSuccess(urls.at(1), response(QStringLiteral("july-page-two"), 101));
+    manager.queueSuccess(urls.at(2), response(QStringLiteral("june-page-one"), 1));
+    int managerFactoryCalls = 0;
+    APIServiceTestAdapter::setTestCallScopedNetworkAccessManagerFactory(apiService,
+        [&manager, &managerFactoryCalls]() {
+            ++managerFactoryCalls;
+            return &manager;
+        });
+
+    const QMap<int, VideoItem> videos = apiService.fetchColumnVideoList(columnId, months);
+
+    QCOMPARE(videos.size(), 3);
+    QCOMPARE(managerFactoryCalls, 1);
+    QCOMPARE(manager.requestedUrls(), urls);
+    QCOMPARE(manager.requestCount(), 3);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestCallScopedNetworkAccessManagerFactory(apiService);
+}
+
+void CoreRegressionTests::apiservice_fetchAlbumVideoList_reusesCallScopedManagerAcrossPages()
+{
+    APIService& apiService = APIService::instance();
+    const QString albumId = QStringLiteral("shared-album-id");
+    const QList<QUrl> urls{
+        APIServiceTestAdapter::buildAlbumVideoListUrl(apiService, albumId, 0, 1, 100),
+        APIServiceTestAdapter::buildAlbumVideoListUrl(apiService, albumId, 0, 2, 100)
+    };
+    const auto response = [](const QString& guid) {
+        return QJsonDocument(QJsonObject{{QStringLiteral("data"), QJsonObject{
+            {QStringLiteral("list"), QJsonArray{QJsonObject{
+                {QStringLiteral("guid"), guid}, {QStringLiteral("title"), guid}}}},
+            {QStringLiteral("total"), 101}}}}).toJson(QJsonDocument::Compact);
+    };
+
+    FakeNetworkAccessManager manager;
+    manager.queueSuccess(urls.at(0), response(QStringLiteral("album-page-one")));
+    manager.queueSuccess(urls.at(1), response(QStringLiteral("album-page-two")));
+    int managerFactoryCalls = 0;
+    APIServiceTestAdapter::setTestCallScopedNetworkAccessManagerFactory(apiService,
+        [&manager, &managerFactoryCalls]() {
+            ++managerFactoryCalls;
+            return &manager;
+        });
+
+    const QMap<int, VideoItem> videos = apiService.fetchAlbumVideoList(albumId, 0);
+
+    QCOMPARE(videos.size(), 2);
+    QCOMPARE(managerFactoryCalls, 1);
+    QCOMPARE(manager.requestedUrls(), urls);
+    QCOMPARE(manager.requestCount(), 2);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestCallScopedNetworkAccessManagerFactory(apiService);
+}
+
+void CoreRegressionTests::apiservice_getHighlightList_reusesCallScopedManagerForResolutionAndPages()
+{
+    APIService& apiService = APIService::instance();
+    const QString itemId = QStringLiteral("shared-highlight-item");
+    const QString albumId = QStringLiteral("shared-highlight-album");
+    QUrl resolveUrl(QStringLiteral("https://api.cntv.cn/NewVideoset/getVideoAlbumInfoByVideoId"));
+    QUrlQuery resolveQuery;
+    resolveQuery.addQueryItem(QStringLiteral("id"), itemId);
+    resolveQuery.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("tvcctv"));
+    resolveUrl.setQuery(resolveQuery);
+    const QList<QUrl> urls{
+        resolveUrl,
+        APIServiceTestAdapter::buildAlbumVideoListUrl(apiService, albumId, 1, 1, 100),
+        APIServiceTestAdapter::buildAlbumVideoListUrl(apiService, albumId, 1, 2, 100)
+    };
+    const auto response = [](const QString& guid) {
+        return QJsonDocument(QJsonObject{{QStringLiteral("data"), QJsonObject{
+            {QStringLiteral("list"), QJsonArray{QJsonObject{
+                {QStringLiteral("guid"), guid}, {QStringLiteral("title"), guid}}}},
+            {QStringLiteral("total"), 101}}}}).toJson(QJsonDocument::Compact);
+    };
+
+    FakeNetworkAccessManager manager;
+    manager.queueSuccess(urls.at(0), QByteArray(R"({"data":{"id":"shared-highlight-album"}})"));
+    manager.queueSuccess(urls.at(1), response(QStringLiteral("highlight-page-one")));
+    manager.queueSuccess(urls.at(2), response(QStringLiteral("highlight-page-two")));
+    int managerFactoryCalls = 0;
+    APIServiceTestAdapter::setTestCallScopedNetworkAccessManagerFactory(apiService,
+        [&manager, &managerFactoryCalls]() {
+            ++managerFactoryCalls;
+            return &manager;
+        });
+
+    const QMap<int, VideoItem> videos = apiService.getHighlightList(itemId);
+
+    QCOMPARE(videos.size(), 2);
+    QCOMPARE(videos.first().isHighlight, true);
+    QCOMPARE(managerFactoryCalls, 1);
+    QCOMPARE(manager.requestedUrls(), urls);
+    QCOMPARE(manager.requestCount(), 3);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestCallScopedNetworkAccessManagerFactory(apiService);
+}
+
+void CoreRegressionTests::apiservice_vcctvProgrammeVideoList_rejectsOutOfOrderPages()
+{
+    APIService& apiService = APIService::instance();
+    const QString mid = QStringLiteral("out-of-order-mid");
+    const QString chid = QStringLiteral("out-of-order-chid");
+    const QList<QDate> publishedDates{
+        QDate(2026, 8, 1), QDate(2026, 7, 1), QDate(2026, 6, 1), QDate(2026, 7, 15)
+    };
+
+    FakeNetworkAccessManager manager;
+    for (const int page : {1, 3, 2, 4}) {
+        const qint64 pubTime = QDateTime(publishedDates.at(page - 1), QTime(12, 0),
+            QTimeZone("Asia/Shanghai")).toMSecsSinceEpoch();
+        const QUrl pageUrl = APIServiceTestAdapter::buildVcctvProgrammeVideoListUrl(
+            apiService, mid, chid, page, 100);
+        manager.queueSuccess(pageUrl, QJsonDocument(QJsonObject{
+            {QStringLiteral("count"), publishedDates.size()},
+            {QStringLiteral("data"), QJsonArray{QJsonObject{
+                {QStringLiteral("guid"), QStringLiteral("page-%1").arg(page)},
+                {QStringLiteral("title"), QStringLiteral("视频%1").arg(page)},
+                {QStringLiteral("pubTime"), pubTime}
+            }}}
+        }).toJson(QJsonDocument::Compact));
+    }
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+        QStringLiteral("缓存页范围未按 pubTime 全局降序排列")));
+    const QMap<int, VideoItem> videos = APIServiceTestAdapter::fetchVcctvProgrammeVideoList(
+        apiService, mid, chid, QStringLiteral("202606"), QStringLiteral("202606"));
+
+    QVERIFY(videos.isEmpty());
     QCOMPARE(manager.unexpectedRequestCount(), 0);
     APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
 }

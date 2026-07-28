@@ -21,6 +21,9 @@
 #include <QUrlQuery>
 #include <QRegularExpression>
 #include <QMutexLocker>
+#include <QMap>
+#include <cmath>
+#include <limits>
 #include <utility>
 
 // 静态成员初始化
@@ -54,6 +57,43 @@ QDate parsePublishedDate(const QJsonValue& value)
         return date;
     }
     return QDate::fromString(dateText.left(8), QStringLiteral("yyyyMMdd"));
+}
+
+bool parsePublishedTimestamp(const QJsonValue& value, qint64& timestamp)
+{
+    if (value.isDouble()) {
+        const double milliseconds = value.toDouble();
+        if (!std::isfinite(milliseconds)
+            || milliseconds < static_cast<double>(std::numeric_limits<qint64>::min())
+            || milliseconds > static_cast<double>(std::numeric_limits<qint64>::max())) {
+            return false;
+        }
+        timestamp = static_cast<qint64>(milliseconds);
+        return QDateTime::fromMSecsSinceEpoch(timestamp, QTimeZone("Asia/Shanghai")).date().isValid();
+    }
+
+    const QString text = value.toString().trimmed();
+    bool millisecondsOk = false;
+    const qint64 milliseconds = text.toLongLong(&millisecondsOk);
+    if (millisecondsOk) {
+        timestamp = milliseconds;
+        return QDateTime::fromMSecsSinceEpoch(timestamp, QTimeZone("Asia/Shanghai")).date().isValid();
+    }
+
+    const QDate published = parsePublishedDate(value);
+    if (!published.isValid()) {
+        return false;
+    }
+
+    QDateTime dateTime = QDateTime::fromString(text, Qt::ISODate);
+    if (!dateTime.isValid()) {
+        dateTime = QDateTime::fromString(text, QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    }
+    if (!dateTime.isValid()) {
+        dateTime = QDateTime(published, QTime(0, 0), QTimeZone("Asia/Shanghai"));
+    }
+    timestamp = dateTime.toMSecsSinceEpoch();
+    return true;
 }
 
 qint64 parseDurationSeconds(const QJsonValue& value)
@@ -118,6 +158,19 @@ QNetworkAccessManager* APIService::networkAccessManager()
     return &m_networkAccessManager;
 }
 
+QNetworkAccessManager* APIService::callScopedNetworkAccessManager(QNetworkAccessManager& localManager)
+{
+#ifdef CORE_REGRESSION_TESTS
+    if (m_testNetworkAccessManager) {
+        return m_testNetworkAccessManager;
+    }
+    if (m_testCallScopedNetworkAccessManagerFactory) {
+        return m_testCallScopedNetworkAccessManagerFactory();
+    }
+#endif
+    return &localManager;
+}
+
 QNetworkRequest APIService::buildNetworkRequest(const QUrl& url, const QHash<QString, QString>& headers) const
 {
     QNetworkRequest request(url);
@@ -143,8 +196,6 @@ QNetworkRequest APIService::buildNetworkRequest(const QUrl& url, const QHash<QSt
 // 通用的网络请求函数
 QByteArray APIService::sendNetworkRequest(const QUrl& url, const QHash<QString, QString>& headers)
 {
-    qInfo() << "发送网络请求:" << url.toString();
-
     QNetworkAccessManager localManager;
     QNetworkAccessManager* manager = &localManager;
 #ifdef CORE_REGRESSION_TESTS
@@ -152,10 +203,18 @@ QByteArray APIService::sendNetworkRequest(const QUrl& url, const QHash<QString, 
         manager = m_testNetworkAccessManager;
     }
 #endif
+    return sendNetworkRequest(manager, url, headers);
+}
+
+QByteArray APIService::sendNetworkRequest(QNetworkAccessManager* networkAccessManager,
+    const QUrl& url,
+    const QHash<QString, QString>& headers)
+{
+    qInfo() << "发送网络请求:" << url.toString();
 
     QNetworkRequest request = buildNetworkRequest(url, headers);
 
-    QNetworkReply* reply = manager->get(request);
+    QNetworkReply* reply = networkAccessManager->get(request);
     // 连接SSL错误处理，忽略SSL错误
     QObject::connect(reply, &QNetworkReply::errorOccurred,
         [reply](QNetworkReply::NetworkError error) {
@@ -196,6 +255,17 @@ void APIService::setTestNetworkAccessManager(QNetworkAccessManager* networkAcces
 void APIService::clearTestNetworkAccessManager()
 {
     m_testNetworkAccessManager = nullptr;
+}
+
+void APIService::setTestCallScopedNetworkAccessManagerFactory(
+    std::function<QNetworkAccessManager*()> networkAccessManagerFactory)
+{
+    m_testCallScopedNetworkAccessManagerFactory = std::move(networkAccessManagerFactory);
+}
+
+void APIService::clearTestCallScopedNetworkAccessManagerFactory()
+{
+    m_testCallScopedNetworkAccessManagerFactory = {};
 }
 #endif
 
@@ -263,22 +333,38 @@ QMap<int, VideoItem> APIService::fetchVcctvProgrammeVideoList(const QString& mid
     }
     const QDate latestMonth = qMax(startMonth, endMonth);
     const QDate earliestMonth = qMin(startMonth, endMonth);
+    const QDate latestDate = latestMonth.addMonths(1).addDays(-1);
+
+    struct PageData {
+        QJsonArray items;
+        QDate newestDate;
+        QDate oldestDate;
+        qint64 newestTimestamp = 0;
+        qint64 oldestTimestamp = 0;
+    };
 
     constexpr int requestedPageSize = 100;
-    int resultIndex = 0;
-    int page = 1;
-    int totalPages = 1;
-    do {
-        const QByteArray responseData = sendNetworkRequest(
+    QNetworkAccessManager localManager;
+    QNetworkAccessManager* manager = callScopedNetworkAccessManager(localManager);
+    QMap<int, PageData> pageCache;
+    int totalPages = 0;
+    auto fetchPage = [&](int page) {
+        if (pageCache.contains(page)) {
+            return true;
+        }
+
+        const QByteArray responseData = sendNetworkRequest(manager,
             buildVcctvProgrammeVideoListUrl(mid, chid, page, requestedPageSize));
         if (responseData.isEmpty()) {
-            break;
+            qWarning() << "获取 v.cctv.com 栏目列表失败: 第" << page << "页响应为空";
+            return false;
         }
 
         const QJsonObject root = parseJsonObject(responseData);
         const QJsonArray items = root.value(QStringLiteral("data")).toArray();
         if (items.isEmpty()) {
-            break;
+            qWarning() << "获取 v.cctv.com 栏目列表失败: 第" << page << "页数据为空";
+            return false;
         }
         if (page == 1) {
             const QJsonValue countValue = root.value(QStringLiteral("count"));
@@ -287,23 +373,98 @@ QMap<int, VideoItem> APIService::fetchVcctvProgrammeVideoList(const QString& mid
             if (!countOk || total <= 0) {
                 total = items.size();
             }
-            const int actualPageSize = items.size();
+            const int actualPageSize = static_cast<int>(items.size());
             totalPages = std::max(1, (total + actualPageSize - 1) / actualPageSize);
         }
 
-        for (const QJsonValue& value : items) {
+        PageData pageData;
+        pageData.items = items;
+        qint64 previousTimestamp = 0;
+        for (int index = 0; index < items.size(); ++index) {
+            const QJsonValue pubTimeValue = items.at(index).toObject().value(QStringLiteral("pubTime"));
+            qint64 timestamp = 0;
+            const QDate published = parsePublishedDate(pubTimeValue);
+            if (!published.isValid() || !parsePublishedTimestamp(pubTimeValue, timestamp)) {
+                qWarning() << "获取 v.cctv.com 栏目列表失败: 第" << page
+                           << "页第" << index << "项 pubTime 无效";
+                return false;
+            }
+            if (index > 0 && timestamp > previousTimestamp) {
+                qWarning() << "获取 v.cctv.com 栏目列表失败: 第" << page
+                           << "页 pubTime 未按降序排列";
+                return false;
+            }
+            if (index == 0) {
+                pageData.newestDate = published;
+                pageData.newestTimestamp = timestamp;
+            }
+            pageData.oldestDate = published;
+            pageData.oldestTimestamp = timestamp;
+            previousTimestamp = timestamp;
+        }
+
+        for (auto cached = pageCache.cbegin(); cached != pageCache.cend(); ++cached) {
+            if ((cached.key() < page && cached.value().oldestTimestamp < pageData.newestTimestamp)
+                || (cached.key() > page && pageData.oldestTimestamp < cached.value().newestTimestamp)) {
+                qWarning() << "获取 v.cctv.com 栏目列表失败: 缓存页范围未按 pubTime 全局降序排列"
+                           << "页" << page << "与页" << cached.key();
+                return false;
+            }
+        }
+
+        pageCache.insert(page, pageData);
+        QCoreApplication::processEvents();
+        return true;
+    };
+
+    if (!fetchPage(1)) {
+        return {};
+    }
+
+    auto findFirstTargetPage = [&]() {
+        if (pageCache.value(1).oldestDate <= latestDate) {
+            return 1;
+        }
+
+        int low = 2;
+        int high = totalPages;
+        int first = totalPages + 1;
+        while (low <= high) {
+            const int page = low + (high - low) / 2;
+            if (!fetchPage(page)) {
+                return 0;
+            }
+            if (pageCache.value(page).oldestDate <= latestDate) {
+                first = page;
+                high = page - 1;
+            } else {
+                low = page + 1;
+            }
+        }
+        return first;
+    };
+
+    const int firstTargetPage = findFirstTargetPage();
+    if (firstTargetPage == 0 || firstTargetPage > totalPages) {
+        return {};
+    }
+
+    int resultIndex = 0;
+    for (int page = firstTargetPage; page <= totalPages; ++page) {
+        if (!fetchPage(page)) {
+            return {};
+        }
+        if (pageCache.value(page).newestDate < earliestMonth) {
+            break;
+        }
+
+        for (const QJsonValue& value : pageCache.value(page).items) {
             const QJsonObject item = value.toObject();
             const QJsonValue pubTimeValue = item.value(QStringLiteral("pubTime"));
             const QString pubTime = formatPublishedTime(pubTimeValue);
             const QDate published = parsePublishedDate(pubTimeValue);
             const QDate month(published.year(), published.month(), 1);
-            if (!month.isValid()) {
-                continue;
-            }
-            if (month < earliestMonth) {
-                continue;
-            }
-            if (month > latestMonth) {
+            if (month < earliestMonth || month > latestMonth) {
                 continue;
             }
 
@@ -323,9 +484,7 @@ QMap<int, VideoItem> APIService::fetchVcctvProgrammeVideoList(const QString& mid
             videoItem.channel = item.value(QStringLiteral("mediaName")).toString();
             result.insert(resultIndex++, videoItem);
         }
-        QCoreApplication::processEvents();
-        ++page;
-    } while (page <= totalPages);
+    }
     return result;
 }
 
@@ -338,10 +497,12 @@ QMap<int, VideoItem> APIService::fetchAlbumVideoList(const QString& albumId, int
 
     int resultIndex = 0;
     constexpr int pageSize = 100;
+    QNetworkAccessManager localManager;
+    QNetworkAccessManager* manager = callScopedNetworkAccessManager(localManager);
     int page = 1;
     int totalPages = 1;
     do {
-        const QByteArray responseData = sendNetworkRequest(buildAlbumVideoListUrl(albumId, mode, page, pageSize));
+        const QByteArray responseData = sendNetworkRequest(manager, buildAlbumVideoListUrl(albumId, mode, page, pageSize));
         if (responseData.isEmpty()) {
             break;
         }
@@ -400,7 +561,9 @@ QMap<int, VideoItem> APIService::getHighlightList(const QString& item_id)
     qInfo() << "获取节目看点列表，item_id:" << item_id;
 
     QMap<int, VideoItem> result;
-    QString real_album_id = getRealAlbumId(item_id);
+    QNetworkAccessManager localManager;
+    QNetworkAccessManager* manager = callScopedNetworkAccessManager(localManager);
+    QString real_album_id = getRealAlbumId(item_id, manager);
     if (real_album_id.isEmpty()) {
         qWarning() << "获取节目看点失败: 无法获取真实专辑ID";
         return result;
@@ -413,7 +576,7 @@ QMap<int, VideoItem> APIService::getHighlightList(const QString& item_id)
 
     do {
         QUrl url = buildAlbumVideoListUrl(real_album_id, 1, page, pageSize);
-        QByteArray responseData = sendNetworkRequest(url);
+        QByteArray responseData = sendNetworkRequest(manager, url);
         if (responseData.isEmpty()) {
             qWarning() << "获取节目看点失败: 第" << page << "页响应为空";
             break;
@@ -499,6 +662,34 @@ QString APIService::getRealAlbumId(const QString& item_id)
     return albumId;
 }
 
+QString APIService::getRealAlbumId(const QString& item_id, QNetworkAccessManager* networkAccessManager)
+{
+    qInfo() << "获取真实专辑ID，item_id:" << item_id;
+
+    QUrl url("https://api.cntv.cn/NewVideoset/getVideoAlbumInfoByVideoId");
+    QUrlQuery query;
+    query.addQueryItem("id", item_id);
+    query.addQueryItem("serviceId", "tvcctv");
+    url.setQuery(query);
+
+    QByteArray responseData = sendNetworkRequest(networkAccessManager, url);
+    if (responseData.isEmpty()) {
+        qWarning() << "获取真实专辑ID失败: 响应数据为空";
+        return "";
+    }
+
+    QJsonObject dataObj = parseJsonObject(responseData, "data");
+    if (dataObj.isEmpty() || !dataObj.contains("id")) {
+        qWarning() << "解析真实专辑ID失败: 数据格式不正确";
+        return "";
+    }
+
+    QString albumId = dataObj["id"].toString();
+    qInfo() << "成功获取真实专辑ID:" << albumId;
+
+    return albumId;
+}
+
 QMap<int, VideoItem> APIService::fetchVideoData(
     const QString& id,
 	QStringList dateList,
@@ -511,6 +702,8 @@ QMap<int, VideoItem> APIService::fetchVideoData(
     int result_index = 0;
 
     constexpr int pageSize = 100;
+    QNetworkAccessManager localManager;
+    QNetworkAccessManager* manager = callScopedNetworkAccessManager(localManager);
 
     // 按月循环
     for (const QString& date : dateList) {
@@ -524,7 +717,7 @@ QMap<int, VideoItem> APIService::fetchVideoData(
             QUrl url = buildVideoApiUrl(fetch_type, id, date, page, pageSize);
             qInfo() << "请求URL:" << url.toString();
 
-            QByteArray responseData = sendNetworkRequest(url);
+            QByteArray responseData = sendNetworkRequest(manager, url);
 
             if (responseData.isEmpty()) {
                 qWarning() << "月份" << date << "第" << page << "页获取数据失败";
