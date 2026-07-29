@@ -1084,6 +1084,7 @@ private slots:
     void decryptWorker_renameFailure_emitsRenameError();
     void decryptWorker_fakeProcessRunner_seamSkipsRealProcess();
     void decryptWorker_cboxOutputStaysInTaskDirectoryAndPreservesSaveRootResultTs();
+    void decryptWorker_relativeOutputPath_removesTaskDirectoryAfterPublish();
     void decryptWorker_cleanupFailure_emitsSingleFailureAfterPublish();
     void decryptWorker_processTimeoutNormalization_passesDefaultTimeoutToRunner();
     void decryptWorker_testDecryptAssetsDir_usesTemporaryAssets();
@@ -2743,6 +2744,44 @@ void CoreRegressionTests::decryptWorker_cboxOutputStaysInTaskDirectoryAndPreserv
     const auto arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toBool(), true);
     QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密完成，输出 staging-contract-video"));
+}
+
+void CoreRegressionTests::decryptWorker_relativeOutputPath_removesTaskDirectoryAfterPublish()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QStringLiteral("relative_decrypt_output");
+    QVERIFY(QDir().mkpath(savePath));
+
+    const QString name = QStringLiteral("relative-output-video");
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath("result.ts"), 4, 256));
+
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTranscodeToMp4(worker, false);
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [](const DecryptProcessRequest& request) {
+        createFakeTsFile(request.arguments.at(1), 4, 512);
+
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 0;
+        result.exitStatus = QProcess::NormalExit;
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(QFileInfo::exists(QDir(savePath).filePath("relative-output-video.ts")));
+    QVERIFY(!QFileInfo::exists(tempTaskPath));
+
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(0).toBool(), true);
+    QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密完成，输出 relative-output-video"));
 }
 
 void CoreRegressionTests::decryptWorker_cleanupFailure_emitsSingleFailureAfterPublish()

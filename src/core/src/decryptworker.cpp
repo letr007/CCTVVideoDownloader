@@ -66,7 +66,7 @@ bool removeDirectory(const QString& path)
 		}
 	}
 
-	const bool result = dir.rmdir(path);
+	const bool result = QDir().rmdir(path);
 	if (!result) {
 		qWarning() << "删除目录失败:" << path;
 	}
