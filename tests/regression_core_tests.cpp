@@ -1236,6 +1236,7 @@ private slots:
     void apiservice_getVideoList_usesCctv4kGuidFallback();
     void apiservice_startGetPlayColumnInfo_asyncSuccess_emitsResolvedData();
     void apiservice_startGetBrowseVideoList_asyncSuccess_preservesHighlightAndFragmentBrowseSemantics();
+    void apiservice_startGetBrowseVideoList_programmeRecord_includesFragmentWhenAlbumUnavailable();
     void apiservice_startGetVideoInfo_asyncSuccess_parsesChannelAndLength();
     void apiservice_startGetVideoInfo_ignoresStaleResponse();
     void apiservice_startGetImage_asyncSuccess_emitsLoadedImage();
@@ -5187,6 +5188,69 @@ void CoreRegressionTests::apiservice_startGetBrowseVideoList_asyncSuccess_preser
     QCOMPARE(videos.value(2).listType, QStringLiteral("片段"));
     QCOMPARE(manager.requestCount(), 4);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::apiservice_startGetBrowseVideoList_programmeRecord_includesFragmentWhenAlbumUnavailable()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QString columnId = QStringLiteral("TOPC-programme-browse-001");
+    const QString itemId = QStringLiteral("VIDE-programme-browse-001");
+    const QString date = QStringLiteral("202604");
+    ContentParse::ProgrammeRecord record;
+    record.title = QStringLiteral("Browse Programme");
+    record.itemId = itemId;
+    record.columnId = columnId;
+    record.catalogId = columnId;
+
+    manager.queueSuccess(APIServiceTestAdapter::buildVideoApiUrl(apiService, FetchType::Column, columnId, date, 1, 100),
+        QByteArray(R"({"data":{"list":[{"guid":"main-guid","title":"Main Video","image":"main.jpg","brief":"main brief","time":"2026-04-01"}],"total":1}})"));
+
+    QUrl albumUrl(QStringLiteral("https://api.cntv.cn/NewVideoset/getVideoAlbumInfoByVideoId"));
+    QUrlQuery albumQuery;
+    albumQuery.addQueryItem(QStringLiteral("id"), itemId);
+    albumQuery.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("tvcctv"));
+    albumUrl.setQuery(albumQuery);
+    manager.queueSuccess(albumUrl, QByteArray(R"({"data":{}})"));
+
+    manager.queueSuccess(APIServiceTestAdapter::buildTopicVideoListUrl(apiService, columnId, itemId, 1),
+        QByteArray(R"({"data":[{"guid":"fragment-guid","video_title":"Fragment Video","video_key_frame_url":"fragment.jpg","sc":"fragment brief","video_shared_code":"2026-04-04"}]})"));
+
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+    QSignalSpy resolvedSpy(&apiService, &APIService::browseVideoListResolved);
+
+    const quint64 requestId = apiService.startGetBrowseVideoList(record, date, date, true);
+
+    QVERIFY(resolvedSpy.wait(1000));
+    QCOMPARE(resolvedSpy.count(), 1);
+    const QList<QVariant> resultArgs = resolvedSpy.takeFirst();
+    QCOMPARE(resultArgs.at(0).toULongLong(), requestId);
+    const QMap<int, VideoItem> videos = resultArgs.at(1).value<QMap<int, VideoItem>>();
+    QCOMPARE(videos.size(), 2);
+    QCOMPARE(videos.value(0).guid, QStringLiteral("main-guid"));
+    QCOMPARE(videos.value(1).guid, QStringLiteral("fragment-guid"));
+    QVERIFY(videos.value(1).isHighlight);
+    QCOMPARE(videos.value(1).listType, QStringLiteral("片段"));
+    QCOMPARE(manager.requestCount(), 3);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+
+    FakeNetworkAccessManager noHighlightsManager;
+    noHighlightsManager.queueSuccess(APIServiceTestAdapter::buildVideoApiUrl(apiService, FetchType::Column, columnId, date, 1, 100),
+        QByteArray(R"({"data":{"list":[{"guid":"main-guid","title":"Main Video","image":"main.jpg","brief":"main brief","time":"2026-04-01"}],"total":1}})"));
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &noHighlightsManager);
+
+    QSignalSpy noHighlightsResolvedSpy(&apiService, &APIService::browseVideoListResolved);
+    const quint64 noHighlightsRequestId = apiService.startGetBrowseVideoList(record, date, date, false);
+
+    QVERIFY(noHighlightsResolvedSpy.wait(1000));
+    QCOMPARE(noHighlightsResolvedSpy.count(), 1);
+    const QList<QVariant> noHighlightsArgs = noHighlightsResolvedSpy.takeFirst();
+    QCOMPARE(noHighlightsArgs.at(0).toULongLong(), noHighlightsRequestId);
+    const QMap<int, VideoItem> noHighlightsVideos = noHighlightsArgs.at(1).value<QMap<int, VideoItem>>();
+    QCOMPARE(noHighlightsVideos.size(), 1);
+    QCOMPARE(noHighlightsVideos.value(0).guid, QStringLiteral("main-guid"));
+    QCOMPARE(noHighlightsManager.requestCount(), 1);
+    QCOMPARE(noHighlightsManager.unexpectedRequestCount(), 0);
 }
 
 void CoreRegressionTests::apiservice_startGetVideoInfo_asyncSuccess_parsesChannelAndLength()

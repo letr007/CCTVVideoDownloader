@@ -126,6 +126,19 @@ qint64 parseDurationSeconds(const QJsonValue& value)
     return ok && seconds >= 0.0 ? static_cast<qint64>(seconds) : -1;
 }
 
+void appendUniqueVideos(QMap<int, VideoItem>& videos, const QMap<int, VideoItem>& extras)
+{
+    int nextIndex = videos.isEmpty() ? 0 : (videos.lastKey() + 1);
+    for (const VideoItem& item : extras) {
+        const bool alreadyListed = std::any_of(videos.cbegin(), videos.cend(), [&item](const VideoItem& existing) {
+            return !item.guid.isEmpty() && item.guid == existing.guid;
+        });
+        if (!alreadyListed) {
+            videos.insert(nextIndex++, item);
+        }
+    }
+}
+
 } // namespace
 
 APIService& APIService::instance() {
@@ -1045,12 +1058,10 @@ quint64 APIService::startGetBrowseVideoList(const ContentParse::ProgrammeRecord&
 
     auto publishResult = [this, requestId, record, start_date, end_date, includeHighlights]() {
         QMap<int, VideoItem> videos = getVideoList(record, start_date, end_date);
+
         if (includeHighlights) {
-            const QMap<int, VideoItem> highlights = getHighlightList(record.itemId);
-            int nextIndex = videos.isEmpty() ? 0 : videos.lastKey() + 1;
-            for (const VideoItem& video : highlights) {
-                videos.insert(nextIndex++, video);
-            }
+            appendUniqueVideos(videos, getHighlightList(record.itemId));
+            appendUniqueVideos(videos, getFragmentList(record.columnId, record.itemId));
         }
         QMutexLocker locker(&m_mutex);
         if (m_activeBrowseVideoListRequestId == requestId) {
@@ -1089,26 +1100,9 @@ quint64 APIService::startGetBrowseVideoList(const QString& column_id,
     auto publishResult = [this, requestId, column_id, item_id, start_date, end_date, includeHighlights]() {
         QMap<int, VideoItem> videos = getVideoList(column_id, item_id, start_date, end_date);
 
-        auto appendExtraVideos = [&videos](const QMap<int, VideoItem>& extras) {
-            int nextIndex = videos.isEmpty() ? 0 : (videos.lastKey() + 1);
-            for (const VideoItem& item : extras) {
-                bool alreadyListed = false;
-                for (const VideoItem& existing : std::as_const(videos)) {
-                    if (!item.guid.isEmpty() && item.guid == existing.guid) {
-                        alreadyListed = true;
-                        break;
-                    }
-                }
-                if (alreadyListed) {
-                    continue;
-                }
-                videos.insert(nextIndex++, item);
-            }
-        };
-
         if (includeHighlights) {
-            appendExtraVideos(getHighlightList(item_id));
-            appendExtraVideos(getFragmentList(column_id, item_id));
+            appendUniqueVideos(videos, getHighlightList(item_id));
+            appendUniqueVideos(videos, getFragmentList(column_id, item_id));
         }
 
         const bool matchesActiveRequest = [this, requestId]() {
@@ -1132,26 +1126,9 @@ quint64 APIService::startGetBrowseVideoList(const QString& column_id,
     QThread* workerThread = QThread::create([this, requestId, column_id, item_id, start_date, end_date, includeHighlights]() {
         QMap<int, VideoItem> videos = getVideoList(column_id, item_id, start_date, end_date);
 
-        auto appendExtraVideos = [&videos](const QMap<int, VideoItem>& extras) {
-            int nextIndex = videos.isEmpty() ? 0 : (videos.lastKey() + 1);
-            for (const VideoItem& item : extras) {
-                bool alreadyListed = false;
-                for (const VideoItem& existing : std::as_const(videos)) {
-                    if (!item.guid.isEmpty() && item.guid == existing.guid) {
-                        alreadyListed = true;
-                        break;
-                    }
-                }
-                if (alreadyListed) {
-                    continue;
-                }
-                videos.insert(nextIndex++, item);
-            }
-        };
-
         if (includeHighlights) {
-            appendExtraVideos(getHighlightList(item_id));
-            appendExtraVideos(getFragmentList(column_id, item_id));
+            appendUniqueVideos(videos, getHighlightList(item_id));
+            appendUniqueVideos(videos, getFragmentList(column_id, item_id));
         }
 
         const bool matchesActiveRequest = [this, requestId]() {
