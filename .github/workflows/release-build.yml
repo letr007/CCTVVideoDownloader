@@ -28,16 +28,27 @@ jobs:
             qt_host: windows
             qt_arch: win64_msvc2022_64
             package_kind: windows
+            package_arch: x64
           - name: macOS arm64
             os: macos-14
             qt_host: mac
             qt_arch: clang_64
             package_kind: macos
+            package_arch: arm64
           - name: Linux x86_64
             os: ubuntu-22.04
             qt_host: linux
             qt_arch: linux_gcc_64
             package_kind: linux
+            package_arch: x86_64
+            appimage_arch: x86_64
+          - name: Linux arm64
+            os: ubuntu-24.04-arm
+            qt_host: linux_arm64
+            qt_arch: linux_gcc_arm64
+            package_kind: linux
+            package_arch: arm64
+            appimage_arch: aarch64
 
     env:
       BUILD_CONFIG: Release
@@ -211,13 +222,15 @@ jobs:
             artifact/cctv-dl \
             artifact/cctv-dl.${PACKAGE_ID}.macos.arm64.tar.gz
 
-      - name: Package Linux x86_64
+      - name: Package Linux
         if: matrix.package_kind == 'linux'
         shell: bash
+        env:
+          APPIMAGE_ARCH: ${{ matrix.appimage_arch }}
         run: |
           package_dir="artifact/CCTVVideoDownloader"
-          archive="artifact/CCTVVideoDownloader.${PACKAGE_ID}.linux.x86_64.tar.gz"
-          appimage="artifact/CCTVVideoDownloader.${PACKAGE_ID}.linux.x86_64.AppImage"
+          archive="artifact/CCTVVideoDownloader.${PACKAGE_ID}.linux.${{ matrix.package_arch }}.tar.gz"
+          appimage="artifact/CCTVVideoDownloader.${PACKAGE_ID}.linux.${{ matrix.package_arch }}.AppImage"
           test -x "$package_dir/bin/CCTVVideoDownloader"
           test ! -e "$package_dir/bin/cctv-dl"
           find "$package_dir" -name 'libQt6Core.so*' -print -quit | grep -q .
@@ -232,7 +245,7 @@ jobs:
             packaging/linux/cctvvideodownloader.png
           test -x "$appimage"
           cli_dir="artifact/cctv-dl"
-          cli_archive="artifact/cctv-dl.${PACKAGE_ID}.linux.x86_64.tar.gz"
+          cli_archive="artifact/cctv-dl.${PACKAGE_ID}.linux.${{ matrix.package_arch }}.tar.gz"
           test -x "$cli_dir/bin/cctv-dl"
           find "$cli_dir" -name 'libQt6Core.so*' -print -quit | grep -q .
           env -u LD_LIBRARY_PATH -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QML_IMPORT_PATH \
@@ -242,15 +255,18 @@ jobs:
       - name: Upload useful release packages
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.package_kind }}
+          name: release-${{ matrix.package_kind }}-${{ matrix.package_arch }}
           path: |
             artifact/CCTVVideoDownloader.*.win.x64.zip
             artifact/CCTVVideoDownloader.*.macos.arm64.zip
             artifact/CCTVVideoDownloader.*.macos.arm64.dmg
             artifact/CCTVVideoDownloader.*.linux.x86_64.tar.gz
             artifact/CCTVVideoDownloader.*.linux.x86_64.AppImage
+            artifact/CCTVVideoDownloader.*.linux.arm64.tar.gz
+            artifact/CCTVVideoDownloader.*.linux.arm64.AppImage
             artifact/cctv-dl.*.win.x64.zip
             artifact/cctv-dl.*.macos.arm64.tar.gz
             artifact/cctv-dl.*.linux.x86_64.tar.gz
+            artifact/cctv-dl.*.linux.arm64.tar.gz
             artifact/vc_redist.x64.exe
           if-no-files-found: error

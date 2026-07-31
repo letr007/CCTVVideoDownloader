@@ -88,7 +88,8 @@ cctv-dl --help
 | --- | --- |
 | Windows x64 | `CCTVVideoDownloader.*.win.x64.zip` |
 | macOS Apple Silicon | `CCTVVideoDownloader.*.macos.arm64.dmg` |
-| Linux x86_64 | `CCTVVideoDownloader.*.linux.x86_64.AppImage` |
+| Linux x86_64 | `CCTVVideoDownloader.*.linux.x86_64.tar.gz`、`CCTVVideoDownloader.*.linux.x86_64.AppImage`、`cctv-dl.*.linux.x86_64.tar.gz` |
+| Linux arm64 | `CCTVVideoDownloader.*.linux.arm64.tar.gz`、`CCTVVideoDownloader.*.linux.arm64.AppImage`、`cctv-dl.*.linux.arm64.tar.gz` |
 
 
 ## 从源码构建
