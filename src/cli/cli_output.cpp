@@ -40,10 +40,11 @@ Output::Output(bool json, FILE* stdoutDevice, FILE* stderrDevice, bool stdoutIsT
 }
 
 void Output::video(int index, const QString& guid, const QString& title, const QString& time,
-    const QString& channel, qint64 length, bool isHighlight, const QString& listType)
+    const QString& channel, const QString& image, const QString& brief, qint64 length, bool isHighlight,
+    const QString& listType)
 {
     if (m_json) {
-        stdoutLine(videoItemJson(index, guid, title, time, channel, length, isHighlight, listType));
+        stdoutLine(videoItemJson(index, guid, title, time, channel, image, brief, length, isHighlight, listType));
     } else {
         stdoutLine(QStringLiteral("%1. %2 [%3]").arg(index + 1).arg(title, guid));
     }

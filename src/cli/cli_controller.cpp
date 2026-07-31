@@ -27,7 +27,7 @@ void Controller::start()
         resolveUrl(m_options.url, [this] {
             for (auto it = m_videos.cbegin(); it != m_videos.cend(); ++it) {
                 m_output.video(it.key(), it.value().guid, it.value().title, it.value().time, it.value().channel,
-                    it.value().length, it.value().isHighlight, it.value().listType);
+                    it.value().image, it.value().brief, it.value().length, it.value().isHighlight, it.value().listType);
             }
             m_output.listComplete(m_videos.size());
             m_application.exit(static_cast<int>(ExitCode::Success));

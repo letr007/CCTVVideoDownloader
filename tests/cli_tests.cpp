@@ -189,13 +189,21 @@ void CliTests::serializesJsonLine()
 {
     const QJsonDocument document = QJsonDocument::fromJson(Cli::videoItemJson(
         0, QStringLiteral("guid"), QStringLiteral("title"), QStringLiteral("2026-01-01"),
-        QStringLiteral("CCTV-1"), 12, true, QStringLiteral("highlight")).toUtf8());
+        QStringLiteral("CCTV-1"), QStringLiteral("https://example.test/image.jpg"), QStringLiteral("brief"),
+        12, true, QStringLiteral("highlight")).toUtf8());
     QVERIFY(document.isObject());
     const QJsonObject object = document.object();
     QCOMPARE(object.value(QStringLiteral("event")).toString(), QStringLiteral("video"));
     QCOMPARE(object.value(QStringLiteral("index")).toInt(), 1);
     QCOMPARE(object.value(QStringLiteral("guid")).toString(), QStringLiteral("guid"));
+    QCOMPARE(object.value(QStringLiteral("title")).toString(), QStringLiteral("title"));
+    QCOMPARE(object.value(QStringLiteral("time")).toString(), QStringLiteral("2026-01-01"));
+    QCOMPARE(object.value(QStringLiteral("channel")).toString(), QStringLiteral("CCTV-1"));
+    QCOMPARE(object.value(QStringLiteral("image")).toString(), QStringLiteral("https://example.test/image.jpg"));
+    QCOMPARE(object.value(QStringLiteral("brief")).toString(), QStringLiteral("brief"));
+    QCOMPARE(object.value(QStringLiteral("length")).toInt(), 12);
     QCOMPARE(object.value(QStringLiteral("highlight")).toBool(), true);
+    QCOMPARE(object.value(QStringLiteral("listType")).toString(), QStringLiteral("highlight"));
 }
 
 void CliTests::keepsJsonProgressProtocolLineBased()

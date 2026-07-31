@@ -21,7 +21,8 @@ public:
     Output(bool json, FILE* stdoutDevice, FILE* stderrDevice, bool stdoutIsTerminal);
 
     void video(int index, const QString& guid, const QString& title, const QString& time,
-        const QString& channel, qint64 length, bool isHighlight, const QString& listType);
+        const QString& channel, const QString& image, const QString& brief, qint64 length, bool isHighlight,
+        const QString& listType);
     void listComplete(int count);
     void resolutionFailed(const QString& message);
     void jobChanged(const DownloadJob& job);

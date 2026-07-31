@@ -54,7 +54,8 @@ int exitCodeForBatch(int failedJobs, int cancelledJobs)
 }
 
 QString videoItemJson(int index, const QString& guid, const QString& title, const QString& time,
-    const QString& channel, qint64 length, bool isHighlight, const QString& listType)
+    const QString& channel, const QString& image, const QString& brief, qint64 length, bool isHighlight,
+    const QString& listType)
 {
     QJsonObject object{
         {QStringLiteral("event"), QStringLiteral("video")},
@@ -63,6 +64,8 @@ QString videoItemJson(int index, const QString& guid, const QString& title, cons
         {QStringLiteral("title"), title},
         {QStringLiteral("time"), time},
         {QStringLiteral("channel"), channel},
+        {QStringLiteral("image"), image},
+        {QStringLiteral("brief"), brief},
         {QStringLiteral("length"), length},
         {QStringLiteral("highlight"), isHighlight},
         {QStringLiteral("listType"), listType},
