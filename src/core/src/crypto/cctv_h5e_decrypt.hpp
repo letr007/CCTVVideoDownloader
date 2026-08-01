@@ -89,25 +89,33 @@ inline void decrypt_classic(uint8_t* nal, size_t len) {
 
 // Type5 new-mode: key@5, start=64, stride S, EPB-aware (same as type1).
 // Worker grid guard needs 16 bytes at logical cell start; TEA only writes 8.
-// Returns new NAL length after optional EPB 03 drop.
+// Cells are indexed on RBSP length via r2e (skip EPB 0x03), matching worker:
+// a cell that straddles an EPB must read its 8 ciphertext bytes from the
+// EBSP positions. Returns new NAL length after optional EPB 03 drop.
 inline size_t decrypt_type5_new(uint8_t* nal, size_t len, uint32_t stride) {
     if (!nal || len < 21 || stride < 8) return len;
     const uint8_t* key = nal + 5;
     std::vector<size_t> epbs;
+    std::vector<size_t> r2e;
+    r2e.reserve(len);
     for (size_t i = 0; i + 2 < len; i++) {
-        if (nal[i] == 0 && nal[i + 1] == 0 && nal[i + 2] == 3) epbs.push_back(i);
+        if (nal[i] == 0 && nal[i + 1] == 0 && nal[i + 2] == 3) {
+            epbs.push_back(i);
+            r2e.push_back(i);
+            r2e.push_back(i + 1);
+            i += 2;
+        } else {
+            r2e.push_back(i);
+        }
     }
+    const size_t rbsp_len = r2e.size();
+    uint8_t tmp[8];
     for (size_t k = 0;; k++) {
         size_t o = 64 + k * (size_t)stride;
-        if (o + 16 > len) break;
-        size_t adj = 0;
-        for (size_t e : epbs) {
-            if (e < o) adj++;
-            else break;
-        }
-        size_t oo = o + adj;
-        if (oo + 8 > len) break;
-        tea_decrypt_block(nal + oo, nal + oo, key);
+        if (o + 16 > rbsp_len || o + 8 > rbsp_len) break;
+        for (size_t b = 0; b < 8; b++) tmp[b] = nal[r2e[o + b]];
+        tea_decrypt_block(tmp, tmp, key);
+        for (size_t b = 0; b < 8; b++) nal[r2e[o + b]] = tmp[b];
     }
     if (epbs.empty()) return len;
     size_t nlen = len;
@@ -218,7 +226,9 @@ inline uint16_t type1_flip_mask_from_header(const uint8_t hdr[3]) {
         if ((b2 >> 4) & 1) setb(3);
         if ((b2 >> 3) & 1) setb(4);
         if ((b2 >> 2) & 1) setb(5);
-        if (((b0 >> 0) & 1) ^ ((b0 >> 6) & 1)) setb(7);
+        // s6 = b2[1], s7 = b2[0] (GF(2)-fitted on CCTV-16 4K corpus #104).
+        if ((b2 >> 1) & 1) setb(6);
+        if ((b2 >> 0) & 1) setb(7);
         if ((b0 >> 0) & 1) {
             setb(9); setb(10); setb(11); setb(12); setb(14);
         }
