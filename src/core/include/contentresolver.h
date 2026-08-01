@@ -7,6 +7,8 @@
 #include <QUrl>
 #include <QVector>
 
+class QJsonObject;
+
 #include "apiservice.h"
 #include "contentparse.h"
 
@@ -65,6 +67,9 @@ private:
     QString normalizeEncryptedPlaylistUrl(QString url) const;
     QString clearVariantUrl(const QString& hlsUrl, const QString& quality) const;
     QStringList qualityFallbacks(const QString& quality) const;
+    bool isCctv16Channel(const QString& playChannel) const;
+    QString encryptedPlaylistUrlFrom(const QJsonObject& root) const;
+    bool fallbackToEncryptedPlaylist(quint64 requestId);
 
     APIService& m_apiService;
     QPointer<QNetworkReply> m_pendingMediaReply;
@@ -73,6 +78,7 @@ private:
     MediaResolveStage m_mediaResolveStage = MediaResolveStage::None;
     QString m_pendingQuality;
     QString m_pendingMasterPlaylistUrl;
+    QString m_pendingEncryptedPlaylistUrl;
     QStringList m_pendingClearQualities;
     bool m_pendingSelectedVariantIsHighQuality = false;
 };

@@ -141,6 +141,7 @@ void ContentResolver::startResolveMedia(const QString& guid, const QString& qual
 
     m_pendingQuality = quality;
     m_pendingMasterPlaylistUrl.clear();
+    m_pendingEncryptedPlaylistUrl.clear();
     m_pendingClearQualities.clear();
     m_pendingSelectedVariantIsHighQuality = false;
     m_mediaResolveStage = MediaResolveStage::FetchInfo;
@@ -165,6 +166,7 @@ void ContentResolver::cancelResolveMedia()
     m_mediaResolveStage = MediaResolveStage::None;
     m_pendingQuality.clear();
     m_pendingMasterPlaylistUrl.clear();
+    m_pendingEncryptedPlaylistUrl.clear();
     m_pendingClearQualities.clear();
     m_pendingSelectedVariantIsHighQuality = false;
     emit mediaResolveCancelled();
@@ -209,6 +211,7 @@ void ContentResolver::handleMediaReplyFinished(quint64 requestId, QNetworkReply*
             m_mediaResolveStage = MediaResolveStage::None;
             m_pendingQuality.clear();
             m_pendingMasterPlaylistUrl.clear();
+            m_pendingEncryptedPlaylistUrl.clear();
             m_pendingClearQualities.clear();
             m_pendingSelectedVariantIsHighQuality = false;
             emit mediaResolveCancelled();
@@ -219,6 +222,9 @@ void ContentResolver::handleMediaReplyFinished(quint64 requestId, QNetworkReply*
             if (!m_pendingClearQualities.isEmpty()) {
                 const QString playlistUrl = clearVariantUrl(m_pendingMasterPlaylistUrl, m_pendingClearQualities.takeFirst());
                 startMediaRequest(requestId, QUrl(playlistUrl));
+                return;
+            }
+            if (fallbackToEncryptedPlaylist(requestId)) {
                 return;
             }
             finishMediaResolveFailure(requestId, QStringLiteral("网络请求失败: %1").arg(reply->errorString()));
@@ -239,6 +245,9 @@ void ContentResolver::handleMediaReplyFinished(quint64 requestId, QNetworkReply*
             startMediaRequest(requestId, QUrl(playlistUrl));
             return;
         }
+        if (stage == MediaResolveStage::FetchClearPlaylist && fallbackToEncryptedPlaylist(requestId)) {
+            return;
+        }
         finishMediaResolveFailure(requestId, QStringLiteral("网络响应为空: %1").arg(requestUrl));
         return;
     }
@@ -248,7 +257,8 @@ void ContentResolver::handleMediaReplyFinished(quint64 requestId, QNetworkReply*
         const QJsonDocument infoDoc = QJsonDocument::fromJson(responseData, &parseError);
         if (parseError.error == QJsonParseError::NoError && infoDoc.isObject()) {
             const QJsonObject root = infoDoc.object();
-            if (root.value(QStringLiteral("play_channel")).toString().contains(QStringLiteral("CCTV-4K"), Qt::CaseInsensitive)) {
+            const QString playChannel = root.value(QStringLiteral("play_channel")).toString();
+            if (playChannel.contains(QStringLiteral("CCTV-4K"), Qt::CaseInsensitive)) {
                 QString hlsUrl = root.value(QStringLiteral("hls_url")).toString();
                 if (hlsUrl.isEmpty()) {
                     finishMediaResolveFailure(requestId, QStringLiteral("CCTV-4K视频hls_url为空"));
@@ -269,18 +279,34 @@ void ContentResolver::handleMediaReplyFinished(quint64 requestId, QNetworkReply*
                 startMediaRequest(requestId, QUrl(hlsUrl));
                 return;
             }
+
+            if (isCctv16Channel(playChannel)) {
+                const QString hlsUrl = root.value(QStringLiteral("hls_url")).toString();
+                const QString normalizedEncryptedPlaylistUrl = encryptedPlaylistUrlFrom(root);
+                if (!hlsUrl.isEmpty()) {
+                    m_pendingMasterPlaylistUrl = hlsUrl;
+                    m_pendingEncryptedPlaylistUrl = normalizedEncryptedPlaylistUrl;
+                    m_pendingClearQualities = qualityFallbacks(m_pendingQuality);
+                    if (!m_pendingClearQualities.isEmpty()) {
+                        const QString playlistUrl = clearVariantUrl(hlsUrl, m_pendingClearQualities.takeFirst());
+                        if (!playlistUrl.isEmpty()) {
+                            m_mediaResolveStage = MediaResolveStage::FetchClearPlaylist;
+                            startMediaRequest(requestId, QUrl(playlistUrl));
+                            return;
+                        }
+                    }
+                }
+                if (!normalizedEncryptedPlaylistUrl.isEmpty()) {
+                    m_pendingMasterPlaylistUrl = normalizedEncryptedPlaylistUrl;
+                    m_mediaResolveStage = MediaResolveStage::FetchMasterPlaylist;
+                    startMediaRequest(requestId, QUrl(m_pendingMasterPlaylistUrl));
+                    return;
+                }
+            }
         }
 
         const QJsonObject root = infoDoc.object();
-        const QJsonObject manifest = root.value(QStringLiteral("manifest")).toObject();
-        QString encryptedPlaylistUrl = manifest.value(QStringLiteral("hls_h5e_url")).toString();
-        if (encryptedPlaylistUrl.isEmpty()) {
-            encryptedPlaylistUrl = manifest.value(QStringLiteral("hls_enc_url")).toString();
-        }
-        if (encryptedPlaylistUrl.isEmpty()) {
-            encryptedPlaylistUrl = manifest.value(QStringLiteral("hls_enc2_url")).toString();
-        }
-        const QString normalizedEncryptedPlaylistUrl = normalizeEncryptedPlaylistUrl(encryptedPlaylistUrl);
+        const QString normalizedEncryptedPlaylistUrl = encryptedPlaylistUrlFrom(root);
         if (!normalizedEncryptedPlaylistUrl.isEmpty()) {
             m_pendingMasterPlaylistUrl = normalizedEncryptedPlaylistUrl;
             m_mediaResolveStage = MediaResolveStage::FetchMasterPlaylist;
@@ -327,6 +353,9 @@ void ContentResolver::handleMediaReplyFinished(quint64 requestId, QNetworkReply*
             startMediaRequest(requestId, QUrl(playlistUrl));
             return;
         }
+        if (fallbackToEncryptedPlaylist(requestId)) {
+            return;
+        }
         finishMediaResolveFailure(requestId, QStringLiteral("未解析到明文TS切片"));
         return;
     }
@@ -371,6 +400,7 @@ void ContentResolver::finishMediaResolveSuccess(quint64 requestId, const Content
     m_mediaResolveStage = MediaResolveStage::None;
     m_pendingQuality.clear();
     m_pendingMasterPlaylistUrl.clear();
+    m_pendingEncryptedPlaylistUrl.clear();
     m_pendingClearQualities.clear();
     m_pendingSelectedVariantIsHighQuality = false;
     emit mediaResolved(media);
@@ -385,6 +415,7 @@ void ContentResolver::finishMediaResolveFailure(quint64 requestId, const QString
     m_mediaResolveStage = MediaResolveStage::None;
     m_pendingQuality.clear();
     m_pendingMasterPlaylistUrl.clear();
+    m_pendingEncryptedPlaylistUrl.clear();
     m_pendingClearQualities.clear();
     m_pendingSelectedVariantIsHighQuality = false;
     emit mediaResolveFailed(errorMessage);
@@ -534,6 +565,39 @@ QString ContentResolver::normalizeEncryptedPlaylistUrl(QString url) const
         url.replace(match.captured(0), QStringLiteral("https://drm.cntv.vod.dnsv1.com/asp/enc2/"));
     }
     return url;
+}
+
+bool ContentResolver::isCctv16Channel(const QString& playChannel) const
+{
+    // 匹配 CCTV-16 且后面不紧跟数字，避免误伤类似 CCTV-160 的邻号（实际不存在，但保持保守）。
+    const QRegularExpression expression(QStringLiteral(R"(CCTV-16(?![0-9]))"),
+        QRegularExpression::CaseInsensitiveOption);
+    return expression.match(playChannel).hasMatch();
+}
+
+QString ContentResolver::encryptedPlaylistUrlFrom(const QJsonObject& root) const
+{
+    const QJsonObject manifest = root.value(QStringLiteral("manifest")).toObject();
+    QString encryptedPlaylistUrl = manifest.value(QStringLiteral("hls_h5e_url")).toString();
+    if (encryptedPlaylistUrl.isEmpty()) {
+        encryptedPlaylistUrl = manifest.value(QStringLiteral("hls_enc_url")).toString();
+    }
+    if (encryptedPlaylistUrl.isEmpty()) {
+        encryptedPlaylistUrl = manifest.value(QStringLiteral("hls_enc2_url")).toString();
+    }
+    return normalizeEncryptedPlaylistUrl(encryptedPlaylistUrl);
+}
+
+bool ContentResolver::fallbackToEncryptedPlaylist(quint64 requestId)
+{
+    if (m_pendingEncryptedPlaylistUrl.isEmpty()) {
+        return false;
+    }
+    m_pendingMasterPlaylistUrl = m_pendingEncryptedPlaylistUrl;
+    m_pendingEncryptedPlaylistUrl.clear();
+    m_mediaResolveStage = MediaResolveStage::FetchMasterPlaylist;
+    startMediaRequest(requestId, QUrl(m_pendingMasterPlaylistUrl));
+    return true;
 }
 
 } // namespace ContentParse
