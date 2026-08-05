@@ -1234,6 +1234,7 @@ private slots:
     void apiservice_getPlayColumnInfo_legacySportsPageWithoutGuidPreservesTopcColumn();
     void apiservice_getPlayColumnInfo_extractsNewsArticleVideoCenterId();
     void contentParse_makePlan_selectsExpectedCatalogOperations();
+    void contentParse_topcEpisodeAlbumFallback_requestsFullProgrammeModeOnly();
     void contentParse_fromStoredIds_hexGuidVide_usesTvcctvSingleVideo();
     void apiservice_getVideoList_usesTvcctvSingleVideoLookup();
     void apiservice_getVideoList_usesCctv4kGuidFallback();
@@ -5104,6 +5105,20 @@ void CoreRegressionTests::contentParse_makePlan_selectsExpectedCatalogOperations
     const auto albumPlan = ContentParse::makePlan(album);
     QCOMPARE(albumPlan.catalogStrategy, ContentParse::CatalogStrategy::AlbumByModes);
     QCOMPARE(albumPlan.albumModes, QVector<int>({1, 2, 0}));
+
+    ContentParse::Features topcEpisode;
+    topcEpisode.kind = ContentParse::Kind::Episode;
+    topcEpisode.columnId = QStringLiteral("TOPC1460958142363297");
+    const auto topcEpisodePlan = ContentParse::makePlan(topcEpisode);
+    QCOMPARE(topcEpisodePlan.catalogStrategy, ContentParse::CatalogStrategy::ColumnThenAlbumByModes);
+    QCOMPARE(topcEpisodePlan.albumModes, QVector<int>({0}));
+
+    ContentParse::Features nonTopcEpisode;
+    nonTopcEpisode.kind = ContentParse::Kind::Episode;
+    nonTopcEpisode.columnId = QStringLiteral("PAGE4qdNCrxgIU6utwslh3fv160421");
+    const auto nonTopcEpisodePlan = ContentParse::makePlan(nonTopcEpisode);
+    QCOMPARE(nonTopcEpisodePlan.catalogStrategy, ContentParse::CatalogStrategy::ResolveAlbumThenByModes);
+    QCOMPARE(nonTopcEpisodePlan.albumModes, QVector<int>({1, 2, 0}));
 
     ContentParse::Features column;
     column.kind = ContentParse::Kind::Column;

@@ -303,7 +303,7 @@ Plan makePlan(const Features& features)
         } else if (isTopc(features.columnId)) {
             plan.catalogStrategy = CatalogStrategy::ColumnThenAlbumByModes;
             plan.catalogId = features.columnId;
-            plan.albumModes = {1, 2, 0};
+            plan.albumModes = {0};
         } else {
             plan.catalogStrategy = CatalogStrategy::ResolveAlbumThenByModes;
             plan.catalogId = features.itemId;
