@@ -58,6 +58,15 @@ QDate parsePublishedDate(const QJsonValue& value)
     return QDate::fromString(dateText.left(8), QStringLiteral("yyyyMMdd"));
 }
 
+QString readVideoChannel(const QJsonObject& object)
+{
+    const QString channel = object.value(QStringLiteral("channel")).toString().trimmed();
+    if (!channel.isEmpty()) {
+        return channel;
+    }
+    return object.value(QStringLiteral("play_channel")).toString().trimmed();
+}
+
 bool parsePublishedTimestamp(const QJsonValue& value, qint64& timestamp)
 {
     if (value.isDouble()) {
@@ -316,7 +325,7 @@ QMap<int, VideoItem> APIService::fetchSingleVideoByGuid(const QString& serviceId
     videoItem.brief = videoObj.value(QStringLiteral("brief")).toString();
     videoItem.image = videoObj.value(QStringLiteral("img")).toString();
     videoItem.time = videoObj.value(QStringLiteral("time")).toString();
-    videoItem.channel = videoObj.value(QStringLiteral("play_channel")).toString();
+    videoItem.channel = readVideoChannel(videoObj);
     videoItem.length = parseDurationSeconds(videoObj.value(QStringLiteral("length")));
     if (videoItem.guid.isEmpty()) {
         videoItem.guid = guid;
@@ -901,7 +910,7 @@ void APIService::processMonthData(
         videoItem.title = item["title"].toString();
         videoItem.image = item["image"].toString();
         videoItem.brief = item["brief"].toString();
-        videoItem.channel = item["play_channel"].toString();
+        videoItem.channel = readVideoChannel(item);
         videoItem.length = parseDurationSeconds(item["length"]);
         videoItem.isHighlight = isHighlight;
         videoItem.listType = listType;
@@ -938,7 +947,7 @@ void APIService::processTopicVideoData(const QJsonArray& items, QMap<int, VideoI
         videoItem.title = item["video_title"].toString();
         videoItem.image = item["video_key_frame_url"].toString();
         videoItem.brief = item["sc"].toString();
-        videoItem.channel = item["play_channel"].toString();
+        videoItem.channel = readVideoChannel(item);
         videoItem.length = parseDurationSeconds(item["length"]);
         videoItem.isHighlight = true;
         videoItem.listType = QStringLiteral("片段");
@@ -961,7 +970,7 @@ bool APIService::parseVideoInfo(const QByteArray& data, QString& channel, qint64
 
     const QJsonObject root = document.object();
     const QJsonObject video = root.value(QStringLiteral("video")).toObject();
-    channel = root.value(QStringLiteral("play_channel")).toString();
+    channel = readVideoChannel(root);
     length = parseDurationSeconds(video.value(QStringLiteral("totalLength")));
     return !channel.isEmpty() || length >= 0;
 }

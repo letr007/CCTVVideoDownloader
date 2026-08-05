@@ -1191,6 +1191,7 @@ private slots:
 
     void apiservice_parseJsonObject_returnsEmptyOnInvalidJson();
     void apiservice_parseJsonArray_missingObjectOrArrayKey_returnsEmptyArray();
+    void apiservice_processMonthData_readsChannelAndPlayChannelFields();
     void apiservice_processMonthData_skipsItemsWithoutGuidOrTitle();
     void apiservice_processMonthData_marksHighlightItems();
     void apiservice_processMonthData_preservesListLength();
@@ -3750,6 +3751,25 @@ void CoreRegressionTests::apiservice_parseJsonArray_missingObjectOrArrayKey_retu
     QVERIFY2(missingObject.isEmpty(), "missing object key should return empty array");
 }
 
+void CoreRegressionTests::apiservice_processMonthData_readsChannelAndPlayChannelFields()
+{
+    APIService& apiService = APIService::instance();
+    QJsonArray items{
+        QJsonObject{{"guid", "channel-guid"}, {"title", "channel"}, {"channel", "CCTV-1"}},
+        QJsonObject{{"guid", "play-channel-guid"}, {"title", "play channel"}, {"play_channel", "CCTV-2"}},
+        QJsonObject{{"guid", "priority-guid"}, {"title", "priority"},
+            {"channel", "CCTV-3"}, {"play_channel", "旧频道"}}
+    };
+
+    QMap<int, VideoItem> result;
+    int index = 0;
+    APIServiceTestAdapter::processMonthData(apiService, items, QStringLiteral("202608"), result, index);
+
+    QCOMPARE(result.value(0).channel, QStringLiteral("CCTV-1"));
+    QCOMPARE(result.value(1).channel, QStringLiteral("CCTV-2"));
+    QCOMPARE(result.value(2).channel, QStringLiteral("CCTV-3"));
+}
+
 void CoreRegressionTests::apiservice_processMonthData_skipsItemsWithoutGuidOrTitle()
 {
     APIService& apiService = APIService::instance();
@@ -5147,6 +5167,54 @@ void CoreRegressionTests::contentParse_makePlan_selectsExpectedCatalogOperations
     QCOMPARE(storedNewsPlan.catalogId, news.columnId);
 }
 
+void CoreRegressionTests::contentParse_topcEpisodeAlbumFallback_requestsFullProgrammeModeOnly()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QString columnId = QStringLiteral("TOPC1460958142363297");
+    const QString itemId = QStringLiteral("VIDECtLnpaVTtX2Xx5aTKZ4A260802");
+    const QString albumId = QStringLiteral("VIDApx1Rf71eekvLcMr0if2K260803");
+    const QString month = QStringLiteral("202608");
+
+    const QUrl columnUrl = APIServiceTestAdapter::buildVideoApiUrl(
+        apiService, FetchType::Column, columnId, month, 1, 100);
+    manager.queueSuccess(columnUrl, QByteArray(R"({"errcode":"1002","msg":"data empty"})"));
+
+    QUrl resolveAlbumUrl(QStringLiteral("https://api.cntv.cn/NewVideoset/getVideoAlbumInfoByVideoId"));
+    QUrlQuery resolveAlbumQuery;
+    resolveAlbumQuery.addQueryItem(QStringLiteral("id"), itemId);
+    resolveAlbumQuery.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("tvcctv"));
+    resolveAlbumUrl.setQuery(resolveAlbumQuery);
+    manager.queueSuccess(resolveAlbumUrl, QByteArray(R"({"data":{"id":"VIDApx1Rf71eekvLcMr0if2K260803"}})"));
+
+    const QUrl albumUrl = APIServiceTestAdapter::buildAlbumVideoListUrl(
+        apiService, albumId, 0, 1, 100);
+    manager.queueSuccess(albumUrl, QByteArray(R"({"data":{"total":2,"list":[
+        {"guid":"full-guid-1","title":"完整视频 1","length":"00:24:37"},
+        {"guid":"full-guid-2","title":"完整视频 2","length":"00:24:39"}
+    ]}})"));
+
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    ContentParse::ProgrammeRecord record;
+    record.title = QStringLiteral("《南戏九百年》");
+    record.itemId = itemId;
+    record.columnId = columnId;
+    record.catalogId = columnId;
+
+    const QMap<int, VideoItem> videos = apiService.getVideoList(record, month, month);
+
+    QCOMPARE(videos.size(), 2);
+    QCOMPARE(videos.value(0).guid, QStringLiteral("full-guid-1"));
+    QCOMPARE(videos.value(1).guid, QStringLiteral("full-guid-2"));
+    QVERIFY(!videos.value(0).isHighlight);
+    QVERIFY(!videos.value(1).isHighlight);
+    QCOMPARE(videos.value(0).listType, QStringLiteral("完整"));
+    QCOMPARE(videos.value(1).listType, QStringLiteral("完整"));
+    QCOMPARE(manager.requestedUrls(), (QList<QUrl>{columnUrl, resolveAlbumUrl, albumUrl}));
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
 void CoreRegressionTests::contentParse_fromStoredIds_hexGuidVide_usesTvcctvSingleVideo()
 {
     const QString guid = QStringLiteral("6ef3fbbea4924a0a87a8cb12b76cc109");
@@ -5380,7 +5448,7 @@ void CoreRegressionTests::apiservice_startGetVideoInfo_asyncSuccess_parsesChanne
     FakeNetworkAccessManager manager;
     const QString guid = QStringLiteral("video-info-guid");
     const QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=video-info-guid"));
-    manager.queueSuccess(infoUrl, QByteArray(R"({"play_channel":"CCTV-1 综合","video":{"totalLength":"3723.84"}})"));
+    manager.queueSuccess(infoUrl, QByteArray(R"({"channel":"CCTV-1 综合","video":{"totalLength":"3723.84"}})"));
     APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
 
     QSignalSpy resolvedSpy(&apiService, &APIService::videoInfoResolved);

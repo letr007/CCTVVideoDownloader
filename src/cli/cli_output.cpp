@@ -131,6 +131,11 @@ void Output::usageError(const QString& message)
     }
 }
 
+void Output::warning(const QString& message)
+{
+    stderrLine(QStringLiteral("warning: %1").arg(message));
+}
+
 void Output::jsonLine(const QJsonObject& object)
 {
     stdoutLine(QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact)));

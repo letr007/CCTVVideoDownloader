@@ -26,6 +26,10 @@ public:
 
 private:
     void resolveUrl(const QString& url, const std::function<void()>& done);
+    void enrichJsonListChannels(const std::function<void()>& done);
+    void resolveNextJsonListChannel();
+    void handleVideoInfoResolved(quint64 requestId, const QString& guid, const QString& channel, qint64 length);
+    void handleVideoInfoFailed(quint64 requestId, const QString& guid, const QString& errorMessage);
     void startDownload();
     void applyConfiguredDefaults();
 
@@ -37,6 +41,12 @@ private:
     QMap<int, VideoItem> m_videos;
     QString m_from;
     QString m_to;
+    QList<int> m_pendingJsonChannelIndexes;
+    int m_pendingJsonChannelPosition = 0;
+    int m_pendingJsonChannelIndex = -1;
+    quint64 m_pendingJsonChannelRequestId = 0;
+    QString m_pendingJsonChannelGuid;
+    std::function<void()> m_pendingJsonListCompletion;
     bool m_cancelled = false;
 };
 

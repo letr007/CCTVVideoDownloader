@@ -30,6 +30,7 @@ public:
     void downloadComplete(int completed, int failed, int cancelled, int total);
     void downloadStartFailed();
     void usageError(const QString& message);
+    void warning(const QString& message);
 
 private:
     void jsonLine(const QJsonObject& object);

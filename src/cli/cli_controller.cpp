@@ -7,6 +7,7 @@
 #include <QTimer>
 
 #include <tuple>
+#include <utility>
 
 namespace Cli {
 
@@ -17,6 +18,8 @@ Controller::Controller(QCoreApplication& application, const Options& options)
     , m_output(options.json)
     , m_api(&APIService::instance())
 {
+    connect(m_api, &APIService::videoInfoResolved, this, &Controller::handleVideoInfoResolved);
+    connect(m_api, &APIService::videoInfoFailed, this, &Controller::handleVideoInfoFailed);
 }
 
 void Controller::start()
@@ -70,7 +73,11 @@ void Controller::resolveUrl(const QString& url, const std::function<void()>& don
                         return;
                     }
                     m_videos = videos;
-                    done();
+                    if (m_options.command == QStringLiteral("list") && m_options.json) {
+                        enrichJsonListChannels(done);
+                    } else {
+                        done();
+                    }
                 }, Qt::SingleShotConnection);
         }, Qt::SingleShotConnection);
     connect(m_api, &APIService::playColumnInfoFailed, this,
@@ -81,6 +88,89 @@ void Controller::resolveUrl(const QString& url, const std::function<void()>& don
             m_output.resolutionFailed(message);
             m_application.exit(static_cast<int>(ExitCode::ResolutionFailure));
         }, Qt::SingleShotConnection);
+}
+
+void Controller::enrichJsonListChannels(const std::function<void()>& done)
+{
+    m_pendingJsonChannelIndexes.clear();
+    m_pendingJsonChannelPosition = 0;
+    m_pendingJsonChannelIndex = -1;
+    m_pendingJsonChannelRequestId = 0;
+    m_pendingJsonChannelGuid.clear();
+    m_pendingJsonListCompletion = done;
+
+    for (auto it = m_videos.cbegin(); it != m_videos.cend(); ++it) {
+        if (it.value().channel.trimmed().isEmpty() && !it.value().guid.trimmed().isEmpty()) {
+            m_pendingJsonChannelIndexes.append(it.key());
+        }
+    }
+
+    resolveNextJsonListChannel();
+}
+
+void Controller::resolveNextJsonListChannel()
+{
+    if (m_cancelled) {
+        return;
+    }
+
+    if (m_pendingJsonChannelPosition >= m_pendingJsonChannelIndexes.size()) {
+        const auto done = std::exchange(m_pendingJsonListCompletion, {});
+        m_pendingJsonChannelIndexes.clear();
+        m_pendingJsonChannelPosition = 0;
+        m_pendingJsonChannelIndex = -1;
+        m_pendingJsonChannelRequestId = 0;
+        m_pendingJsonChannelGuid.clear();
+        if (done) {
+            done();
+        }
+        return;
+    }
+
+    m_pendingJsonChannelIndex = m_pendingJsonChannelIndexes.at(m_pendingJsonChannelPosition);
+    const auto video = m_videos.constFind(m_pendingJsonChannelIndex);
+    if (video == m_videos.cend() || !video.value().channel.trimmed().isEmpty()
+        || video.value().guid.trimmed().isEmpty()) {
+        ++m_pendingJsonChannelPosition;
+        QTimer::singleShot(0, this, &Controller::resolveNextJsonListChannel);
+        return;
+    }
+
+    m_pendingJsonChannelGuid = video.value().guid;
+    m_pendingJsonChannelRequestId = m_api->startGetVideoInfo(m_pendingJsonChannelGuid);
+}
+
+void Controller::handleVideoInfoResolved(quint64 requestId,
+    const QString& guid,
+    const QString& channel,
+    qint64)
+{
+    if (requestId != m_pendingJsonChannelRequestId || guid != m_pendingJsonChannelGuid
+        || m_pendingJsonChannelIndex < 0) {
+        return;
+    }
+
+    auto video = m_videos.find(m_pendingJsonChannelIndex);
+    if (video != m_videos.end() && video.value().guid == guid) {
+        video.value().channel = channel.trimmed();
+    }
+
+    ++m_pendingJsonChannelPosition;
+    QTimer::singleShot(0, this, &Controller::resolveNextJsonListChannel);
+}
+
+void Controller::handleVideoInfoFailed(quint64 requestId,
+    const QString& guid,
+    const QString& errorMessage)
+{
+    if (requestId != m_pendingJsonChannelRequestId || guid != m_pendingJsonChannelGuid
+        || m_pendingJsonChannelIndex < 0) {
+        return;
+    }
+
+    m_output.warning(QStringLiteral("获取视频频道失败 [%1]: %2").arg(guid, errorMessage));
+    ++m_pendingJsonChannelPosition;
+    QTimer::singleShot(0, this, &Controller::resolveNextJsonListChannel);
 }
 
 void Controller::startDownload()
