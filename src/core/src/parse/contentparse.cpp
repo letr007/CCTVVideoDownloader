@@ -161,6 +161,14 @@ Features parsePage(const QString& html, const QString& url)
         return features;
     }
 
+    // 文旅单视频页：itemguid 为权威视频 GUID，无 videotvCodes 专辑码时按单视频处理
+    const QString itemGuid = matchOne(html, QStringLiteral(R"(\bvar\s+itemguid\s*=\s*["']([0-9a-fA-F]{32})["'])"));
+    if (isHexGuid(itemGuid) && features.albumId.isEmpty() && isVidE(features.itemId)) {
+        features.guid = itemGuid;
+        features.itemId = features.itemId.isEmpty() ? itemGuid : features.itemId;
+        features.columnId = itemGuid;
+    }
+
     if (features.itemId.isEmpty() && !features.urlToken.isEmpty()) {
         features.itemId = features.urlToken;
     }

@@ -1237,6 +1237,9 @@ private slots:
     void contentParse_makePlan_selectsExpectedCatalogOperations();
     void contentParse_topcEpisodeAlbumFallback_requestsFullProgrammeModeOnly();
     void contentParse_fromStoredIds_hexGuidVide_usesTvcctvSingleVideo();
+    void contentParse_itemGuidPage_usesSingleVideo();
+    void apiservice_getPlayColumnInfo_itemGuidPage_routesToSingleVideo();
+    void apiservice_fetchSingleVideoByGuid_readsLenFallback();
     void apiservice_getVideoList_usesTvcctvSingleVideoLookup();
     void apiservice_getVideoList_usesCctv4kGuidFallback();
     void apiservice_startGetPlayColumnInfo_asyncSuccess_emitsResolvedData();
@@ -5221,6 +5224,95 @@ void CoreRegressionTests::contentParse_fromStoredIds_hexGuidVide_usesTvcctvSingl
     const ContentParse::Plan plan = ContentParse::makePlan(ContentParse::fromStoredIds(guid, QStringLiteral("VIDE100215108600")));
     QCOMPARE(plan.catalogStrategy, ContentParse::CatalogStrategy::SingleVideo);
     QCOMPARE(plan.serviceId, QStringLiteral("tvcctv"));
+}
+
+void CoreRegressionTests::contentParse_itemGuidPage_usesSingleVideo()
+{
+    const QString itemId = QStringLiteral("VIDEvVu5prXSM14Y8yQk6aiq241221");
+    const QString itemGuid = QStringLiteral("19e5f94bf6fe4c53b9df44d6885af4c4");
+    const QString columnId = QStringLiteral("TOPC1606206918061828");
+    const ContentParse::Features features = ContentParse::parsePage(QStringLiteral(R"(
+<script>
+var commentTitle = '《二十四节气七十二候》系列高清视频：冬至';
+var itemid1 = '%1';
+var itemguid = '%2';
+var column_id = '%3';
+</script>
+)").arg(itemId, itemGuid, columnId).toUtf8(), QStringLiteral("https://culture-travel.cctv.com/2024/12/21/VIDEvVu5prXSM14Y8yQk6aiq241221.shtml"));
+
+    QCOMPARE(features.guid, itemGuid);
+    QCOMPARE(features.itemId, itemId);
+    QCOMPARE(features.columnId, itemGuid);
+    QCOMPARE(features.albumId, QString());
+    const ContentParse::Plan plan = ContentParse::makePlan(features);
+    QCOMPARE(plan.catalogStrategy, ContentParse::CatalogStrategy::SingleVideo);
+    QCOMPARE(plan.serviceId, QStringLiteral("tvcctv"));
+    QCOMPARE(plan.catalogId, itemGuid);
+}
+
+void CoreRegressionTests::apiservice_getPlayColumnInfo_itemGuidPage_routesToSingleVideo()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl url(QStringLiteral("https://culture-travel.cctv.com/2024/12/21/VIDEvVu5prXSM14Y8yQk6aiq241221.shtml"));
+    const QString guid = QStringLiteral("19e5f94bf6fe4c53b9df44d6885af4c4");
+    const QString itemId = QStringLiteral("VIDEvVu5prXSM14Y8yQk6aiq241221");
+    const QString columnId = QStringLiteral("TOPC1606206918061828");
+    manager.queueSuccess(url, QStringLiteral(R"(
+<script>
+var commentTitle = '《二十四节气七十二候》系列高清视频：冬至';
+var itemid1 = '%1';
+var itemguid = '%2';
+var column_id = '%3';
+</script>
+)").arg(itemId, guid, columnId).toUtf8());
+
+    QUrl videoInfoUrl(QStringLiteral("https://zy.api.cntv.cn/video/videoinfoByGuid"));
+    QUrlQuery videoInfoQuery;
+    videoInfoQuery.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("tvcctv"));
+    videoInfoQuery.addQueryItem(QStringLiteral("guid"), guid);
+    videoInfoUrl.setQuery(videoInfoQuery);
+    manager.queueSuccess(videoInfoUrl, QByteArray(R"({"vid":"19e5f94bf6fe4c53b9df44d6885af4c4","title":"《二十四节气七十二候》系列高清视频：冬至","len":"00:06:17"})"));
+
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const auto result = apiService.getPlayColumnInfo(url.toString());
+    QVERIFY(!result.isNull());
+    QCOMPARE(result->rawItemId, itemId);
+    QCOMPARE(result->rawColumnId, guid);
+    QCOMPARE(result->catalogId, guid);
+    QCOMPARE(ContentParse::makePlan(*result).catalogStrategy, ContentParse::CatalogStrategy::SingleVideo);
+
+    const auto videos = apiService.getVideoList(*result, QStringLiteral("202412"), QStringLiteral("202412"));
+    QCOMPARE(videos.size(), 1);
+    QCOMPARE(videos.value(0).guid, guid);
+    QCOMPARE(videos.value(0).title, QStringLiteral("《二十四节气七十二候》系列高清视频：冬至"));
+    QCOMPARE(videos.value(0).length, qint64(377));
+    QCOMPARE(manager.requestCount(), 2);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::apiservice_fetchSingleVideoByGuid_readsLenFallback()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QString guid = QStringLiteral("19e5f94bf6fe4c53b9df44d6885af4c4");
+    QUrl videoInfoUrl(QStringLiteral("https://zy.api.cntv.cn/video/videoinfoByGuid"));
+    QUrlQuery videoInfoQuery;
+    videoInfoQuery.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("tvcctv"));
+    videoInfoQuery.addQueryItem(QStringLiteral("guid"), guid);
+    videoInfoUrl.setQuery(videoInfoQuery);
+    manager.queueSuccess(videoInfoUrl, QByteArray(R"({"vid":"19e5f94bf6fe4c53b9df44d6885af4c4","title":"t","len":"00:06:17"})"));
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const auto videos = apiService.fetchSingleVideoByGuid(QStringLiteral("tvcctv"), guid);
+    QCOMPARE(videos.size(), 1);
+    QCOMPARE(videos.value(0).guid, guid);
+    QCOMPARE(videos.value(0).length, qint64(377));
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
 }
 
 void CoreRegressionTests::apiservice_getVideoList_usesTvcctvSingleVideoLookup()

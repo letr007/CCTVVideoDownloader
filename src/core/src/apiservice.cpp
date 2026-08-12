@@ -327,6 +327,9 @@ QMap<int, VideoItem> APIService::fetchSingleVideoByGuid(const QString& serviceId
     videoItem.time = videoObj.value(QStringLiteral("time")).toString();
     videoItem.channel = readVideoChannel(videoObj);
     videoItem.length = parseDurationSeconds(videoObj.value(QStringLiteral("length")));
+    if (videoItem.length < 0) {
+        videoItem.length = parseDurationSeconds(videoObj.value(QStringLiteral("len")));
+    }
     if (videoItem.guid.isEmpty()) {
         videoItem.guid = guid;
     }
