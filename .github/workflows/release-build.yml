@@ -247,10 +247,13 @@ jobs:
           cli_dir="artifact/cctv-dl"
           cli_archive="artifact/cctv-dl.${PACKAGE_ID}.linux.${{ matrix.package_arch }}.tar.gz"
           test -x "$cli_dir/bin/cctv-dl"
-          find "$cli_dir" -name 'libQt6Core.so*' -print -quit | grep -q .
-          env -u LD_LIBRARY_PATH -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QML_IMPORT_PATH \
-            "$cli_dir/bin/cctv-dl" --version
-          tar -C artifact -czf "$cli_archive" cctv-dl
+          # Collect third-party shared libs (libzstd, glib, krb5, ...) that Qt's
+          # deploy script skips, so the CLI runs on minimal systems (e.g. NAS).
+          chmod +x scripts/package-linux-targz.sh
+          ./scripts/package-linux-targz.sh \
+            "$cli_dir" \
+            "$cli_archive"
+          test -f "$cli_archive"
 
       - name: Upload useful release packages
         uses: actions/upload-artifact@v4
