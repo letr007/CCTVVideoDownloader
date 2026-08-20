@@ -32,7 +32,9 @@
 #include <QTimer>
 #include <QToolButton>
 #include <atomic>
+#include <cmath>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <thread>
 #include <tuple>
@@ -1129,6 +1131,7 @@ private slots:
     void mediaFinalizer_sanitizesCrossPlatformFileNames();
     void mediaFinalizer_publishTs_validatesAndUsesUniqueName();
     void mediaFinalizer_remuxesToMp4WithEmbeddedLibav();
+    void libavRemuxer_normalizesGlobalInputStartTime_preservesStreamOffsets();
     void mediaFinalizer_remuxTimeout_reportsFailureAndDoesNotPublishMp4();
     void mediaFinalizer_remuxCancel_reportsCancelledAndDoesNotPublishMp4();
     void mediaFinalizer_remuxProcessFailure_reportsDiagnostic();
@@ -6374,6 +6377,42 @@ void CoreRegressionTests::mediaFinalizer_remuxesToMp4WithEmbeddedLibav()
 
     const MediaContainerValidationResult validation = MediaContainerValidator::validateFile(result.finalPath, MediaContainerType::Mp4);
     QVERIFY(validation.ok);
+}
+
+void CoreRegressionTests::libavRemuxer_normalizesGlobalInputStartTime_preservesStreamOffsets()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString inputPath = QDir(tempDir.path()).filePath(QStringLiteral("input.ts"));
+    const QString outputPath = QDir(tempDir.path()).filePath(QStringLiteral("output.mp4"));
+    QVERIFY(createFileWithContents(inputPath, createRemuxableTsFixtureBytes()));
+
+    double videoPts = std::numeric_limits<double>::quiet_NaN();
+    double videoDts = std::numeric_limits<double>::quiet_NaN();
+    double audioPts = std::numeric_limits<double>::quiet_NaN();
+    LibavRemuxer::setTestTimestampObserver([&](int streamIndex, double pts, double dts) {
+        if (streamIndex == 0 && !std::isfinite(videoPts)) {
+            videoPts = pts;
+            videoDts = dts;
+        } else if (streamIndex == 1 && !std::isfinite(audioPts)) {
+            audioPts = pts;
+        }
+    });
+
+    LibavRemuxer remuxer;
+    remuxer.setProcessTimeoutMs(30000);
+    const LibavRemuxResult result = remuxer.remuxTsToMp4(inputPath, outputPath);
+    LibavRemuxer::clearTestTimestampObserver();
+    QVERIFY2(result.ok, qPrintable(result.code + QStringLiteral(": ") + result.message));
+
+    QVERIFY(std::isfinite(videoPts));
+    QVERIFY(std::isfinite(videoDts));
+    QVERIFY(std::isfinite(audioPts));
+    QVERIFY(std::abs(videoPts) < 0.001);
+    QVERIFY(std::abs(videoDts + 0.08) < 0.001);
+    QVERIFY(std::abs(audioPts - 0.228667) < 0.001);
+    QVERIFY(MediaContainerValidator::validateFile(outputPath, MediaContainerType::Mp4).ok);
 }
 
 void CoreRegressionTests::mediaFinalizer_remuxTimeout_reportsFailureAndDoesNotPublishMp4()

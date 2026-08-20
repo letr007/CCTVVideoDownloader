@@ -102,6 +102,14 @@ struct OutputTimestampState
 	int64_t lastPacketDuration = 0;
 };
 
+#ifdef CORE_REGRESSION_TESTS
+std::function<void(int, double, double)>& timestampObserver()
+{
+	static std::function<void(int, double, double)> observer;
+	return observer;
+}
+#endif
+
 bool checkedTimestampAdd(int64_t left, int64_t right, int64_t* result)
 {
 	if ((right > 0 && left > std::numeric_limits<int64_t>::max() - right)
@@ -109,6 +117,16 @@ bool checkedTimestampAdd(int64_t left, int64_t right, int64_t* result)
 		return false;
 	}
 	*result = left + right;
+	return true;
+}
+
+bool checkedTimestampSubtract(int64_t left, int64_t right, int64_t* result)
+{
+	if ((right > 0 && left < std::numeric_limits<int64_t>::min() + right)
+		|| (right < 0 && left > std::numeric_limits<int64_t>::max() + right)) {
+		return false;
+	}
+	*result = left - right;
 	return true;
 }
 
@@ -121,6 +139,31 @@ int failTimestampNormalization(QString* errorOut, int streamIndex, const char* s
 								.arg(detail);
 	}
 	return AVERROR(EINVAL);
+}
+
+int normalizePacketStartTime(AVPacket* pkt,
+	int64_t inputStartTime,
+	AVRational outputTimeBase,
+	QString* errorOut,
+	const char* stage)
+{
+	if (inputStartTime == AV_NOPTS_VALUE) {
+		return 0;
+	}
+
+	const int64_t offset = av_rescale_q(inputStartTime, AV_TIME_BASE_Q, outputTimeBase);
+	for (int64_t* timestamp : {&pkt->pts, &pkt->dts}) {
+		if (*timestamp == AV_NOPTS_VALUE) {
+			continue;
+		}
+		int64_t normalizedTimestamp = 0;
+		if (!checkedTimestampSubtract(*timestamp, offset, &normalizedTimestamp)) {
+			return failTimestampNormalization(errorOut, pkt->stream_index, stage,
+				QStringLiteral("input start time offset overflow"));
+		}
+		*timestamp = normalizedTimestamp;
+	}
+	return 0;
 }
 
 int normalizeAndWritePacket(AVFormatContext* ofmt,
@@ -180,6 +223,15 @@ int normalizeAndWritePacket(AVFormatContext* ofmt,
 		}
 		pkt->dts = nextMuxDts;
 	}
+
+#ifdef CORE_REGRESSION_TESTS
+	if (timestampObserver()) {
+		const AVRational timeBase = ofmt->streams[pkt->stream_index]->time_base;
+		timestampObserver()(pkt->stream_index,
+			pkt->pts == AV_NOPTS_VALUE ? std::numeric_limits<double>::quiet_NaN() : pkt->pts * av_q2d(timeBase),
+			pkt->dts == AV_NOPTS_VALUE ? std::numeric_limits<double>::quiet_NaN() : pkt->dts * av_q2d(timeBase));
+	}
+#endif
 
 	// av_interleaved_write_frame() takes ownership of the packet on success, so
 	// preserve the normalized timing before the call clears/unrefs its fields.
@@ -416,6 +468,10 @@ int remuxWithLibav(const QString& inputPath,
 
 				pkt->stream_index = map.outIndex;
 				av_packet_rescale_ts(pkt, map.bsf->time_base_out, outStream->time_base);
+				ret = normalizePacketStartTime(pkt, ifmt->start_time, outStream->time_base, errorOut, "aac_bsf_receive");
+				if (ret < 0) {
+					goto cleanup;
+				}
 				pkt->pos = -1;
 				ret = normalizeAndWritePacket(ofmt, pkt, &timestampStates, errorOut, "aac_bsf_receive");
 				av_packet_unref(pkt);
@@ -428,6 +484,10 @@ int remuxWithLibav(const QString& inputPath,
 
 		pkt->stream_index = map.outIndex;
 		av_packet_rescale_ts(pkt, inStream->time_base, outStream->time_base);
+		ret = normalizePacketStartTime(pkt, ifmt->start_time, outStream->time_base, errorOut, "direct");
+		if (ret < 0) {
+			goto cleanup;
+		}
 		pkt->pos = -1;
 		ret = normalizeAndWritePacket(ofmt, pkt, &timestampStates, errorOut, "direct");
 		av_packet_unref(pkt);
@@ -457,6 +517,10 @@ int remuxWithLibav(const QString& inputPath,
 			AVStream* outStream = ofmt->streams[map.outIndex];
 			pkt->stream_index = map.outIndex;
 			av_packet_rescale_ts(pkt, map.bsf->time_base_out, outStream->time_base);
+			ret = normalizePacketStartTime(pkt, ifmt->start_time, outStream->time_base, errorOut, "aac_bsf_flush");
+			if (ret < 0) {
+				goto cleanup;
+			}
 			pkt->pos = -1;
 			ret = normalizeAndWritePacket(ofmt, pkt, &timestampStates, errorOut, "aac_bsf_flush");
 			av_packet_unref(pkt);
@@ -493,6 +557,18 @@ cleanup:
 }
 
 } // namespace
+
+#ifdef CORE_REGRESSION_TESTS
+void LibavRemuxer::setTestTimestampObserver(const std::function<void(int, double, double)>& observer)
+{
+	timestampObserver() = observer;
+}
+
+void LibavRemuxer::clearTestTimestampObserver()
+{
+	timestampObserver() = {};
+}
+#endif
 
 void LibavRemuxer::setProcessTimeoutMs(int timeoutMs)
 {

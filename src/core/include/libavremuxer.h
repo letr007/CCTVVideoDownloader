@@ -42,6 +42,7 @@ class LibavRemuxer
 #ifdef CORE_REGRESSION_TESTS
 	friend class MediaFinalizerTestAdapter;
 	friend class MediaFinalizer;
+	friend class CoreRegressionTests;
 #endif
 
 public:
@@ -56,6 +57,8 @@ private:
 	void clearTestProcessRunner();
 	void setTestDecryptAssetsDir(const QString& decryptAssetsDir);
 	void clearTestDecryptAssetsDir();
+	static void setTestTimestampObserver(const std::function<void(int, double, double)>& observer);
+	static void clearTestTimestampObserver();
 #endif
 
 	int m_processTimeoutMs{30000};
