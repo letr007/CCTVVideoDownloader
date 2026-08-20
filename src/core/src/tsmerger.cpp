@@ -54,6 +54,7 @@ bool TSMerger::merge(const std::vector<QString>& inputFiles,
         qWarning() << "没有输入文件可合并";
         return false;
     }
+    reset();
     const QFileInfo outputInfo(outputFile);
     if (!QDir().mkpath(outputInfo.absolutePath())) {
         qCritical() << "无法创建输出目录:" << outputInfo.absolutePath();
@@ -167,6 +168,8 @@ bool TSMerger::processFile(const QString& filename,
         return false;
     }
     
+    continuityOffsets.fill(-1);
+
     QFile infile(filename);
     if (!infile.open(QIODevice::ReadOnly)) {
         qCritical() << "无法打开输入文件:" << filename;
@@ -219,6 +222,10 @@ bool TSMerger::processFile(const QString& filename,
             if (pid == 0 && !pmtIdentified) {
                 identifyPMTPID(data, i);
             }
+            if (!normalizeContinuityCounter(data, i)) {
+                qCritical() << "TS包adaptation_field_control无效:" << filename << "偏移:" << i;
+                return false;
+            }
             if (outfile.write(reinterpret_cast<const char*>(&data[i]), TS_PACKET_SIZE) != TS_PACKET_SIZE) {
                 qCritical() << "写入输出文件失败:" << outfile.fileName();
                 return false;
@@ -230,6 +237,10 @@ bool TSMerger::processFile(const QString& filename,
             if (pid == 0 || (pmtIdentified && pid == pmtPid)) {
                 skippedCount++;
                 continue; // 跳过PAT和PMT包
+            }
+            if (!normalizeContinuityCounter(data, i)) {
+                qCritical() << "TS包adaptation_field_control无效:" << filename << "偏移:" << i;
+                return false;
             }
             if (outfile.write(reinterpret_cast<const char*>(&data[i]), TS_PACKET_SIZE) != TS_PACKET_SIZE) {
                 qCritical() << "写入输出文件失败:" << outfile.fileName();
@@ -253,6 +264,42 @@ bool TSMerger::processFile(const QString& filename,
     }
     
     qDebug() << "文件处理完成:" << filename << "有效包数:" << packetCount;
+    return true;
+}
+
+bool TSMerger::normalizeContinuityCounter(std::vector<uint8_t>& data, size_t offset)
+{
+    const uint16_t pid = (data[offset + 1] & 0x1F) << 8 | data[offset + 2];
+    const uint8_t adaptationFieldControl = (data[offset + 3] >> 4) & 0x03;
+    if (adaptationFieldControl == 0) {
+        return false;
+    }
+
+    const bool hasPayload = adaptationFieldControl == 1 || adaptationFieldControl == 3;
+    const bool hasAdaptation = adaptationFieldControl == 2 || adaptationFieldControl == 3;
+    const bool discontinuity = hasAdaptation
+        && data[offset + 4] > 0
+        && (data[offset + 5] & 0x80) != 0;
+    const int inputCounter = data[offset + 3] & 0x0F;
+
+    int& lastCounter = continuityCounters[pid];
+    int& offsetForPid = continuityOffsets[pid];
+    if (pid == 0x1FFF || discontinuity) {
+        lastCounter = inputCounter;
+        offsetForPid = 0;
+        return true;
+    }
+
+    if (offsetForPid < 0) {
+        const int expectedCounter = lastCounter < 0
+            ? inputCounter
+            : hasPayload ? (lastCounter + 1) & 0x0F : lastCounter;
+        offsetForPid = (expectedCounter - inputCounter + 16) & 0x0F;
+    }
+
+    const int outputCounter = (inputCounter + offsetForPid) & 0x0F;
+    data[offset + 3] = static_cast<uint8_t>((data[offset + 3] & 0xF0) | outputCounter);
+    lastCounter = outputCounter;
     return true;
 }
 

@@ -94,17 +94,29 @@ bool createEmptyFile(const QString& filePath)
     return true;
 }
 
-bool createFakeTsFile(const QString& filePath, int packetCount, quint16 pid = 0)
+QByteArray createTsPacket(quint16 pid, quint8 continuityCounter, quint8 adaptationFieldControl = 1)
+{
+    QByteArray packet(188, '\0');
+    packet[0] = 0x47;
+    packet[1] = static_cast<char>((pid >> 8) & 0x1F);
+    packet[2] = static_cast<char>(pid & 0xFF);
+    packet[3] = static_cast<char>((adaptationFieldControl << 4) | (continuityCounter & 0x0F));
+    if (adaptationFieldControl == 2) {
+        packet[4] = static_cast<char>(183);
+    } else if (adaptationFieldControl == 3) {
+        packet[4] = 1;
+    }
+    return packet;
+}
+
+bool createTsFile(const QString& filePath, const QList<QByteArray>& packets)
 {
     QByteArray data;
-    data.reserve(packetCount * 188);
-
-    for (int i = 0; i < packetCount; ++i) {
-        QByteArray packet(188, '\0');
-        packet[0] = 0x47;
-        packet[1] = static_cast<char>((pid >> 8) & 0x1F);
-        packet[2] = static_cast<char>(pid & 0xFF);
-        packet[3] = 0x10;
+    data.reserve(packets.size() * 188);
+    for (const QByteArray& packet : packets) {
+        if (packet.size() != 188) {
+            return false;
+        }
         data.append(packet);
     }
 
@@ -112,11 +124,19 @@ bool createFakeTsFile(const QString& filePath, int packetCount, quint16 pid = 0)
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         return false;
     }
-
-    const qint64 expectedSize = data.size();
     const qint64 written = file.write(data);
     file.close();
-    return written == expectedSize;
+    return written == data.size();
+}
+
+bool createFakeTsFile(const QString& filePath, int packetCount, quint16 pid = 0)
+{
+    QList<QByteArray> packets;
+    packets.reserve(packetCount);
+    for (int i = 0; i < packetCount; ++i) {
+        packets.append(createTsPacket(pid, 0));
+    }
+    return createTsFile(filePath, packets);
 }
 
 bool createFileWithContents(const QString& filePath, const QByteArray& data)
@@ -1116,6 +1136,10 @@ private slots:
     void concatWorker_cancelDuringMerge_emitsCancelledAndDoesNotStageResultTs();
 
     void tsMerger_validMinimalPacket_succeeds();
+    void tsMerger_normalizesContinuityCountersAcrossShards();
+    void tsMerger_preservesInternalContinuityGaps();
+    void tsMerger_adaptationOnlyPacketDoesNotIncrementContinuityCounter();
+    void tsMerger_discontinuityStartsNewContinuityEpoch();
     void tsMerger_zeroByteFile_returnsFalse();
     void tsMerger_malformedNonZeroFile_returnsFalse();
     void tsMerger_failedMerge_preservesExistingOutputFile();
@@ -5986,6 +6010,116 @@ void CoreRegressionTests::concatWorker_cancelDuringMerge_emitsCancelledAndDoesNo
     QCOMPARE(arguments.at(1).toString(), QStringLiteral("cancelled"));
     QVERIFY(!QFileInfo::exists(QDir(tempDir.path()).filePath(QStringLiteral("result.ts"))));
     QVERIFY(!QFileInfo::exists(QDir(tempDir.path()).filePath(QStringLiteral("result.mp4"))));
+}
+
+void CoreRegressionTests::tsMerger_normalizesContinuityCountersAcrossShards()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString firstFile = QDir(tempDir.path()).filePath(QStringLiteral("first.ts"));
+    const QString secondFile = QDir(tempDir.path()).filePath(QStringLiteral("second.ts"));
+    const QString outputPath = QDir(tempDir.path()).filePath(QStringLiteral("result.ts"));
+    const quint16 pid = 256;
+    QVERIFY(createTsFile(firstFile, {
+        createTsPacket(pid, 4),
+        createTsPacket(pid, 5),
+    }));
+    QVERIFY(createTsFile(secondFile, {
+        createTsPacket(pid, 12),
+        createTsPacket(pid, 13),
+    }));
+
+    TSMerger merger;
+    QVERIFY(merger.merge({firstFile, secondFile}, outputPath));
+
+    QFile outputFile(outputPath);
+    QVERIFY(outputFile.open(QIODevice::ReadOnly));
+    const QByteArray output = outputFile.readAll();
+    QCOMPARE(output.size(), 4 * 188);
+    QCOMPARE(static_cast<quint8>(output.at(3)) & 0x0F, quint8(4));
+    QCOMPARE(static_cast<quint8>(output.at(188 + 3)) & 0x0F, quint8(5));
+    QCOMPARE(static_cast<quint8>(output.at(2 * 188 + 3)) & 0x0F, quint8(6));
+    QCOMPARE(static_cast<quint8>(output.at(3 * 188 + 3)) & 0x0F, quint8(7));
+}
+
+void CoreRegressionTests::tsMerger_preservesInternalContinuityGaps()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString firstFile = QDir(tempDir.path()).filePath(QStringLiteral("first.ts"));
+    const QString secondFile = QDir(tempDir.path()).filePath(QStringLiteral("second.ts"));
+    const QString outputPath = QDir(tempDir.path()).filePath(QStringLiteral("result.ts"));
+    const quint16 pid = 256;
+    QVERIFY(createTsFile(firstFile, {createTsPacket(pid, 4)}));
+    QVERIFY(createTsFile(secondFile, {
+        createTsPacket(pid, 12),
+        createTsPacket(pid, 14),
+    }));
+
+    TSMerger merger;
+    QVERIFY(merger.merge({firstFile, secondFile}, outputPath));
+
+    QFile outputFile(outputPath);
+    QVERIFY(outputFile.open(QIODevice::ReadOnly));
+    const QByteArray output = outputFile.readAll();
+    QCOMPARE(static_cast<quint8>(output.at(188 + 3)) & 0x0F, quint8(5));
+    QCOMPARE(static_cast<quint8>(output.at(2 * 188 + 3)) & 0x0F, quint8(7));
+}
+
+void CoreRegressionTests::tsMerger_adaptationOnlyPacketDoesNotIncrementContinuityCounter()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString firstFile = QDir(tempDir.path()).filePath(QStringLiteral("first.ts"));
+    const QString secondFile = QDir(tempDir.path()).filePath(QStringLiteral("second.ts"));
+    const QString outputPath = QDir(tempDir.path()).filePath(QStringLiteral("result.ts"));
+    const quint16 pid = 256;
+    QVERIFY(createTsFile(firstFile, {createTsPacket(pid, 8)}));
+    QVERIFY(createTsFile(secondFile, {
+        createTsPacket(pid, 2, 2),
+        createTsPacket(pid, 3),
+    }));
+
+    TSMerger merger;
+    QVERIFY(merger.merge({firstFile, secondFile}, outputPath));
+
+    QFile outputFile(outputPath);
+    QVERIFY(outputFile.open(QIODevice::ReadOnly));
+    const QByteArray output = outputFile.readAll();
+    QCOMPARE(output.size(), 3 * 188);
+    QCOMPARE(static_cast<quint8>(output.at(3)) & 0x0F, quint8(8));
+    QCOMPARE(static_cast<quint8>(output.at(188 + 3)) & 0x0F, quint8(8));
+    QCOMPARE(static_cast<quint8>(output.at(2 * 188 + 3)) & 0x0F, quint8(9));
+}
+
+void CoreRegressionTests::tsMerger_discontinuityStartsNewContinuityEpoch()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString inputFile = QDir(tempDir.path()).filePath(QStringLiteral("input.ts"));
+    const QString outputPath = QDir(tempDir.path()).filePath(QStringLiteral("result.ts"));
+    const quint16 pid = 256;
+    QByteArray discontinuityPacket = createTsPacket(pid, 3, 3);
+    discontinuityPacket[5] = static_cast<char>(0x80);
+    QVERIFY(createTsFile(inputFile, {
+        createTsPacket(pid, 8),
+        discontinuityPacket,
+        createTsPacket(pid, 4),
+    }));
+
+    TSMerger merger;
+    QVERIFY(merger.merge({inputFile}, outputPath));
+
+    QFile outputFile(outputPath);
+    QVERIFY(outputFile.open(QIODevice::ReadOnly));
+    const QByteArray output = outputFile.readAll();
+    QCOMPARE(static_cast<quint8>(output.at(3)) & 0x0F, quint8(8));
+    QCOMPARE(static_cast<quint8>(output.at(188 + 3)) & 0x0F, quint8(3));
+    QCOMPARE(static_cast<quint8>(output.at(2 * 188 + 3)) & 0x0F, quint8(4));
 }
 
 void CoreRegressionTests::tsMerger_zeroByteFile_returnsFalse()

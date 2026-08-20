@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QDebug>
 #include <QFile>
+#include <array>
 #include <functional>
 #include <vector>
 
@@ -18,6 +19,8 @@ private:
 
 	uint16_t pmtPid = 0;
 	bool pmtIdentified = false;
+	std::array<int, 8192> continuityCounters{};
+	std::array<int, 8192> continuityOffsets{};
 
 public:
 	bool merge(const std::vector<QString>& inputFiles, const QString& outputFile,
@@ -26,6 +29,8 @@ public:
 	void reset() {
 		pmtPid = 0;
 		pmtIdentified = false;
+		continuityCounters.fill(-1);
+		continuityOffsets.fill(-1);
 	}
 private:
 	bool processFile(const QString& fileName,
@@ -33,5 +38,6 @@ private:
 		bool isFirstFile,
 		const std::function<bool()>& cancellationRequested);
 	void identifyPMTPID(const std::vector<uint8_t>& data, size_t packetOffset);
+	bool normalizeContinuityCounter(std::vector<uint8_t>& data, size_t packetOffset);
 	bool validatePacket(const std::vector<uint8_t>& data, size_t offset);
 };
