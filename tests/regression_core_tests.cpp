@@ -1229,6 +1229,7 @@ private slots:
     void programmePersistence_restoresVCctvProgrammeStrategy();
     void apiservice_getPlayColumnInfo_importsLegacyGuidWithoutSemicolon();
     void contentparse_legacySportsProfileOwnsCatalogIdentity();
+    void apiservice_getVideoList_routesLegacyYearDomainToSingleVideo();
     void programmePersistence_reimportUpgradesLegacyRecord();
     void programmePersistence_reimportUpgradesProjectedLegacyRecord();
     void apiservice_getPlayColumnInfo_modernVidePagePreservesTopcColumn();
@@ -5001,6 +5002,46 @@ var guid = '%1';
     const ContentParse::ProgrammeRecord record = ContentParse::makeProgrammeRecord(result);
     QCOMPARE(record.columnId, QStringLiteral("TOPC9964025095711882"));
     QCOMPARE(record.catalogId, guid);
+}
+
+void CoreRegressionTests::apiservice_getVideoList_routesLegacyYearDomainToSingleVideo()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl pageUrl(QStringLiteral("https://2016.cctv.com/2016/08/18/VIDEFXKSsL0eOPfC4Z3GqpIv160818.shtml"));
+    const QString guid = QStringLiteral("6860a7d7945043bba8aabea4d102c364");
+    const QString itemId = QStringLiteral("VIDEFXKSsL0eOPfC4Z3GqpIv160818");
+    const QString columnId = QStringLiteral("TOPC1468147144785955");
+    manager.queueSuccess(pageUrl, QStringLiteral(R"(
+<script>
+var commentTitle = '[奥运会]乒乓球男子团体决赛 中国队VS日本队 1';
+var itemid1 = '%1';
+var column_id = '%2';
+var guid = '%3';
+</script>)").arg(itemId, columnId, guid).toUtf8());
+
+    QUrl videoInfoUrl(QStringLiteral("https://zy.api.cntv.cn/video/videoinfoByGuid"));
+    QUrlQuery videoInfoQuery;
+    videoInfoQuery.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("tvcctv"));
+    videoInfoQuery.addQueryItem(QStringLiteral("guid"), guid);
+    videoInfoUrl.setQuery(videoInfoQuery);
+    manager.queueSuccess(videoInfoUrl, QByteArray(R"({"vid":"6860a7d7945043bba8aabea4d102c364","title":"[奥运会]乒乓球男子团体决赛 中国队VS日本队 1","brief":"brief","img":"image.jpg","time":"2016-08-18 10:37:08"})"));
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    const auto imported = apiService.getPlayColumnInfo(pageUrl.toString());
+    QVERIFY(!imported.isNull());
+    QCOMPARE(imported->profile, ContentParse::PageProfile::LegacySportsEpisode);
+    QCOMPARE(imported->rawItemId, itemId);
+    QCOMPARE(imported->rawColumnId, columnId);
+    QCOMPARE(imported->catalogId, guid);
+
+    const auto videos = apiService.getVideoList(*imported, QStringLiteral("201608"), QStringLiteral("201608"));
+    QCOMPARE(videos.size(), 1);
+    QCOMPARE(videos.value(0).guid, guid);
+    QCOMPARE(videos.value(0).title, QStringLiteral("[奥运会]乒乓球男子团体决赛 中国队VS日本队 1"));
+    QCOMPARE(manager.requestedUrls(), QList<QUrl>({pageUrl, videoInfoUrl}));
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
 }
 
 void CoreRegressionTests::programmePersistence_reimportUpgradesLegacyRecord()

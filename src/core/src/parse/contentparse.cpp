@@ -212,7 +212,11 @@ Features parsePage(const QString& html, const QString& url)
         && isHexGuid(features.guid)) {
         features.columnId = features.guid;
     }
-    if (pageUrl.host().compare(QStringLiteral("sports.cctv.com"), Qt::CaseInsensitive) == 0
+    const QString pageHost = pageUrl.host();
+    const bool isLegacyEventHost = pageHost.compare(QStringLiteral("sports.cctv.com"), Qt::CaseInsensitive) == 0
+        || QRegularExpression(QStringLiteral(R"(^\d{4}\.cctv\.com$)"),
+             QRegularExpression::CaseInsensitiveOption).match(pageHost).hasMatch();
+    if (isLegacyEventHost
         && isVidE(features.itemId)
         && isTopc(features.columnId)
         && isHexGuid(features.guid)) {
