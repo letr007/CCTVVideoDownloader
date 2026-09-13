@@ -1126,6 +1126,12 @@ private slots:
     void decryptWorker_success_preservesPreExistingLicense();
     void decryptWorker_success_canKeepDecryptedTs();
     void cctvH5e_type1FlipMask_supportsCurrentNalFamilies();
+    void cctvH5e_type1FlipMask_supportsLegacySliceHeaderSubfamilies();
+    void cctvH5e_sessionGate_passesPlaintextThroughUntilType25Enable();
+    void cctvH5e_sessionGate_classicDecryptionRequiresType25Enable();
+    void cctvH5e_sessionGate_type25MagicEnablesNewModeDecryption();
+    void cctvH5e_sessionGate_type25MagicSwitchesLayoutsBothWays();
+    void cctvH5e_classicLayout_alignsGridOnRbspAcrossEpb();
     void decryptWorker_invalidCboxOutput_rejectsAndDoesNotPublish();
     void decryptWorker_crashExitWithZeroExitCode_emitsProcessFailure();
     void decryptWorker_cancelDuringProcess_emitsCancelledAndDoesNotPublish();
@@ -3587,6 +3593,182 @@ void CoreRegressionTests::cctvH5e_type1FlipMask_supportsCurrentNalFamilies()
     QCOMPARE(mask(0x41, 0x9A, 0x28), uint16_t(0x5E10));
     QCOMPARE(mask(0x41, 0x9B, 0x78), uint16_t(0xDE1A));
     QCOMPARE(mask(0x01, 0xA8, 0x00), uint16_t(0x1204));
+}
+
+void CoreRegressionTests::cctvH5e_type1FlipMask_supportsLegacySliceHeaderSubfamilies()
+{
+    // The slice-header family splits on b1[2]: on these headers (taken from real
+    // legacy 2018 shards) s13 differs from the b0[6]-derived value that holds for
+    // the subfamily used by current streams and CCTV-16.
+    const auto mask = [](uint8_t b0, uint8_t b1, uint8_t b2) {
+        const uint8_t header[3]{b0, b1, b2};
+        return cctv_h5e::type1_flip_mask_from_header(header);
+    };
+
+    QCOMPARE(mask(0x41, 0x9E, 0x41), uint16_t(0x7E86));
+    QCOMPARE(mask(0x41, 0x9E, 0x84), uint16_t(0x7E25));
+    QCOMPARE(mask(0x41, 0x9F, 0x0A), uint16_t(0xFE54));
+    QCOMPARE(mask(0x41, 0x9F, 0x4D), uint16_t(0xFEB6));
+}
+
+namespace {
+
+QByteArray h5eTestNalBytes(uint8_t header, int length)
+{
+    QByteArray nal;
+    nal.reserve(length);
+    nal.append(static_cast<char>(header));
+    for (int i = 1; i < length; ++i) {
+        // Non-zero filler: no 00 00 03 EPB sequences, stable lengths.
+        nal.append(static_cast<char>(0x37 + (i % 200)));
+    }
+    return nal;
+}
+
+QByteArray runSessionOnNal(cctv_h5e::Session& session, const QByteArray& nal)
+{
+    QByteArray buffer = nal;
+    size_t len = static_cast<size_t>(buffer.size());
+    session.on_nal(reinterpret_cast<uint8_t*>(buffer.data()), &len);
+    buffer.truncate(static_cast<int>(len));
+    return buffer;
+}
+
+} // namespace
+
+void CoreRegressionTests::cctvH5e_sessionGate_passesPlaintextThroughUntilType25Enable()
+{
+    // Plaintext slice without any preceding type25 control NAL must stay untouched
+    // (CCTVVideoDownloader#111: legacy programmes serve plaintext on the h5e path).
+    cctv_h5e::Session session;
+    const QByteArray plaintext = h5eTestNalBytes(0x65, 200);
+
+    const QByteArray result = runSessionOnNal(session, plaintext);
+    QCOMPARE(result, plaintext);
+}
+
+void CoreRegressionTests::cctvH5e_sessionGate_classicDecryptionRequiresType25Enable()
+{
+    const QByteArray plaintext = h5eTestNalBytes(0x65, 200);
+
+    // Classic-layout ciphertext: key@16, start=32, stride=80, 8-byte TEA blocks.
+    // Only cells with a full stride of bytes remaining are encrypted; the tail
+    // cell at 192 (rem = 8 < 80) stays plaintext in the ciphertext too.
+    QByteArray encrypted = plaintext;
+    auto* bytes = reinterpret_cast<uint8_t*>(encrypted.data());
+    const size_t nalLength = static_cast<size_t>(encrypted.size());
+    for (size_t off = 32; off + 80 <= nalLength; off += 80) {
+        cctv_h5e::tea_encrypt_block(bytes + off, bytes + off, bytes + 16);
+    }
+
+    {
+        // Before any type25: gate off, untouched.
+        cctv_h5e::Session session;
+        QCOMPARE(runSessionOnNal(session, encrypted), encrypted);
+    }
+
+    {
+        // type25 enable (payload[0]==1) without the 01 09 magic keeps classic layout.
+        // Tail cell (rem < stride) stays untouched, matching the official worker.
+        cctv_h5e::Session session;
+        uint8_t enable[4] = {0x79, 0x01, 0x00, 0x00};
+        size_t enableLen = sizeof(enable);
+        session.on_nal(enable, &enableLen);
+
+        QCOMPARE(runSessionOnNal(session, encrypted), plaintext);
+    }
+
+    {
+        // type25 disable (payload[0]==0) turns the gate back off mid-stream.
+        cctv_h5e::Session session;
+        uint8_t disable[4] = {0x79, 0x00, 0x01, 0x09};
+        size_t disableLen = sizeof(disable);
+        session.on_nal(disable, &disableLen);
+
+        QCOMPARE(runSessionOnNal(session, encrypted), encrypted);
+    }
+}
+
+void CoreRegressionTests::cctvH5e_sessionGate_type25MagicEnablesNewModeDecryption()
+{
+    cctv_h5e::Session session;
+    uint8_t enable[4] = {0x79, 0x01, 0x01, 0x09};
+    size_t enableLen = sizeof(enable);
+    session.on_nal(enable, &enableLen);
+
+    const QByteArray plaintext = h5eTestNalBytes(0x65, 2000);
+
+    // New-mode type5 ciphertext: key@5, start=64, stride from the key, 16-byte grid guard.
+    QByteArray encrypted = plaintext;
+    auto* bytes = reinterpret_cast<uint8_t*>(encrypted.data());
+    const uint32_t stride = cctv_h5e::type5_stride_from_nal(bytes, static_cast<size_t>(encrypted.size()));
+    QVERIFY(stride >= 8);
+    for (size_t off = 64; off + 16 <= static_cast<size_t>(encrypted.size()); off += stride) {
+        cctv_h5e::tea_encrypt_block(bytes + off, bytes + off, bytes + 5);
+    }
+
+    QCOMPARE(runSessionOnNal(session, encrypted), plaintext);
+}
+
+void CoreRegressionTests::cctvH5e_sessionGate_type25MagicSwitchesLayoutsBothWays()
+{
+    // Legacy streams switch layouts mid-stream: 01 06 shards use the classic
+    // grid, 01 09 shards the new-mode grid. The magic must switch modes both
+    // ways within one session (CCTVVideoDownloader#111 merged-file decryption).
+    const QByteArray classicPlaintext = h5eTestNalBytes(0x65, 200);
+    QByteArray classicEncrypted = classicPlaintext;
+    auto* classicBytes = reinterpret_cast<uint8_t*>(classicEncrypted.data());
+    for (size_t off = 32; off + 80 <= static_cast<size_t>(classicEncrypted.size()); off += 80) {
+        cctv_h5e::tea_encrypt_block(classicBytes + off, classicBytes + off, classicBytes + 16);
+    }
+
+    cctv_h5e::Session session;
+
+    // 01 06: classic layout active.
+    uint8_t enableClassic[4] = {0x79, 0x01, 0x01, 0x06};
+    size_t enableClassicLen = sizeof(enableClassic);
+    session.on_nal(enableClassic, &enableClassicLen);
+    QCOMPARE(runSessionOnNal(session, classicEncrypted), classicPlaintext);
+
+    // 01 09 switches to new-mode, then 01 06 must switch back so the same
+    // classic ciphertext decrypts correctly again.
+    uint8_t enableNew[4] = {0x79, 0x01, 0x01, 0x09};
+    size_t enableNewLen = sizeof(enableNew);
+    session.on_nal(enableNew, &enableNewLen);
+
+    uint8_t backToClassic[4] = {0x79, 0x01, 0x01, 0x06};
+    size_t backToClassicLen = sizeof(backToClassic);
+    session.on_nal(backToClassic, &backToClassicLen);
+    QCOMPARE(runSessionOnNal(session, classicEncrypted), classicPlaintext);
+}
+
+void CoreRegressionTests::cctvH5e_classicLayout_alignsGridOnRbspAcrossEpb()
+{
+    // Classic grid cells and the key are addressed on the RBSP: an EPB before
+    // either would otherwise shift the offset and corrupt the plaintext.
+    QByteArray plaintext = h5eTestNalBytes(0x41, 200);
+    // A 00 00 01 run is encoded with an EPB, so the key and both cells sit at
+    // RBSP indices that no longer match their byte offsets in the stream.
+    plaintext[15] = '\0';
+    plaintext[16] = '\0';
+    plaintext[17] = '\x01';
+
+    QByteArray ciphertext = plaintext;
+    {
+        auto* bytes = reinterpret_cast<uint8_t*>(ciphertext.data());
+        const size_t length = static_cast<size_t>(ciphertext.size());
+        for (size_t off = 32; off + 80 <= length; off += 80) {
+            cctv_h5e::tea_encrypt_block(bytes + off, bytes + off, bytes + 16);
+        }
+    }
+    ciphertext.insert(17, '\x03');
+
+    cctv_h5e::Session session;
+    uint8_t enable[4] = {0x79, 0x01, 0x00, 0x00};
+    size_t enableLen = sizeof(enable);
+    session.on_nal(enable, &enableLen);
+
+    QCOMPARE(runSessionOnNal(session, ciphertext), plaintext);
 }
 
 void CoreRegressionTests::decryptWorker_invalidCboxOutput_rejectsAndDoesNotPublish()

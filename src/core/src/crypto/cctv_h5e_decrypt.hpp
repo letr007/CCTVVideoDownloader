@@ -78,6 +78,8 @@ inline void tea_decrypt_block(uint8_t out[8], const uint8_t in[8], const uint8_t
 }
 
 // Classic layout (no type25): key@16, start=32, stride=80.
+// Superseded by decrypt_classic_grid (EPB-aware, official-oracle verified);
+// kept only as the plain-EBSP reference form.
 inline void decrypt_classic(uint8_t* nal, size_t len) {
     if (len < 40) return;
     const uint8_t* key = nal + 16;
@@ -217,22 +219,32 @@ inline uint16_t type1_flip_mask_from_header(const uint8_t hdr[3]) {
         if ((b2 >> 2) & 1) setb(15);
         return m;
     }
-    // Slice-header family: nal_type=1 and b1 high nibble 0x9
-    // (41 9a/9b, 01 9e/9f, … — vertical / mobile h5e).
+    // Slice-header family: nal_type=1 and b1 high nibble 0x9, split by b1[2]
+    // into two subfamilies (2026-09-05, legacy 2018 corpus guid ef2366a5…:
+    // s13=b1[2] exact on 269/269 headers; 9a/9b subfamily rules EXACT on 104
+    // consistent headers / all 16 steps):
+    //   9c..9f (b1[2]=1): s2=b0[0]^b2[5], s9..s12/s14=b0[0], s13=1, s15=b1[0]
+    //   9a/9b (b1[2]=0): s2=~b2[5],     s9..s12/s14=1,     s13=0, s15=b1[0]
     if ((b0 & 0x1f) == 1 && (b1 & 0xf0) == 0x90) {
+        const int t = (b1 >> 2) & 1;
         if ((b2 >> 7) & 1) setb(0);
         if ((b2 >> 6) & 1) setb(1);
-        if (((b0 >> 0) & 1) ^ ((b2 >> 5) & 1)) setb(2);
+        int s2 = ((b0 >> 0) & 1) ^ ((b2 >> 5) & 1);
+        if (!t) s2 = 1 ^ ((b2 >> 5) & 1);
+        if (s2) setb(2);
         if ((b2 >> 4) & 1) setb(3);
         if ((b2 >> 3) & 1) setb(4);
         if ((b2 >> 2) & 1) setb(5);
-        // s6 = b2[1], s7 = b2[0] (GF(2)-fitted on CCTV-16 4K corpus #104).
         if ((b2 >> 1) & 1) setb(6);
         if ((b2 >> 0) & 1) setb(7);
-        if ((b0 >> 0) & 1) {
+        if (t) {
+            if ((b0 >> 0) & 1) {
+                setb(9); setb(10); setb(11); setb(12); setb(14);
+            }
+            setb(13);
+        } else {
             setb(9); setb(10); setb(11); setb(12); setb(14);
         }
-        if (((b0 >> 0) & 1) ^ ((b0 >> 6) & 1)) setb(13);
         if ((b1 >> 0) & 1) setb(15);
         return m;
     }
@@ -352,11 +364,52 @@ inline size_t decrypt_type1_new(uint8_t* nal, size_t len, uint32_t stride = 511,
     return drop_epb_03(nal, len, epbs);
 }
 
+// Classic layout (type25 enable seen but 01 09 magic absent, e.g. legacy 2018
+// streams): EPB-aware RBSP grid, start=32, stride=80, 8-byte TEA-16 cells,
+// key @ RBSP[16:32]. Verified against official worker oracle (241/250 exact
+// NALs on a legacy shard). Tail cell requires a full stride of RBSP remaining.
+// Output length shrinks when still-intact EPB 0x03 bytes are dropped.
+inline size_t decrypt_classic_grid(uint8_t* nal, size_t len) {
+    if (!nal || len < 48) return len;
+    std::vector<size_t> epbs;
+    collect_epb_positions(nal, len, epbs);
+    std::vector<size_t> r2e;
+    r2e.reserve(len);
+    for (size_t i = 0; i < len; ) {
+        if (i + 2 < len && nal[i] == 0 && nal[i + 1] == 0 && nal[i + 2] == 3) {
+            r2e.push_back(i);
+            r2e.push_back(i + 1);
+            i += 3;
+        } else {
+            r2e.push_back(i);
+            i++;
+        }
+    }
+    const size_t rbsp_len = r2e.size();
+    if (rbsp_len < 48) return len;
+    uint8_t key[16];
+    for (size_t b = 0; b < 16; b++) key[b] = nal[r2e[16 + b]];
+    for (size_t k = 0;; k++) {
+        size_t o = 32 + k * 80;
+        if (o + 80 > rbsp_len) break;
+        uint8_t blk[8];
+        for (size_t b = 0; b < 8; b++) blk[b] = nal[r2e[o + b]];
+        tea_decrypt_block(blk, blk, key);
+        for (size_t b = 0; b < 8; b++) nal[r2e[o + b]] = blk[b];
+    }
+    if (epbs.empty()) return len;
+    return drop_epb_03(nal, len, epbs);
+}
+
 // ===== Session =====
 
 // Session: type25 enables new-mode; strides F5/F1 closed form only.
 struct Session {
     bool new_mode = false;
+    // Player-layer gate (vhs_drm2 var d): type25 payload[0]==1 enables decryption
+    // of following 1/5 NALs, otherwise they pass through untouched. Streams
+    // without any type25 (e.g. plaintext fallback on the h5e path) stay intact.
+    bool shouldDecrypt = false;
     size_t type1_start = 64;
     size_t type1_guard = 17;
     // Worker leaves type1 NALs shorter than this untouched (no grid, no EPB drop).
@@ -375,11 +428,20 @@ struct Session {
         size_t len = *io_len;
         const int ntype = nal[0] & 0x1f;
         if (ntype == 25) {
-            if (is_type25_enable(nal, len)) new_mode = true;
+            shouldDecrypt = len >= 2 && nal[1] == 1;
+            // Magic selects the cell layout and switches BOTH ways mid-stream
+            // (legacy 2018 streams start with 01 06 classic, then switch to
+            // 01 09 new-mode at the next shard):
+            //   01 09 -> new-mode grid; 01 06 -> classic grid.
+            if (len >= 4 && nal[2] == 0x01) {
+                if (nal[3] == 0x09) new_mode = true;
+                else if (nal[3] == 0x06) new_mode = false;
+            }
             return;
         }
+        if ((ntype != 1 && ntype != 5) || !shouldDecrypt) return;
         if (!new_mode) {
-            if (ntype == 1 || ntype == 5) decrypt_classic(nal, len);
+            *io_len = decrypt_classic_grid(nal, len);
             return;
         }
         if (ntype == 5) {
@@ -397,7 +459,7 @@ struct Session {
         size_t n = len;
         on_nal(nal, &n);
     }
-    void reset() { new_mode = false; }
+    void reset() { new_mode = false; shouldDecrypt = false; }
 };
 
 // ===== MPEG-TS =====
