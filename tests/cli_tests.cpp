@@ -1,5 +1,6 @@
 #include "cli_logging.h"
 #include "cli_output.h"
+#include "cli_parser.h"
 #include "cli_support.h"
 
 #include "downloadjob.h"
@@ -138,6 +139,8 @@ class CliTests final : public QObject
 private slots:
     void parsesSelections();
     void rejectsInvalidSelections();
+    void parsesMonthRangeForListAndDownload();
+    void rejectsListOnlyOptionsForDownload();
     void serializesJsonLine();
     void keepsJsonProgressProtocolLineBased();
     void writesInteractiveProgressOnOneLine();
@@ -183,6 +186,47 @@ void CliTests::rejectsInvalidSelections()
     QCOMPARE(error, QStringLiteral("invalid selection index: 0"));
     QVERIFY(!Cli::parseSelection(QStringLiteral("two"), 2, &indexes, &error));
     QCOMPARE(error, QStringLiteral("invalid selection index: two"));
+}
+
+void CliTests::parsesMonthRangeForListAndDownload()
+{
+    const QString url = QStringLiteral("https://tv.cctv.com/lm/xwlb/index.shtml");
+
+    const Cli::ParseResult listed = Cli::parseArguments({
+        QStringLiteral("cctv-dl"), QStringLiteral("list"), url,
+        QStringLiteral("--from"), QStringLiteral("202609"),
+        QStringLiteral("--to"), QStringLiteral("202608")});
+    QVERIFY(!listed.shouldExit);
+    QCOMPARE(listed.options.from, QStringLiteral("202609"));
+    QCOMPARE(listed.options.to, QStringLiteral("202608"));
+
+    const Cli::ParseResult downloaded = Cli::parseArguments({
+        QStringLiteral("cctv-dl"), QStringLiteral("download"), url,
+        QStringLiteral("--select"), QStringLiteral("latest"),
+        QStringLiteral("--from"), QStringLiteral("202609"),
+        QStringLiteral("--to"), QStringLiteral("202609")});
+    QVERIFY(!downloaded.shouldExit);
+    QCOMPARE(downloaded.options.select, QStringLiteral("latest"));
+    QCOMPARE(downloaded.options.from, QStringLiteral("202609"));
+    QCOMPARE(downloaded.options.to, QStringLiteral("202609"));
+}
+
+void CliTests::rejectsListOnlyOptionsForDownload()
+{
+    const QString url = QStringLiteral("https://tv.cctv.com/lm/xwlb/index.shtml");
+
+    const Cli::ParseResult highlights = Cli::parseArguments({
+        QStringLiteral("cctv-dl"), QStringLiteral("download"), url, QStringLiteral("--include-highlights")});
+    QVERIFY(highlights.shouldExit);
+    QCOMPARE(highlights.exitCode, static_cast<int>(Cli::ExitCode::Usage));
+
+    const Cli::ParseResult rangeForGuid = Cli::parseArguments({
+        QStringLiteral("cctv-dl"), QStringLiteral("download"),
+        QStringLiteral("--guid"), QStringLiteral("0123456789abcdef0123456789abcdef"),
+        QStringLiteral("--title"), QStringLiteral("视频标题"),
+        QStringLiteral("--from"), QStringLiteral("202609")});
+    QVERIFY(rangeForGuid.shouldExit);
+    QCOMPARE(rangeForGuid.exitCode, static_cast<int>(Cli::ExitCode::Usage));
 }
 
 void CliTests::serializesJsonLine()

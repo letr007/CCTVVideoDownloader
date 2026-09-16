@@ -61,8 +61,8 @@ ParseResult parseArguments(const QStringList& arguments)
     parser.addPositionalArgument(QStringLiteral("command"), QStringLiteral("list or download"));
     parser.addPositionalArgument(QStringLiteral("url"), QStringLiteral("CCTV programme URL."), QStringLiteral("[url]"));
 
-    const QCommandLineOption fromOption(QStringLiteral("from"), QStringLiteral("First month (yyyyMM)."), QStringLiteral("yyyyMM"));
-    const QCommandLineOption toOption(QStringLiteral("to"), QStringLiteral("Last month (yyyyMM)."), QStringLiteral("yyyyMM"));
+    const QCommandLineOption fromOption(QStringLiteral("from"), QStringLiteral("First month (yyyyMM); defaults to the current month."), QStringLiteral("yyyyMM"));
+    const QCommandLineOption toOption(QStringLiteral("to"), QStringLiteral("Last month (yyyyMM); defaults to the previous month."), QStringLiteral("yyyyMM"));
     const QCommandLineOption jsonOption(QStringLiteral("json"), QStringLiteral("Emit JSON Lines events."));
     const QCommandLineOption debugOption(QStringLiteral("debug"), QStringLiteral("Write Qt internal logs to standard error."));
     const QCommandLineOption highlightsOption(QStringLiteral("include-highlights"), QStringLiteral("Include highlights in list results."));
@@ -157,8 +157,8 @@ ParseResult parseArguments(const QStringList& arguments)
     if (options.url.isEmpty() || !validUrl(options.url) || !options.title.isEmpty()) {
         return usageError(QStringLiteral("download requires an http/https URL, or --guid together with --title"));
     }
-    if (parser.isSet(fromOption) || parser.isSet(toOption) || parser.isSet(highlightsOption)) {
-        return usageError(QStringLiteral("--from, --to, and --include-highlights are only valid with list"));
+    if (parser.isSet(highlightsOption)) {
+        return usageError(QStringLiteral("--include-highlights is only valid with list"));
     }
     return result;
 }

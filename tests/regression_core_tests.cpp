@@ -1065,6 +1065,7 @@ private slots:
     void initGlobalSettings_createsDefaults();
     void displayRange_writeRoundTrips();
     void displayRange_normalizesFutureAndReversedMonths();
+    void displayRange_defaultsToCurrentAndPreviousMonth();
     void monthCalendar_selectsMonthAndDisablesFutureMonths();
     void setting_saveSettings_roundTripsValuesFromWidgetsToDisk();
     void setting_smoke_persistsSettingsAcrossFreshSession();
@@ -1388,6 +1389,20 @@ void CoreRegressionTests::displayRange_normalizesFutureAndReversedMonths()
         QStringLiteral("202607"), QStringLiteral("202101"), latestDate);
     QCOMPARE(multiYearStart, QStringLiteral("202607"));
     QCOMPARE(multiYearEnd, QStringLiteral("202101"));
+}
+
+void CoreRegressionTests::displayRange_defaultsToCurrentAndPreviousMonth()
+{
+    const QDate latestDate(2026, 7, 26);
+
+    const auto [defaultStart, defaultEnd] = normalizeDisplayMonths(QString(), QString(), latestDate);
+    QCOMPARE(defaultStart, QStringLiteral("202607"));
+    QCOMPARE(defaultEnd, QStringLiteral("202606"));
+
+    // 只给一侧时，另一侧仍取缺省边界，再按月份大小归一。
+    const auto [openStart, openEnd] = normalizeDisplayMonths(QStringLiteral("202601"), QString(), latestDate);
+    QCOMPARE(openStart, QStringLiteral("202606"));
+    QCOMPARE(openEnd, QStringLiteral("202601"));
 }
 
 void CoreRegressionTests::monthCalendar_selectsMonthAndDisablesFutureMonths()

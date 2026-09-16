@@ -59,6 +59,8 @@ qt_add_executable(cli_tests
     cli_tests.cpp
     ${PROJECT_SOURCE_DIR}/src/cli/cli_logging.cpp
     ${PROJECT_SOURCE_DIR}/src/cli/cli_logging.h
+    ${PROJECT_SOURCE_DIR}/src/cli/cli_parser.cpp
+    ${PROJECT_SOURCE_DIR}/src/cli/cli_parser.h
     ${PROJECT_SOURCE_DIR}/src/cli/cli_output.cpp
     ${PROJECT_SOURCE_DIR}/src/cli/cli_output.h
     ${PROJECT_SOURCE_DIR}/src/cli/cli_support.cpp

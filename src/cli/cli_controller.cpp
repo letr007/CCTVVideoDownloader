@@ -232,9 +232,9 @@ void Controller::startDownload()
 
 void Controller::applyConfiguredDefaults()
 {
-    const auto configuredMonths = readDisplayMinAndMax();
-    const auto months = normalizeDisplayMonths(m_options.from.isEmpty() ? std::get<0>(configuredMonths) : m_options.from,
-        m_options.to.isEmpty() ? std::get<1>(configuredMonths) : m_options.to);
+    // 不继承 GUI 持久化的浏览范围：缺省按当前日期取当月和上月，
+    // 否则无参数运行会停留在上次 GUI 会话选定的月份。
+    const auto months = normalizeDisplayMonths(m_options.from, m_options.to);
     m_from = std::get<0>(months);
     m_to = std::get<1>(months);
     if (m_options.output.isEmpty()) {
