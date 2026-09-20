@@ -70,6 +70,7 @@ cctv-dl download \
 常用选项：
 
 - `--from yyyyMM --to yyyyMM`：设置月份范围，`list` 和 `download` 都可用；缺省为当月和上月。范围作用于栏目类列表，专辑、片库这类页面由接口按自身顺序返回，不受范围影响
+- `--on-existing skip|rename|overwrite`：目标文件已存在时的处理方式，缺省 `skip`（跳过，不重复下载）；`rename` 保留已有文件并另存为 `标题(1)`，`overwrite` 替换已有文件
 - `--include-highlights`：在列表中包含节目看点
 - `--json`：输出 JSON Lines，便于脚本处理
 - `--debug`：将内部诊断写入标准错误
