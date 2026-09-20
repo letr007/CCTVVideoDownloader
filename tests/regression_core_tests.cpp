@@ -192,7 +192,8 @@ DownloadJob makeCoordinatorJob(const QString& id,
     const QString& guid,
     const QString& title,
     const QString& quality,
-    const QString& savePath)
+    const QString& savePath,
+    ExistingOutputPolicy existingOutput = ExistingOutputPolicy::Rename)
 {
     DownloadJob job;
     job.id = id;
@@ -200,6 +201,7 @@ DownloadJob makeCoordinatorJob(const QString& id,
     job.request.videoTitle = title;
     job.request.quality = quality;
     job.request.savePath = savePath;
+    job.request.existingOutput = existingOutput;
     return job;
 }
 
@@ -406,6 +408,11 @@ public:
     static void setTranscodeToMp4(DecryptWorker& worker, bool transcodeToMp4)
     {
         worker.setTranscodeToMp4(transcodeToMp4);
+    }
+
+    static void setReplaceExisting(DecryptWorker& worker, bool replaceExisting)
+    {
+        worker.setReplaceExisting(replaceExisting);
     }
 
     static void setTestProcessRunner(DecryptWorker& worker, const std::function<DecryptProcessResult(const DecryptProcessRequest&)>& runner)
@@ -926,6 +933,11 @@ public:
         m_transcodeToMp4 = transcodeToMp4;
     }
 
+    void setReplaceExisting(bool replaceExisting) override
+    {
+        m_replaceExisting = replaceExisting;
+    }
+
     void startDecrypt() override
     {
         QVERIFY(!m_actions.isEmpty());
@@ -955,6 +967,7 @@ public:
     QString name() const { return m_name; }
     QString savePath() const { return m_savePath; }
     bool transcodeToMp4() const { return m_transcodeToMp4; }
+    bool replaceExisting() const { return m_replaceExisting; }
     int startCount() const { return m_startCount; }
 
 private:
@@ -962,6 +975,7 @@ private:
     QString m_name;
     QString m_savePath;
     bool m_transcodeToMp4 = false;
+    bool m_replaceExisting = false;
     int m_startCount = 0;
     bool m_pending = false;
 };
@@ -1007,13 +1021,14 @@ public:
         m_actions.enqueue(action);
     }
 
-    void startFinalize(const QString& title, const QString& savePath, bool transcodeToMp4) override
+    void startFinalize(const QString& title, const QString& savePath, bool transcodeToMp4, bool replaceExisting) override
     {
         QVERIFY(!m_actions.isEmpty());
         ++m_startCount;
         m_title = title;
         m_savePath = savePath;
         m_transcodeToMp4 = transcodeToMp4;
+        m_replaceExisting = replaceExisting;
         m_pending = true;
 
         const FakeDirectFinalizeAction action = m_actions.dequeue();
@@ -1043,6 +1058,7 @@ public:
     QString title() const { return m_title; }
     QString savePath() const { return m_savePath; }
     bool transcodeToMp4() const { return m_transcodeToMp4; }
+    bool replaceExisting() const { return m_replaceExisting; }
     int startCount() const { return m_startCount; }
 
 private:
@@ -1050,6 +1066,7 @@ private:
     QString m_title;
     QString m_savePath;
     bool m_transcodeToMp4 = false;
+    bool m_replaceExisting = false;
     int m_startCount = 0;
     bool m_pending = false;
 };
@@ -1107,6 +1124,7 @@ private slots:
     void decryptWorker_renameFailure_emitsRenameError();
     void decryptWorker_fakeProcessRunner_seamSkipsRealProcess();
     void decryptWorker_cboxOutputStaysInTaskDirectoryAndPreservesSaveRootResultTs();
+    void decryptWorker_replaceExisting_replacesPublishedTs();
     void decryptWorker_relativeOutputPath_removesTaskDirectoryAfterPublish();
     void decryptWorker_cleanupFailure_emitsSingleFailureAfterPublish();
     void decryptWorker_processTimeoutNormalization_passesDefaultTimeoutToRunner();
@@ -1161,6 +1179,7 @@ private slots:
     void platformDefaults_useWritableStandardLocations();
     void mediaFinalizer_sanitizesCrossPlatformFileNames();
     void mediaFinalizer_publishTs_validatesAndUsesUniqueName();
+    void mediaFinalizer_publishTs_replacesExistingWhenRequested();
     void mediaFinalizer_remuxesToMp4WithEmbeddedLibav();
     void libavRemuxer_normalizesGlobalInputStartTime_preservesStreamOffsets();
     void mediaFinalizer_remuxTimeout_reportsFailureAndDoesNotPublishMp4();
@@ -1168,6 +1187,7 @@ private slots:
     void mediaFinalizer_remuxProcessFailure_reportsDiagnostic();
     void mediaFinalizer_invalidRemuxedMp4_reportsValidationFailure();
     void directFinalizeWorker_cancelDuringRemux_emitsCancelledAndDoesNotPublish();
+    void directFinalizeTask_tsOutput_replacesExistingFileWhenRequested();
 
     // ── DownloadJob contract tests ───────────────────────────
     void downloadJob_legalStateTransitions_acceptsExpectedSequence();
@@ -2804,6 +2824,57 @@ void CoreRegressionTests::decryptWorker_cboxOutputStaysInTaskDirectoryAndPreserv
     const auto arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toBool(), true);
     QCOMPARE(arguments.at(1).toString(), QString::fromUtf8("解密完成，输出 staging-contract-video"));
+}
+
+void CoreRegressionTests::decryptWorker_replaceExisting_replacesPublishedTs()
+{
+    DecryptWorker worker;
+    QSignalSpy spy(&worker, &DecryptWorker::decryptFinished);
+
+    const QString savePath = QDir(m_tempDir->path()).filePath(QStringLiteral("decrypt_replace_existing"));
+    QVERIFY(QDir().mkpath(savePath));
+
+    const QString name = QStringLiteral("replace-existing-video");
+    const QString existingPath = QDir(savePath).filePath(QStringLiteral("replace-existing-video.ts"));
+    QVERIFY(createFakeTsFile(existingPath, 6, 257));
+
+    QTemporaryDir decryptAssetsDir;
+    QVERIFY(decryptAssetsDir.isValid());
+    createDecryptAssets(decryptAssetsDir.path());
+
+    worker.setParams(name, savePath);
+    DecryptWorkerTestAdapter::setTranscodeToMp4(worker, false);
+    DecryptWorkerTestAdapter::setReplaceExisting(worker, true);
+    DecryptWorkerTestAdapter::setTestDecryptAssetsDir(worker, decryptAssetsDir.path());
+
+    const QString tempTaskPath = QDir(savePath).filePath(decryptTaskHash(name));
+    QVERIFY(QDir().mkpath(tempTaskPath));
+    QVERIFY(createFakeTsFile(QDir(tempTaskPath).filePath(QStringLiteral("result.ts")), 4, 256));
+
+    qint64 decryptedSize = -1;
+    DecryptWorkerTestAdapter::setTestProcessRunner(worker, [&](const DecryptProcessRequest& request) -> DecryptProcessResult {
+        createFakeTsFile(request.arguments.at(1), 8, 512);
+        decryptedSize = QFileInfo(request.arguments.at(1)).size();
+
+        DecryptProcessResult result;
+        result.started = true;
+        result.exitCode = 0;
+        result.exitStatus = QProcess::NormalExit;
+        return result;
+    });
+
+    worker.doDecrypt();
+
+    DecryptWorkerTestAdapter::clearTestProcessRunner(worker);
+    DecryptWorkerTestAdapter::clearTestDecryptAssetsDir(worker);
+
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(spy.takeFirst().at(0).toBool());
+    QVERIFY(decryptedSize > 0);
+    QVERIFY(QFileInfo::exists(existingPath));
+    QCOMPARE(QFileInfo(existingPath).size(), decryptedSize);
+    QVERIFY(!QFileInfo::exists(QDir(savePath).filePath(QStringLiteral("replace-existing-video(1).ts"))));
+    QVERIFY(!QFileInfo::exists(tempTaskPath));
 }
 
 void CoreRegressionTests::decryptWorker_relativeOutputPath_removesTaskDirectoryAfterPublish()
@@ -6621,6 +6692,33 @@ void CoreRegressionTests::directMediaFinalizer_whitespaceTitle_usesProducerHashC
     QVERIFY(validation.ok);
 }
 
+void CoreRegressionTests::directFinalizeTask_tsOutput_replacesExistingFileWhenRequested()
+{
+    initializeSettingsSandbox();
+
+    const QString title = QStringLiteral("覆盖发布");
+    const QString saveDir = m_tempDir->path();
+    const QString taskDirPath = QDir(saveDir).filePath(QStringLiteral("replace-publish-task"));
+    QVERIFY(QDir().mkpath(taskDirPath));
+
+    const QString stagingPath = QDir(taskDirPath).filePath(QStringLiteral("result.ts"));
+    QVERIFY(createFakeTsFile(stagingPath, 4, 602));
+    const qint64 stagingSize = QFileInfo(stagingPath).size();
+
+    const QString finalPath = QDir(saveDir).filePath(QStringLiteral("覆盖发布.ts"));
+    QVERIFY(createFakeTsFile(finalPath, 6, 603));
+    QVERIFY(QFileInfo(finalPath).size() != stagingSize);
+
+    const DirectMediaFinalizeResult result = finalizeDirectTsTask(title, saveDir, false, taskDirPath, {}, true);
+
+    QVERIFY2(result.ok, qPrintable(result.code + QStringLiteral(": ") + result.message));
+    QCOMPARE(result.code, QStringLiteral("published_ts"));
+    QCOMPARE(result.finalPath, finalPath);
+    QCOMPARE(QFileInfo(finalPath).size(), stagingSize);
+    QVERIFY(!QFileInfo::exists(QDir(saveDir).filePath(QStringLiteral("覆盖发布(1).ts"))));
+    QVERIFY(!QFileInfo::exists(taskDirPath));
+}
+
 void CoreRegressionTests::cctvVideoDownloader_cctv4kTsSelection_finalizesStagedTs()
 {
     initializeSettingsSandbox();
@@ -6747,6 +6845,34 @@ void CoreRegressionTests::mediaFinalizer_publishTs_validatesAndUsesUniqueName()
 
     const MediaContainerValidationResult validation = MediaContainerValidator::validateFile(result.finalPath, MediaContainerType::MpegTs);
     QVERIFY(validation.ok);
+}
+
+void CoreRegressionTests::mediaFinalizer_publishTs_replacesExistingWhenRequested()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString stagingPath = QDir(tempDir.path()).filePath(QStringLiteral("result.ts"));
+    QVERIFY(createFakeTsFile(stagingPath, 4, 256));
+    const qint64 stagingSize = QFileInfo(stagingPath).size();
+
+    const QString existingPath = QDir(tempDir.path()).filePath(QStringLiteral("新闻.ts"));
+    QVERIFY(createFakeTsFile(existingPath, 6, 257));
+    QVERIFY(QFileInfo(existingPath).size() != stagingSize);
+
+    MediaFinalizer finalizer;
+    const MediaFinalizeResult result = finalizer.finalize(stagingPath,
+        QStringLiteral("新闻"),
+        tempDir.path(),
+        MediaContainerType::MpegTs,
+        true);
+
+    QVERIFY(result.ok);
+    QCOMPARE(result.code, QStringLiteral("published_ts"));
+    QCOMPARE(result.finalPath, existingPath);
+    QCOMPARE(QFileInfo(result.finalPath).size(), stagingSize);
+    QVERIFY(!QFileInfo::exists(QDir(tempDir.path()).filePath(QStringLiteral("新闻(1).ts"))));
+    QVERIFY(!QFileInfo::exists(stagingPath));
 }
 
 void CoreRegressionTests::mediaFinalizer_remuxesToMp4WithEmbeddedLibav()
@@ -6913,6 +7039,7 @@ void CoreRegressionTests::mediaFinalizer_remuxCancel_reportsCancelledAndDoesNotP
         QStringLiteral("取消Remux"),
         tempDir.path(),
         MediaContainerType::Mp4,
+        false,
         [&cancelRequested]() { return cancelRequested.load(std::memory_order_relaxed); });
 
     QVERIFY(!result.ok);
@@ -7048,6 +7175,7 @@ void CoreRegressionTests::directFinalizeWorker_cancelDuringRemux_emitsCancelledA
             [&cancelRequested]() {
                 return cancelRequested.load(std::memory_order_relaxed);
             },
+            false,
             runner,
             assetsDir.path());
     });
@@ -7356,11 +7484,12 @@ void CoreRegressionTests::coordinatorFakeDirectFinalizeStage_supportsSuccessFail
     QSignalSpy spy(&stage, &CoordinatorDirectFinalizeStage::finished);
 
     stage.queueSuccess(QStringLiteral("published_mp4"), QStringLiteral("finalized"), QStringLiteral("C:/fake/output.mp4"));
-    stage.startFinalize(QStringLiteral("节目B"), QStringLiteral("C:/fake/save"), true);
+    stage.startFinalize(QStringLiteral("节目B"), QStringLiteral("C:/fake/save"), true, true);
     QVERIFY(spy.wait(1000));
     QCOMPARE(stage.title(), QStringLiteral("节目B"));
     QCOMPARE(stage.savePath(), QStringLiteral("C:/fake/save"));
     QCOMPARE(stage.transcodeToMp4(), true);
+    QCOMPARE(stage.replaceExisting(), true);
     auto successArgs = spy.takeFirst();
     QCOMPARE(successArgs.at(0).toBool(), true);
     QCOMPARE(successArgs.at(1).toString(), QStringLiteral("published_mp4"));
@@ -7368,7 +7497,7 @@ void CoreRegressionTests::coordinatorFakeDirectFinalizeStage_supportsSuccessFail
     QCOMPARE(successArgs.at(3).toString(), QStringLiteral("C:/fake/output.mp4"));
 
     stage.queueFailure(QStringLiteral("ffmpeg_missing"), QStringLiteral("synthetic ffmpeg missing"));
-    stage.startFinalize(QStringLiteral("节目C"), QStringLiteral("C:/fake/save"), false);
+    stage.startFinalize(QStringLiteral("节目C"), QStringLiteral("C:/fake/save"), false, false);
     QVERIFY(spy.wait(1000));
     auto failureArgs = spy.takeFirst();
     QCOMPARE(failureArgs.at(0).toBool(), false);
@@ -7377,7 +7506,7 @@ void CoreRegressionTests::coordinatorFakeDirectFinalizeStage_supportsSuccessFail
     QCOMPARE(failureArgs.at(3).toString(), QString());
 
     stage.queueSuccess(QStringLiteral("would_publish"), QStringLiteral("would finalize"), QStringLiteral("C:/fake/would-not-exist.mp4"));
-    stage.startFinalize(QStringLiteral("节目D"), QStringLiteral("C:/fake/save"), false);
+    stage.startFinalize(QStringLiteral("节目D"), QStringLiteral("C:/fake/save"), false, false);
     stage.cancelFinalize();
     QCOMPARE(spy.count(), 1);
     auto cancelledArgs = spy.takeFirst();
@@ -7416,7 +7545,7 @@ void CoreRegressionTests::downloadCoordinator_batchSuccess_processesJobsInOrder(
 
     const QList<DownloadJob> jobs = {
         makeCoordinatorJob(QStringLiteral("job-a"), QStringLiteral("guid-a"), QStringLiteral("节目A"), QStringLiteral("1080P"), QStringLiteral("C:/fake/a")),
-        makeCoordinatorJob(QStringLiteral("job-b"), QStringLiteral("guid-b"), QStringLiteral("节目B"), QStringLiteral("4K"), QStringLiteral("C:/fake/b")),
+        makeCoordinatorJob(QStringLiteral("job-b"), QStringLiteral("guid-b"), QStringLiteral("节目B"), QStringLiteral("4K"), QStringLiteral("C:/fake/b"), ExistingOutputPolicy::Overwrite),
         makeCoordinatorJob(QStringLiteral("job-c"), QStringLiteral("guid-c"), QStringLiteral("节目C"), QStringLiteral("720P"), QStringLiteral("C:/fake/c"))
     };
 
@@ -7433,6 +7562,8 @@ void CoreRegressionTests::downloadCoordinator_batchSuccess_processesJobsInOrder(
     QCOMPARE(firstFinished.state, DownloadJobState::Completed);
     QCOMPARE(secondFinished.state, DownloadJobState::Completed);
     QCOMPARE(thirdFinished.state, DownloadJobState::Completed);
+    QCOMPARE(directFinalizeStage.replaceExisting(), true);
+    QCOMPARE(decryptStage.replaceExisting(), false);
 
     const auto batchArgs = batchFinishedSpy.takeFirst();
     QCOMPARE(batchArgs.at(0).toInt(), 3);

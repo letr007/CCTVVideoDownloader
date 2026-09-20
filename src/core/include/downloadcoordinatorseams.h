@@ -72,6 +72,7 @@ public:
 
     virtual void setParams(const QString& name, const QString& savePath) = 0;
     virtual void setTranscodeToMp4(bool transcodeToMp4) = 0;
+    virtual void setReplaceExisting(bool replaceExisting) = 0;
     virtual void startDecrypt() = 0;
     virtual void cancelDecrypt() = 0;
 
@@ -87,7 +88,7 @@ public:
     using QObject::QObject;
     ~CoordinatorDirectFinalizeStage() override = default;
 
-    virtual void startFinalize(const QString& title, const QString& savePath, bool transcodeToMp4) = 0;
+    virtual void startFinalize(const QString& title, const QString& savePath, bool transcodeToMp4, bool replaceExisting) = 0;
     virtual void cancelFinalize() = 0;
 
 signals:

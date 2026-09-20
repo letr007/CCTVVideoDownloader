@@ -10,7 +10,8 @@ DirectMediaFinalizeResult finalizeDirectTsTask(const QString& title,
 	const QString& savePath,
 	bool transcodeToMp4,
 	const QString& taskDirectory,
-	const std::function<bool()>& cancellationRequested
+	const std::function<bool()>& cancellationRequested,
+	bool replaceExisting
 #ifdef CORE_REGRESSION_TESTS
 	,
 	const std::function<RemuxProcessResult(const RemuxProcessRequest&)>& testProcessRunner,
@@ -59,6 +60,7 @@ DirectMediaFinalizeResult finalizeDirectTsTask(const QString& title,
 		trimmedTitle,
 		trimmedSavePath,
 		desiredContainer,
+		replaceExisting,
 		cancellationRequested);
 	if (!finalizeResult.ok) {
 		result.code = finalizeResult.code;
@@ -98,7 +100,8 @@ void DirectFinalizeWorker::doWork(const QString& title, const QString& savePath,
 		savePath,
 		transcodeToMp4,
 		m_taskDirectory,
-		[this]() { return m_cancelled.load(std::memory_order_relaxed); }
+		[this]() { return m_cancelled.load(std::memory_order_relaxed); },
+		m_replaceExisting
 #ifdef CORE_REGRESSION_TESTS
 		,
 		m_testProcessRunner,

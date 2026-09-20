@@ -694,6 +694,11 @@ public:
         m_transcodeToMp4 = transcodeToMp4;
     }
 
+    void setReplaceExisting(bool replaceExisting) override
+    {
+        m_replaceExisting = replaceExisting;
+    }
+
     void setTaskDirectory(const QString& taskDirectory)
     {
         m_taskDirectory = taskDirectory;
@@ -715,6 +720,7 @@ public:
         worker->setParams(m_name, m_savePath);
         worker->setTaskDirectory(m_taskDirectory);
         worker->setTranscodeToMp4(m_transcodeToMp4);
+        worker->setReplaceExisting(m_replaceExisting);
 #ifdef CORE_REGRESSION_TESTS
         if (m_testProcessRunner) {
             worker->setTestProcessRunner(m_testProcessRunner);
@@ -837,6 +843,7 @@ private:
     QString m_savePath;
     QString m_taskDirectory;
     bool m_transcodeToMp4 = false;
+    bool m_replaceExisting = false;
     DecryptWorker* m_worker = nullptr;
     QThread* m_thread = nullptr;
     bool m_resultPending = false;
@@ -867,7 +874,7 @@ public:
         shutdownActiveStage();
     }
 
-    void startFinalize(const QString& title, const QString& savePath, bool transcodeToMp4) override
+    void startFinalize(const QString& title, const QString& savePath, bool transcodeToMp4, bool replaceExisting) override
     {
         if (m_thread != nullptr || m_worker != nullptr) {
             emit finished(false, QStringLiteral("direct_finalize_busy"), QStringLiteral("direct finalize stage busy"), QString());
@@ -883,6 +890,7 @@ public:
         auto* worker = new DirectFinalizeWorker();
         auto* thread = new QThread();
         worker->setTaskDirectory(m_taskDirectory);
+        worker->setReplaceExisting(replaceExisting);
 #ifdef CORE_REGRESSION_TESTS
         if (m_testProcessRunner) {
             worker->setTestProcessRunner(m_testProcessRunner);
@@ -1405,7 +1413,8 @@ void DownloadCoordinator::onConcatFinished(bool ok, const QString& message)
         }
         m_directFinalizeStage->startFinalize(m_jobs[m_currentIndex].request.videoTitle,
             m_jobs[m_currentIndex].request.savePath,
-            m_jobs[m_currentIndex].request.transcodeToMp4);
+            m_jobs[m_currentIndex].request.transcodeToMp4,
+            m_jobs[m_currentIndex].request.existingOutput == ExistingOutputPolicy::Overwrite);
         return;
     }
 
@@ -1415,6 +1424,8 @@ void DownloadCoordinator::onConcatFinished(bool ok, const QString& message)
     }
     m_decryptStage->setParams(m_jobs[m_currentIndex].request.videoTitle, m_jobs[m_currentIndex].request.savePath);
     m_decryptStage->setTranscodeToMp4(m_jobs[m_currentIndex].request.transcodeToMp4);
+    m_decryptStage->setReplaceExisting(
+        m_jobs[m_currentIndex].request.existingOutput == ExistingOutputPolicy::Overwrite);
     m_decryptStage->startDecrypt();
 }
 

@@ -33,6 +33,7 @@ private:
     void startDownload();
     void applyConfiguredDefaults();
     void warnWhenPageVideoMissingFromList();
+    bool skipExistingOutput(const QString& title);
 
     QCoreApplication& m_application;
     Options m_options;
@@ -43,6 +44,7 @@ private:
     QString m_from;
     QString m_to;
     QString m_pageGuid;
+    int m_skippedJobs = 0;
     QList<int> m_pendingJsonChannelIndexes;
     int m_pendingJsonChannelPosition = 0;
     int m_pendingJsonChannelIndex = -1;

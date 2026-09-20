@@ -62,6 +62,12 @@ enum class CancellationScope { SingleVideo, AllVideos };
 
 // ── Request / Job data types ─────────────────────────────────────
 
+enum class ExistingOutputPolicy {
+    Skip,
+    Rename,
+    Overwrite
+};
+
 struct DownloadRequest {
     QString url;
     QString videoTitle;
@@ -69,6 +75,7 @@ struct DownloadRequest {
     QString savePath;
     int threadCount = 2;
     bool transcodeToMp4 = false;
+    ExistingOutputPolicy existingOutput = ExistingOutputPolicy::Rename;
 };
 
 struct DownloadJob {

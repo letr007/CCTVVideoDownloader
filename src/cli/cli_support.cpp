@@ -1,5 +1,8 @@
 #include "cli_support.h"
 
+#include "mediafinalizer.h"
+
+#include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSet>
@@ -50,6 +53,13 @@ bool prefersPageVideo(const Options& options, const QString& pageGuid)
         return false;
     }
     return options.from.isEmpty() && options.to.isEmpty();
+}
+
+QString finalOutputPath(const QString& saveDir, const QString& title, bool mp4)
+{
+    return MediaFinalizer::canonicalOutputPath(saveDir,
+        MediaFinalizer::sanitizedTitle(title),
+        mp4 ? QStringLiteral("mp4") : QStringLiteral("ts"));
 }
 
 int exitCodeForBatch(int failedJobs, int cancelledJobs)

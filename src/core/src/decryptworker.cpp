@@ -380,6 +380,7 @@ void DecryptWorker::doDecrypt()
 		m_name,
 		trimmedSavePath,
 		desiredContainer,
+		m_replaceExisting,
 		cancellationRequested);
 	if (!finalizeResult.ok) {
 		if (finalizeResult.code == QStringLiteral("cancelled") || cancellationRequested()) {

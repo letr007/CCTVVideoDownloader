@@ -140,6 +140,8 @@ private slots:
     void parsesSelections();
     void rejectsInvalidSelections();
     void parsesMonthRangeForListAndDownload();
+    void parsesExistingOutputPolicy();
+    void buildsFinalOutputPathForSkipCheck();
     void tracksExplicitSelectionForDownload();
     void prefersPageVideoOnlyForSinglePageDefaults();
     void rejectsListOnlyOptionsForDownload();
@@ -211,6 +213,52 @@ void CliTests::parsesMonthRangeForListAndDownload()
     QCOMPARE(downloaded.options.select, QStringLiteral("latest"));
     QCOMPARE(downloaded.options.from, QStringLiteral("202609"));
     QCOMPARE(downloaded.options.to, QStringLiteral("202609"));
+}
+
+void CliTests::parsesExistingOutputPolicy()
+{
+    const QString url = QStringLiteral("https://tv.cctv.com/lm/xwlb/index.shtml");
+
+    const Cli::ParseResult defaulted = Cli::parseArguments({
+        QStringLiteral("cctv-dl"), QStringLiteral("download"), url});
+    QVERIFY(!defaulted.shouldExit);
+    QCOMPARE(defaulted.options.existingOutput, ExistingOutputPolicy::Skip);
+
+    const Cli::ParseResult renamed = Cli::parseArguments({
+        QStringLiteral("cctv-dl"), QStringLiteral("download"), url,
+        QStringLiteral("--on-existing"), QStringLiteral("rename")});
+    QVERIFY(!renamed.shouldExit);
+    QCOMPARE(renamed.options.existingOutput, ExistingOutputPolicy::Rename);
+
+    const Cli::ParseResult overwritten = Cli::parseArguments({
+        QStringLiteral("cctv-dl"), QStringLiteral("download"), url,
+        QStringLiteral("--on-existing"), QStringLiteral("overwrite")});
+    QVERIFY(!overwritten.shouldExit);
+    QCOMPARE(overwritten.options.existingOutput, ExistingOutputPolicy::Overwrite);
+
+    const Cli::ParseResult invalid = Cli::parseArguments({
+        QStringLiteral("cctv-dl"), QStringLiteral("download"), url,
+        QStringLiteral("--on-existing"), QStringLiteral("keep")});
+    QVERIFY(invalid.shouldExit);
+    QCOMPARE(invalid.exitCode, static_cast<int>(Cli::ExitCode::Usage));
+
+    const Cli::ParseResult listed = Cli::parseArguments({
+        QStringLiteral("cctv-dl"), QStringLiteral("list"), url,
+        QStringLiteral("--on-existing"), QStringLiteral("skip")});
+    QVERIFY(listed.shouldExit);
+    QCOMPARE(listed.exitCode, static_cast<int>(Cli::ExitCode::Usage));
+}
+
+void CliTests::buildsFinalOutputPathForSkipCheck()
+{
+    const QString saveDir = QStringLiteral("/tmp/videos");
+
+    QCOMPARE(Cli::finalOutputPath(saveDir, QStringLiteral("新闻联播"), true),
+        QStringLiteral("/tmp/videos/新闻联播.mp4"));
+    QCOMPARE(Cli::finalOutputPath(saveDir, QStringLiteral("新闻联播"), false),
+        QStringLiteral("/tmp/videos/新闻联播.ts"));
+    QCOMPARE(Cli::finalOutputPath(saveDir, QStringLiteral("a/b:c"), true),
+        QStringLiteral("/tmp/videos/a_b_c.mp4"));
 }
 
 void CliTests::tracksExplicitSelectionForDownload()
@@ -341,7 +389,7 @@ void CliTests::writesInteractiveProgressOnOneLine()
         output.jobChanged(job);
         job.progressPercent = 50;
         output.jobChanged(job);
-        output.downloadComplete(1, 0, 0, 1);
+        output.downloadComplete(1, 0, 0, 1, 0);
     }
 
     fflush(standardOutput);
@@ -349,7 +397,7 @@ void CliTests::writesInteractiveProgressOnOneLine()
     char buffer[128] = {};
     const size_t bytesRead = fread(buffer, 1, sizeof(buffer), standardOutput);
     const QByteArray outputData(buffer, static_cast<qsizetype>(bytesRead));
-    QCOMPARE(outputData, QByteArray("\r\x1b[2Kvideo: 25%\r\x1b[2Kvideo: 50%\ncompleted: 1, failed: 0, cancelled: 0 / 1\n"));
+    QCOMPARE(outputData, QByteArray("\r\x1b[2Kvideo: 25%\r\x1b[2Kvideo: 50%\ncompleted: 1, failed: 0, cancelled: 0, skipped: 0 / 1\n"));
 
     fclose(standardOutput);
     fclose(standardError);
@@ -402,7 +450,7 @@ void CliTests::keepsNonInteractiveProgressLineBased()
         output.jobChanged(job);
         job.progressPercent = 50;
         output.jobChanged(job);
-        output.downloadComplete(1, 0, 0, 1);
+        output.downloadComplete(1, 0, 0, 1, 0);
     }
 
     fflush(standardOutput);
@@ -410,7 +458,7 @@ void CliTests::keepsNonInteractiveProgressLineBased()
     char buffer[128] = {};
     const size_t bytesRead = fread(buffer, 1, sizeof(buffer), standardOutput);
     const QByteArray outputData(buffer, static_cast<qsizetype>(bytesRead));
-    QCOMPARE(outputData, QByteArray("video: 25%\nvideo: 50%\ncompleted: 1, failed: 0, cancelled: 0 / 1\n"));
+    QCOMPARE(outputData, QByteArray("video: 25%\nvideo: 50%\ncompleted: 1, failed: 0, cancelled: 0, skipped: 0 / 1\n"));
 
     fclose(standardOutput);
     fclose(standardError);

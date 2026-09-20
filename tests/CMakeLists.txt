@@ -73,6 +73,7 @@ target_include_directories(cli_tests
 )
 target_link_libraries(cli_tests
     PRIVATE
+        CCTVVideoDownloaderCore
         FFmpegMin::ffmpeg_min
         Qt6::Core
         Qt6::Test

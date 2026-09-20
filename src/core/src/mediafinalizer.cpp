@@ -52,6 +52,7 @@ MediaFinalizeResult MediaFinalizer::finalize(const QString& stagingTsPath,
 	const QString& title,
 	const QString& saveDir,
 	MediaContainerType desiredContainer,
+	bool replaceExisting,
 	const std::function<bool()>& cancellationRequested)
 {
 	if (isCancellationRequested(cancellationRequested)) {
@@ -94,9 +95,17 @@ MediaFinalizeResult MediaFinalizer::finalize(const QString& stagingTsPath,
 	}
 
 	if (desiredContainer == MediaContainerType::MpegTs) {
-		const QString finalTsPath = uniqueOutputPath(trimmedSaveDir, baseName, QStringLiteral("ts"));
+		const QString finalTsPath = replaceExisting
+			? canonicalOutputPath(trimmedSaveDir, baseName, QStringLiteral("ts"))
+			: uniqueOutputPath(trimmedSaveDir, baseName, QStringLiteral("ts"));
 		if (isCancellationRequested(cancellationRequested)) {
 			return failureResult(QStringLiteral("cancelled"), QStringLiteral("cancelled"), MediaContainerType::MpegTs);
+		}
+
+		if (replaceExisting && QFile::exists(finalTsPath) && !QFile::remove(finalTsPath)) {
+			return failureResult(QStringLiteral("publish_failed"),
+				QStringLiteral("Unable to replace existing TS file: %1").arg(finalTsPath),
+				MediaContainerType::MpegTs);
 		}
 
 		if (!QFile::rename(trimmedStagingPath, finalTsPath)) {
@@ -106,7 +115,10 @@ MediaFinalizeResult MediaFinalizer::finalize(const QString& stagingTsPath,
 		}
 
 		if (isCancellationRequested(cancellationRequested)) {
-			QFile::remove(finalTsPath);
+			// 替换模式下旧文件已被移除，删除新文件会同时丢掉两份。
+			if (!replaceExisting) {
+				QFile::remove(finalTsPath);
+			}
 			return failureResult(QStringLiteral("cancelled"), QStringLiteral("cancelled"), MediaContainerType::MpegTs);
 		}
 
@@ -119,7 +131,9 @@ MediaFinalizeResult MediaFinalizer::finalize(const QString& stagingTsPath,
 		return result;
 	}
 
-	const QString finalMp4Path = uniqueOutputPath(trimmedSaveDir, baseName, QStringLiteral("mp4"));
+	const QString finalMp4Path = replaceExisting
+		? canonicalOutputPath(trimmedSaveDir, baseName, QStringLiteral("mp4"))
+		: uniqueOutputPath(trimmedSaveDir, baseName, QStringLiteral("mp4"));
 	const QString tempMp4Path = finalMp4Path + QStringLiteral(".tmp");
 	qInfo() << "开始MP4封装，输入TS:" << trimmedStagingPath << "临时输出:" << tempMp4Path;
 	if (QFile::exists(tempMp4Path) && !QFile::remove(tempMp4Path)) {
@@ -156,6 +170,13 @@ MediaFinalizeResult MediaFinalizer::finalize(const QString& stagingTsPath,
 		return failureResult(QStringLiteral("cancelled"), QStringLiteral("cancelled"), MediaContainerType::Mp4);
 	}
 
+	if (replaceExisting && QFile::exists(finalMp4Path) && !QFile::remove(finalMp4Path)) {
+		QFile::remove(tempMp4Path);
+		return failureResult(QStringLiteral("publish_failed"),
+			QStringLiteral("Unable to replace existing MP4 file: %1").arg(finalMp4Path),
+			MediaContainerType::Mp4);
+	}
+
 	if (!QFile::rename(tempMp4Path, finalMp4Path)) {
 		QFile::remove(tempMp4Path);
 		return failureResult(QStringLiteral("publish_failed"),
@@ -164,7 +185,10 @@ MediaFinalizeResult MediaFinalizer::finalize(const QString& stagingTsPath,
 	}
 
 	if (isCancellationRequested(cancellationRequested)) {
-		QFile::remove(finalMp4Path);
+		// 替换模式下旧文件已被移除，删除新文件会同时丢掉两份。
+		if (!replaceExisting) {
+			QFile::remove(finalMp4Path);
+		}
 		return failureResult(QStringLiteral("cancelled"), QStringLiteral("cancelled"), MediaContainerType::Mp4);
 	}
 
@@ -177,7 +201,7 @@ MediaFinalizeResult MediaFinalizer::finalize(const QString& stagingTsPath,
 	return result;
 }
 
-QString MediaFinalizer::sanitizedTitle(const QString& title) const
+QString MediaFinalizer::sanitizedTitle(const QString& title)
 {
 	QString sanitized;
 	sanitized.reserve(title.size());
@@ -206,9 +230,14 @@ QString MediaFinalizer::sanitizedTitle(const QString& title) const
 	return sanitized;
 }
 
+QString MediaFinalizer::canonicalOutputPath(const QString& saveDir, const QString& baseName, const QString& suffix)
+{
+	return QDir(saveDir).filePath(QStringLiteral("%1.%2").arg(baseName, suffix));
+}
+
 QString MediaFinalizer::uniqueOutputPath(const QString& saveDir, const QString& baseName, const QString& suffix) const
 {
-	QString outputPath = QDir(saveDir).filePath(QStringLiteral("%1.%2").arg(baseName, suffix));
+	QString outputPath = canonicalOutputPath(saveDir, baseName, suffix);
 	QFileInfo fileInfo(outputPath);
 	const QString completeBaseName = fileInfo.completeBaseName();
 	const QString fileSuffix = fileInfo.suffix();

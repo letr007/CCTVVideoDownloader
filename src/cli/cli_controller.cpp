@@ -4,6 +4,7 @@
 #include "downloadcoordinator.h"
 
 #include <QCoreApplication>
+#include <QFileInfo>
 #include <QTimer>
 
 #include <algorithm>
@@ -207,6 +208,23 @@ void Controller::handleVideoInfoFailed(quint64 requestId,
     QTimer::singleShot(0, this, &Controller::resolveNextJsonListChannel);
 }
 
+bool Controller::skipExistingOutput(const QString& title)
+{
+    if (m_options.existingOutput != ExistingOutputPolicy::Skip) {
+        return false;
+    }
+
+    const QString path = finalOutputPath(m_options.output, title, m_options.mp4);
+    const QFileInfo fileInfo(path);
+    if (!fileInfo.isFile() || fileInfo.size() <= 0) {
+        return false;
+    }
+
+    ++m_skippedJobs;
+    m_output.skipped(title, path);
+    return true;
+}
+
 void Controller::startDownload()
 {
     QList<DownloadJob> jobs;
@@ -218,7 +236,10 @@ void Controller::startDownload()
         job.request.savePath = m_options.output;
         job.request.threadCount = m_options.threads;
         job.request.transcodeToMp4 = m_options.mp4;
-        jobs.append(job);
+        job.request.existingOutput = m_options.existingOutput;
+        if (!skipExistingOutput(job.request.videoTitle)) {
+            jobs.append(job);
+        }
     } else {
         QList<int> selected;
         QString selectionError;
@@ -236,11 +257,20 @@ void Controller::startDownload()
             job.request.savePath = m_options.output;
             job.request.threadCount = m_options.threads;
             job.request.transcodeToMp4 = m_options.mp4;
-            jobs.append(job);
+            job.request.existingOutput = m_options.existingOutput;
+            if (!skipExistingOutput(job.request.videoTitle)) {
+                jobs.append(job);
+            }
         }
     }
 
     if (jobs.isEmpty()) {
+        if (m_skippedJobs > 0) {
+            m_output.downloadComplete(0, 0, 0, m_skippedJobs, m_skippedJobs);
+            m_application.exit(static_cast<int>(ExitCode::Success));
+            return;
+        }
+
         m_output.resolutionFailed(QStringLiteral("no videos matched the selection"));
         m_application.exit(static_cast<int>(ExitCode::ResolutionFailure));
         return;
@@ -255,7 +285,7 @@ void Controller::startDownload()
     });
     connect(m_coordinator, &DownloadCoordinator::batchFinished, this,
         [this](int completed, int failed, int cancelled, int total, bool) {
-            m_output.downloadComplete(completed, failed, cancelled, total);
+            m_output.downloadComplete(completed, failed, cancelled, total + m_skippedJobs, m_skippedJobs);
             m_application.exit(m_cancelled ? static_cast<int>(ExitCode::Cancelled) : exitCodeForBatch(failed, cancelled));
         });
     if (!m_coordinator->startBatch(jobs)) {

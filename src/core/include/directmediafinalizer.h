@@ -19,7 +19,8 @@ DirectMediaFinalizeResult finalizeDirectTsTask(const QString& title,
 	const QString& savePath,
 	bool transcodeToMp4,
 	const QString& taskDirectory = QString(),
-	const std::function<bool()>& cancellationRequested = {}
+	const std::function<bool()>& cancellationRequested = {},
+	bool replaceExisting = false
 #ifdef CORE_REGRESSION_TESTS
 	,
 	const std::function<RemuxProcessResult(const RemuxProcessRequest&)>& testProcessRunner = {},
@@ -42,6 +43,7 @@ public:
 	explicit DirectFinalizeWorker(QObject* parent = nullptr) : QObject(parent) {}
 	void startFinalize(const QString& title, const QString& savePath, bool transcodeToMp4) { doWork(title, savePath, transcodeToMp4); }
 	void setTaskDirectory(const QString& taskDirectory) { m_taskDirectory = taskDirectory; }
+	void setReplaceExisting(bool replaceExisting) { m_replaceExisting = replaceExisting; }
 	void cancelFinalize();
 
 public slots:
@@ -53,6 +55,7 @@ signals:
 private:
 	std::atomic_bool m_cancelled{false};
 	QString m_taskDirectory;
+	bool m_replaceExisting = false;
 
 #ifdef CORE_REGRESSION_TESTS
 	void setTestProcessRunner(const std::function<RemuxProcessResult(const RemuxProcessRequest&)>& runner);

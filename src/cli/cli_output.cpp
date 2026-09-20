@@ -102,13 +102,25 @@ void Output::jobFinished(const DownloadJob& job)
     }
 }
 
-void Output::downloadComplete(int completed, int failed, int cancelled, int total)
+void Output::skipped(const QString& title, const QString& path)
+{
+    if (m_json) {
+        jsonLine({{QStringLiteral("event"), QStringLiteral("skipped")}, {QStringLiteral("title"), title},
+            {QStringLiteral("path"), path}});
+    } else {
+        stdoutLine(QStringLiteral("skipped: %1").arg(title));
+    }
+}
+
+void Output::downloadComplete(int completed, int failed, int cancelled, int total, int skipped)
 {
     if (m_json) {
         jsonLine({{QStringLiteral("event"), QStringLiteral("download_complete")}, {QStringLiteral("completed"), completed},
-            {QStringLiteral("failed"), failed}, {QStringLiteral("cancelled"), cancelled}, {QStringLiteral("total"), total}});
+            {QStringLiteral("failed"), failed}, {QStringLiteral("cancelled"), cancelled},
+            {QStringLiteral("skipped"), skipped}, {QStringLiteral("total"), total}});
     } else {
-        stdoutLine(QStringLiteral("completed: %1, failed: %2, cancelled: %3 / %4").arg(completed).arg(failed).arg(cancelled).arg(total));
+        stdoutLine(QStringLiteral("completed: %1, failed: %2, cancelled: %3, skipped: %4 / %5")
+            .arg(completed).arg(failed).arg(cancelled).arg(skipped).arg(total));
     }
 }
 

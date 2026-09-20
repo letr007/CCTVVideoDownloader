@@ -74,8 +74,9 @@ ParseResult parseArguments(const QStringList& arguments)
     const QCommandLineOption threadsOption(QStringLiteral("threads"), QStringLiteral("Download threads."), QStringLiteral("count"));
     const QCommandLineOption mp4Option(QStringLiteral("mp4"), QStringLiteral("Remux output to MP4."));
     const QCommandLineOption noMp4Option(QStringLiteral("no-mp4"), QStringLiteral("Keep transport-stream output."));
+    const QCommandLineOption onExistingOption(QStringLiteral("on-existing"), QStringLiteral("skip, rename, or overwrite the output file when it already exists."), QStringLiteral("policy"), QStringLiteral("skip"));
     parser.addOptions({fromOption, toOption, jsonOption, debugOption, highlightsOption, selectOption, guidOption, titleOption,
-        outputOption, qualityOption, threadsOption, mp4Option, noMp4Option});
+        outputOption, qualityOption, threadsOption, mp4Option, noMp4Option, onExistingOption});
 
     if (!parser.parse(arguments)) {
         return usageError(parser.errorText());
@@ -120,6 +121,17 @@ ParseResult parseArguments(const QStringList& arguments)
     options.mp4 = !parser.isSet(noMp4Option);
     options.mp4Set = parser.isSet(mp4Option) || parser.isSet(noMp4Option);
 
+    const QString onExisting = parser.value(onExistingOption).trimmed().toLower();
+    if (onExisting == QStringLiteral("skip")) {
+        options.existingOutput = ExistingOutputPolicy::Skip;
+    } else if (onExisting == QStringLiteral("rename")) {
+        options.existingOutput = ExistingOutputPolicy::Rename;
+    } else if (onExisting == QStringLiteral("overwrite")) {
+        options.existingOutput = ExistingOutputPolicy::Overwrite;
+    } else {
+        return usageError(QStringLiteral("--on-existing must be skip, rename, or overwrite"));
+    }
+
     if (parser.isSet(mp4Option) && parser.isSet(noMp4Option)) {
         return usageError(QStringLiteral("--mp4 and --no-mp4 cannot be used together"));
     }
@@ -140,7 +152,8 @@ ParseResult parseArguments(const QStringList& arguments)
     if (options.command == QStringLiteral("list")) {
         if (options.url.isEmpty() || !validUrl(options.url) || !options.guid.isEmpty() || !options.title.isEmpty()
             || parser.isSet(selectOption) || parser.isSet(outputOption) || parser.isSet(qualityOption)
-            || parser.isSet(threadsOption) || parser.isSet(mp4Option) || parser.isSet(noMp4Option)) {
+            || parser.isSet(threadsOption) || parser.isSet(mp4Option) || parser.isSet(noMp4Option)
+            || parser.isSet(onExistingOption)) {
             return usageError(QStringLiteral("list requires one http/https URL and only list options"));
         }
         return result;

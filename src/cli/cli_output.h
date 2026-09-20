@@ -27,7 +27,8 @@ public:
     void resolutionFailed(const QString& message);
     void jobChanged(const DownloadJob& job);
     void jobFinished(const DownloadJob& job);
-    void downloadComplete(int completed, int failed, int cancelled, int total);
+    void skipped(const QString& title, const QString& path);
+    void downloadComplete(int completed, int failed, int cancelled, int total, int skipped);
     void downloadStartFailed();
     void usageError(const QString& message);
     void warning(const QString& message);

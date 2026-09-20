@@ -22,11 +22,15 @@ class MediaFinalizer
 #endif
 
 public:
+	static QString sanitizedTitle(const QString& title);
+	static QString canonicalOutputPath(const QString& saveDir, const QString& baseName, const QString& suffix);
+
 	void setProcessTimeoutMs(int timeoutMs);
 	MediaFinalizeResult finalize(const QString& stagingTsPath,
 		const QString& title,
 		const QString& saveDir,
 		MediaContainerType desiredContainer,
+		bool replaceExisting = false,
 		const std::function<bool()>& cancellationRequested = {});
 
 	#ifdef CORE_REGRESSION_TESTS
@@ -35,7 +39,6 @@ public:
 	#endif
 
 private:
-	QString sanitizedTitle(const QString& title) const;
 	QString uniqueOutputPath(const QString& saveDir, const QString& baseName, const QString& suffix) const;
 
 	LibavRemuxer m_remuxer;

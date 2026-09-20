@@ -46,6 +46,7 @@ public:
 	void setParams(const QString& name, const QString& savePath) { m_name = name; m_savePath = savePath; }
 	void setTaskDirectory(const QString& taskDirectory) { m_taskDirectory = taskDirectory; }
 	void setTranscodeToMp4(bool transcodeToMp4) { m_transcodeToMp4 = transcodeToMp4; }
+	void setReplaceExisting(bool replaceExisting) { m_replaceExisting = replaceExisting; }
 	void setProcessTimeoutMs(int timeoutMs);
 	void startDecrypt() { doDecrypt(); }
 	void cancelDecrypt();
@@ -68,6 +69,7 @@ private:
 	QString m_savePath;
 	QString m_taskDirectory;
 	bool m_transcodeToMp4 = true;
+	bool m_replaceExisting = false;
 	int m_processTimeoutMs{30000};
 	std::atomic_bool m_cancelled{false};
 
