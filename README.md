@@ -65,10 +65,15 @@ cctv-dl download \
   --title '视频标题'
 ```
 
-不带 `--select`、`--from`、`--to` 时，`download` 下载 URL 指向的那一期，适合单集页面；栏目页链接则取范围内最新的一期。传入 `--select` 或月份范围后按列表选择。`list` 始终按月份范围列出该节目，链接的视频不在范围内时会提示怎么取到它。
+单集页面链接不带 `--select`、`--from`、`--to` 时，直接下载链接指向的那一期：
+
+```bash
+cctv-dl download 'https://tv.cctv.com/2026/07/31/VIDEC2s6oxrFBvFynKJRHVkY260731.shtml'
+```
 
 常用选项：
 
+- `--select latest|all|1,3,5`：`download` 下载哪几条，缺省 `latest`（第一条）
 - `--from yyyyMM --to yyyyMM`：设置月份范围，`list` 和 `download` 都可用；缺省为当月和上月。范围作用于栏目类列表，专辑、片库这类页面由接口按自身顺序返回，不受范围影响
 - `--on-existing skip|rename|overwrite`：目标文件已存在时的处理方式，缺省 `skip`（跳过，不重复下载）；`rename` 保留已有文件并另存为 `标题(1)`，`overwrite` 替换已有文件
 - `--include-highlights`：在列表中包含节目看点
