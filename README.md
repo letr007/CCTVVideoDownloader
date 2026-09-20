@@ -65,9 +65,11 @@ cctv-dl download \
   --title '视频标题'
 ```
 
+不带 `--select`、`--from`、`--to` 时，`download` 下载 URL 指向的那一期，适合单集页面；栏目页链接则取范围内最新的一期。传入 `--select` 或月份范围后按列表选择。`list` 始终按月份范围列出该节目，链接的视频不在范围内时会提示怎么取到它。
+
 常用选项：
 
-- `--from yyyyMM --to yyyyMM`：设置月份范围，`list` 和 `download` 都可用；缺省为当月和上月
+- `--from yyyyMM --to yyyyMM`：设置月份范围，`list` 和 `download` 都可用；缺省为当月和上月。范围作用于栏目类列表，专辑、片库这类页面由接口按自身顺序返回，不受范围影响
 - `--include-highlights`：在列表中包含节目看点
 - `--json`：输出 JSON Lines，便于脚本处理
 - `--debug`：将内部诊断写入标准错误

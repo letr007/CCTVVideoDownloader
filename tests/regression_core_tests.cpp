@@ -1273,6 +1273,7 @@ private slots:
     void contentParse_topcEpisodeAlbumFallback_requestsFullProgrammeModeOnly();
     void contentParse_fromStoredIds_hexGuidVide_usesTvcctvSingleVideo();
     void contentParse_itemGuidPage_usesSingleVideo();
+    void contentParse_importResultCarriesPageVideoGuid();
     void apiservice_getPlayColumnInfo_itemGuidPage_routesToSingleVideo();
     void apiservice_fetchSingleVideoByGuid_readsLenFallback();
     void apiservice_getVideoList_usesTvcctvSingleVideoLookup();
@@ -1282,6 +1283,7 @@ private slots:
     void apiservice_startGetBrowseVideoList_programmeRecord_includesFragmentWhenAlbumUnavailable();
     void apiservice_startGetVideoInfo_asyncSuccess_parsesChannelAndLength();
     void apiservice_startGetVideoInfo_ignoresStaleResponse();
+    void apiservice_startGetPageVideo_resolvesPageVideoAndReportsFailureAsEmpty();
     void apiservice_startGetImage_asyncSuccess_emitsLoadedImage();
     void apiservice_buildVideoApiUrl_buildsExpectedQuery();
     void apiservice_buildAlbumVideoListUrl_buildsHighlightQuery();
@@ -4091,6 +4093,75 @@ void CoreRegressionTests::apiservice_processTopicVideoData_marksFragments()
     QCOMPARE(result.value(0).title, QString("fragment-title"));
     QVERIFY(result.value(0).isHighlight);
     QCOMPARE(result.value(0).listType, QString::fromUtf8("片段"));
+}
+
+void CoreRegressionTests::contentParse_importResultCarriesPageVideoGuid()
+{
+    const QString pageGuid = QStringLiteral("9286a057b91c4d638d6f104c3703133a");
+    const ContentParse::Features episode = ContentParse::parsePage(QStringLiteral(R"(
+<script>
+var commentTitle = '《今日说法》 20260731 卡片背后的非法放贷网';
+var itemid1 = 'VIDEC2s6oxrFBvFynKJRHVkY260731';
+var column_id = 'TOPC1451464665008914';
+var guid = '%1';
+</script>)").arg(pageGuid),
+        QStringLiteral("https://tv.cctv.com/2026/07/31/VIDEC2s6oxrFBvFynKJRHVkY260731.shtml"));
+
+    QCOMPARE(ContentParse::makeImportResult(episode).pageGuid, pageGuid);
+
+    const ContentParse::Features column = ContentParse::parsePage(QStringLiteral(R"(
+<script>
+var commentTitle = '新闻联播';
+var itemid1 = 'TOPC1451464665008914';
+var column_id = 'TOPC1451464665008914';
+</script>)"),
+        QStringLiteral("https://tv.cctv.com/lm/xwlb/index.shtml"));
+
+    QVERIFY(ContentParse::makeImportResult(column).pageGuid.isEmpty());
+}
+
+void CoreRegressionTests::apiservice_startGetPageVideo_resolvesPageVideoAndReportsFailureAsEmpty()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QString guid = QStringLiteral("9286a057b91c4d638d6f104c3703133a");
+    const QString title = QStringLiteral("《今日说法》 20260731 卡片背后的非法放贷网");
+    QUrl videoUrl(QStringLiteral("https://zy.api.cntv.cn/video/videoinfoByGuid"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("tvcctv"));
+    query.addQueryItem(QStringLiteral("guid"), guid);
+    videoUrl.setQuery(query);
+    manager.queueSuccess(videoUrl, QByteArray(R"({"data":{"vid":"9286a057b91c4d638d6f104c3703133a","title":"《今日说法》 20260731 卡片背后的非法放贷网","brief":"brief","img":"image.jpg","time":"2026-07-31 12:38:00","length":"1679"}})"));
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    QSignalSpy resolvedSpy(&apiService, &APIService::pageVideoResolved);
+    const quint64 requestId = apiService.startGetPageVideo(guid);
+
+    QVERIFY(resolvedSpy.wait(1000));
+    QCOMPARE(resolvedSpy.count(), 1);
+    const QList<QVariant> resolvedArgs = resolvedSpy.takeFirst();
+    QCOMPARE(resolvedArgs.at(0).toULongLong(), requestId);
+    const QMap<int, VideoItem> videos = resolvedArgs.at(1).value<QMap<int, VideoItem>>();
+    QCOMPARE(videos.size(), 1);
+    QCOMPARE(videos.value(0).guid, guid);
+    QCOMPARE(videos.value(0).title, title);
+    QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+
+    FakeNetworkAccessManager failingManager;
+    failingManager.queueError(videoUrl, QNetworkReply::ContentNotFoundError, QStringLiteral("not found"));
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &failingManager);
+
+    QSignalSpy failedSpy(&apiService, &APIService::pageVideoResolved);
+    apiService.startGetPageVideo(guid);
+
+    QVERIFY(failedSpy.wait(1000));
+    QCOMPARE(failedSpy.count(), 1);
+    const QMap<int, VideoItem> failedVideos = failedSpy.takeFirst().at(1).value<QMap<int, VideoItem>>();
+    QVERIFY(failedVideos.isEmpty());
+    QCOMPARE(failingManager.unexpectedRequestCount(), 0);
+
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
 }
 
 void CoreRegressionTests::contentResolver_resolvesH5eVariantPlaylist()

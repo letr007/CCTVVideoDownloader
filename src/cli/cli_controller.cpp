@@ -6,6 +6,7 @@
 #include <QCoreApplication>
 #include <QTimer>
 
+#include <algorithm>
 #include <tuple>
 #include <utility>
 
@@ -66,6 +67,24 @@ void Controller::resolveUrl(const QString& url, const std::function<void()>& don
             if (requestId != importId || m_cancelled) {
                 return;
             }
+            m_pageGuid = result.pageGuid;
+            if (prefersPageVideo(m_options, m_pageGuid)) {
+                const quint64 pageVideoId = m_api->startGetPageVideo(m_pageGuid);
+                connect(m_api, &APIService::pageVideoResolved, this,
+                    [this, pageVideoId, done](quint64 completedId, const QMap<int, VideoItem>& videos) {
+                        if (completedId != pageVideoId || m_cancelled) {
+                            return;
+                        }
+                        if (videos.isEmpty()) {
+                            m_output.resolutionFailed(QStringLiteral("无法获取该页面的视频信息"));
+                            m_application.exit(static_cast<int>(ExitCode::ResolutionFailure));
+                            return;
+                        }
+                        m_videos = videos;
+                        done();
+                    }, Qt::SingleShotConnection);
+                return;
+            }
             const quint64 listId = m_api->startGetBrowseVideoList(result, m_from, m_to, m_options.includeHighlights);
             connect(m_api, &APIService::browseVideoListResolved, this,
                 [this, listId, done](quint64 completedId, const QMap<int, VideoItem>& videos) {
@@ -73,6 +92,7 @@ void Controller::resolveUrl(const QString& url, const std::function<void()>& don
                         return;
                     }
                     m_videos = videos;
+                    warnWhenPageVideoMissingFromList();
                     if (m_options.command == QStringLiteral("list") && m_options.json) {
                         enrichJsonListChannels(done);
                     } else {
@@ -88,6 +108,20 @@ void Controller::resolveUrl(const QString& url, const std::function<void()>& don
             m_output.resolutionFailed(message);
             m_application.exit(static_cast<int>(ExitCode::ResolutionFailure));
         }, Qt::SingleShotConnection);
+}
+
+void Controller::warnWhenPageVideoMissingFromList()
+{
+    if (m_pageGuid.isEmpty()) {
+        return;
+    }
+    const bool listed = std::any_of(m_videos.cbegin(), m_videos.cend(),
+        [this](const VideoItem& video) { return video.guid == m_pageGuid; });
+    if (listed) {
+        return;
+    }
+    m_output.warning(QStringLiteral("该链接的视频不在显示范围 %1-%2 内；用 --from/--to 指定它所在的月份，或运行 cctv-dl download \"%3\"")
+        .arg(m_from, m_to, m_options.url));
 }
 
 void Controller::enrichJsonListChannels(const std::function<void()>& done)

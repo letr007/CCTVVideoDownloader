@@ -44,6 +44,14 @@ bool parseSelection(const QString& value, int itemCount, QList<int>* indexes, QS
     return true;
 }
 
+bool prefersPageVideo(const Options& options, const QString& pageGuid)
+{
+    if (options.command != QStringLiteral("download") || pageGuid.isEmpty() || options.selectSet) {
+        return false;
+    }
+    return options.from.isEmpty() && options.to.isEmpty();
+}
+
 int exitCodeForBatch(int failedJobs, int cancelledJobs)
 {
     if (cancelledJobs > 0) {

@@ -56,6 +56,7 @@ struct ImportResult {
     QString rawItemId;
     QString rawColumnId;
     QString catalogId;
+    QString pageGuid;
     PageProfile profile = PageProfile::Standard;
 
     bool isValid() const

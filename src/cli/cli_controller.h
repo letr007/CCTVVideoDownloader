@@ -32,6 +32,7 @@ private:
     void handleVideoInfoFailed(quint64 requestId, const QString& guid, const QString& errorMessage);
     void startDownload();
     void applyConfiguredDefaults();
+    void warnWhenPageVideoMissingFromList();
 
     QCoreApplication& m_application;
     Options m_options;
@@ -41,6 +42,7 @@ private:
     QMap<int, VideoItem> m_videos;
     QString m_from;
     QString m_to;
+    QString m_pageGuid;
     QList<int> m_pendingJsonChannelIndexes;
     int m_pendingJsonChannelPosition = 0;
     int m_pendingJsonChannelIndex = -1;

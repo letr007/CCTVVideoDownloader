@@ -16,6 +16,7 @@ struct Options {
     QString quality;
     QString select = QStringLiteral("latest");
     int threads = 0;
+    bool selectSet = false;
     bool json = false;
     bool debug = false;
     bool includeHighlights = false;
@@ -32,6 +33,7 @@ enum class ExitCode {
 };
 
 bool parseSelection(const QString& value, int itemCount, QList<int>* indexes, QString* error);
+bool prefersPageVideo(const Options& options, const QString& pageGuid);
 int exitCodeForBatch(int failedJobs, int cancelledJobs);
 QString videoItemJson(int index, const QString& guid, const QString& title, const QString& time,
     const QString& channel, const QString& image, const QString& brief, qint64 length, bool isHighlight,

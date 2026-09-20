@@ -241,6 +241,7 @@ ImportResult makeImportResult(const Features& features)
     result.rawItemId = features.itemId;
     result.rawColumnId = features.columnId;
     result.catalogId = makePlan(features).catalogId;
+    result.pageGuid = features.guid;
     result.profile = features.profile;
     return result;
 }

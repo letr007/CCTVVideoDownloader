@@ -104,11 +104,13 @@ public:
     quint64 startGetBrowseVideoList(const ContentParse::ImportResult& result, const QString& start_date, const QString& end_date, bool includeHighlights);
     quint64 startGetBrowseVideoList(const ContentParse::ProgrammeRecord& record, const QString& start_date, const QString& end_date, bool includeHighlights);
     quint64 startGetVideoInfo(const QString& guid);
+    quint64 startGetPageVideo(const QString& guid);
 
 signals:
     void playColumnInfoResolved(quint64 requestId, const ContentParse::ImportResult& data);
     void playColumnInfoFailed(quint64 requestId, const QString& errorMessage);
     void browseVideoListResolved(quint64 requestId, const QMap<int, VideoItem>& videos);
+    void pageVideoResolved(quint64 requestId, const QMap<int, VideoItem>& videos);
     void videoInfoResolved(quint64 requestId, const QString& guid, const QString& channel, qint64 length);
     void videoInfoFailed(quint64 requestId, const QString& guid, const QString& errorMessage);
 

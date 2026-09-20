@@ -66,7 +66,7 @@ ParseResult parseArguments(const QStringList& arguments)
     const QCommandLineOption jsonOption(QStringLiteral("json"), QStringLiteral("Emit JSON Lines events."));
     const QCommandLineOption debugOption(QStringLiteral("debug"), QStringLiteral("Write Qt internal logs to standard error."));
     const QCommandLineOption highlightsOption(QStringLiteral("include-highlights"), QStringLiteral("Include highlights in list results."));
-    const QCommandLineOption selectOption(QStringLiteral("select"), QStringLiteral("latest, all, or comma-separated 1-based indexes."), QStringLiteral("selection"), QStringLiteral("latest"));
+    const QCommandLineOption selectOption(QStringLiteral("select"), QStringLiteral("latest, all, or comma-separated 1-based indexes; a single-video URL without it downloads that video."), QStringLiteral("selection"), QStringLiteral("latest"));
     const QCommandLineOption guidOption(QStringLiteral("guid"), QStringLiteral("32-character hexadecimal video GUID for direct download."), QStringLiteral("guid"));
     const QCommandLineOption titleOption(QStringLiteral("title"), QStringLiteral("Required title with --guid."), QStringLiteral("title"));
     const QCommandLineOption outputOption(QStringLiteral("output"), QStringLiteral("Output directory."), QStringLiteral("directory"));
@@ -114,6 +114,7 @@ ParseResult parseArguments(const QStringList& arguments)
     options.output = parser.value(outputOption).trimmed();
     options.quality = parser.value(qualityOption).trimmed();
     options.select = parser.value(selectOption);
+    options.selectSet = parser.isSet(selectOption);
     options.json = parser.isSet(jsonOption);
     options.includeHighlights = parser.isSet(highlightsOption);
     options.mp4 = !parser.isSet(noMp4Option);

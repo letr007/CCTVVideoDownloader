@@ -140,6 +140,8 @@ private slots:
     void parsesSelections();
     void rejectsInvalidSelections();
     void parsesMonthRangeForListAndDownload();
+    void tracksExplicitSelectionForDownload();
+    void prefersPageVideoOnlyForSinglePageDefaults();
     void rejectsListOnlyOptionsForDownload();
     void serializesJsonLine();
     void keepsJsonProgressProtocolLineBased();
@@ -209,6 +211,47 @@ void CliTests::parsesMonthRangeForListAndDownload()
     QCOMPARE(downloaded.options.select, QStringLiteral("latest"));
     QCOMPARE(downloaded.options.from, QStringLiteral("202609"));
     QCOMPARE(downloaded.options.to, QStringLiteral("202609"));
+}
+
+void CliTests::tracksExplicitSelectionForDownload()
+{
+    const QString url = QStringLiteral("https://tv.cctv.com/2026/07/31/VIDEC2s6oxrFBvFynKJRHVkY260731.shtml");
+
+    const Cli::ParseResult implicitSelection = Cli::parseArguments({
+        QStringLiteral("cctv-dl"), QStringLiteral("download"), url});
+    QVERIFY(!implicitSelection.shouldExit);
+    QCOMPARE(implicitSelection.options.select, QStringLiteral("latest"));
+    QVERIFY(!implicitSelection.options.selectSet);
+
+    const Cli::ParseResult explicitSelection = Cli::parseArguments({
+        QStringLiteral("cctv-dl"), QStringLiteral("download"), url,
+        QStringLiteral("--select"), QStringLiteral("latest")});
+    QVERIFY(!explicitSelection.shouldExit);
+    QVERIFY(explicitSelection.options.selectSet);
+}
+
+void CliTests::prefersPageVideoOnlyForSinglePageDefaults()
+{
+    const QString pageGuid = QStringLiteral("9286a057b91c4d638d6f104c3703133a");
+    Cli::Options options;
+    options.command = QStringLiteral("download");
+
+    QVERIFY(Cli::prefersPageVideo(options, pageGuid));
+    QVERIFY(!Cli::prefersPageVideo(options, QString()));
+
+    options.selectSet = true;
+    QVERIFY(!Cli::prefersPageVideo(options, pageGuid));
+    options.selectSet = false;
+
+    options.from = QStringLiteral("202607");
+    QVERIFY(!Cli::prefersPageVideo(options, pageGuid));
+    options.from.clear();
+    options.to = QStringLiteral("202607");
+    QVERIFY(!Cli::prefersPageVideo(options, pageGuid));
+    options.to.clear();
+
+    options.command = QStringLiteral("list");
+    QVERIFY(!Cli::prefersPageVideo(options, pageGuid));
 }
 
 void CliTests::rejectsListOnlyOptionsForDownload()

@@ -1211,3 +1211,27 @@ quint64 APIService::startGetVideoInfo(const QString& guid)
     return requestId;
 }
 
+quint64 APIService::startGetPageVideo(const QString& guid)
+{
+    const quint64 requestId = nextAsyncBrowseRequestId();
+
+    auto publishResult = [this, requestId, guid]() {
+        const QMap<int, VideoItem> videos = fetchSingleVideoByGuid(QStringLiteral("tvcctv"), guid);
+        QMetaObject::invokeMethod(this, [this, requestId, videos]() {
+            emit pageVideoResolved(requestId, videos);
+        }, Qt::QueuedConnection);
+    };
+
+#ifdef CORE_REGRESSION_TESTS
+    if (m_testNetworkAccessManager) {
+        QTimer::singleShot(0, this, publishResult);
+        return requestId;
+    }
+#endif
+
+    QThread* workerThread = QThread::create(publishResult);
+    workerThread->setObjectName(QStringLiteral("APIServicePageVideoWorker"));
+    connect(workerThread, &QThread::finished, workerThread, &QObject::deleteLater);
+    workerThread->start();
+    return requestId;
+}
