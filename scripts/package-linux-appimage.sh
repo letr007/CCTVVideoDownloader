@@ -90,6 +90,19 @@ while IFS= read -r -d '' sofile; do
   EXTRA_LIB_ARGS+=(--library "$sofile")
 done < <(find "$APPDIR/plugins" "$APPDIR/lib" -name '*.so*' -type f -print0 2>/dev/null)
 
+# Create a self-contained AppRun entrypoint that sets up search paths and launches the GUI.
+cat > "$WORK_DIR/AppRun" <<'EOF'
+#!/bin/sh
+HERE="$(dirname "$(readlink -f "${0}")")"
+export APPDIR="${HERE}"
+export PATH="${HERE}/bin:${HERE}/usr/bin:${PATH}"
+export LD_LIBRARY_PATH="${HERE}/lib:${HERE}/usr/lib:${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export QT_PLUGIN_PATH="${HERE}/plugins:${HERE}/usr/plugins"
+export QML2_IMPORT_PATH="${HERE}/qml:${HERE}/usr/qml:${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
+exec "${HERE}/bin/CCTVVideoDownloader" "$@"
+EOF
+chmod +x "$WORK_DIR/AppRun"
+
 # First pass: collect and deploy dependencies into AppDir.
 (
   cd "$WORK_DIR"
@@ -98,6 +111,7 @@ done < <(find "$APPDIR/plugins" "$APPDIR/lib" -name '*.so*' -type f -print0 2>/d
     --desktop-file "$APPDIR/usr/share/applications/cctvvideodownloader.desktop" \
     --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/cctvvideodownloader.png" \
     --executable "$APPDIR/usr/bin/$APP_NAME" \
+    --custom-apprun "$WORK_DIR/AppRun" \
     "${EXTRA_LIB_ARGS[@]}"
 )
 
@@ -123,17 +137,7 @@ for extra in libgpg-error.so.0 libcom_err.so.2 libxkbcommon-x11.so.0 libxcb-curs
   done
 done
 
-# Create a self-contained AppRun entrypoint that sets up search paths and launches the GUI.
-cat > "$APPDIR/AppRun" <<'EOF'
-#!/bin/sh
-HERE="$(dirname "$(readlink -f "${0}")")"
-export APPDIR="${HERE}"
-export PATH="${HERE}/bin:${HERE}/usr/bin:${PATH}"
-export LD_LIBRARY_PATH="${HERE}/lib:${HERE}/usr/lib:${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-export QT_PLUGIN_PATH="${HERE}/plugins:${HERE}/usr/plugins"
-export QML2_IMPORT_PATH="${HERE}/qml:${HERE}/usr/qml:${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
-exec "${HERE}/bin/CCTVVideoDownloader" "$@"
-EOF
+cp -f "$WORK_DIR/AppRun" "$APPDIR/AppRun"
 chmod +x "$APPDIR/AppRun"
 
 # Sanity: every non-core dependency of the binary, plugins, and Qt libs must resolve.
@@ -143,7 +147,11 @@ for f in "$APPDIR"/bin/* "$APPDIR"/lib/libQt6*.so.6 $(find "$APPDIR/plugins" -na
   while read -r lib; do
     [[ -z "$lib" ]] && continue
     case "$lib" in
-      ld-linux*|libc.so*|libm.so*|libdl.so*|libpthread*|librt.so*|libresolv.so*|libgcc_s.so*|libstdc++.so*|libz.so*|linux-vdso*|libGL.so*|libGLX.so*|libOpenGL.so*|libEGL.so*|libGLdispatch.so*|libX11.so*|libxcb.so.1*)
+      ld-linux*|libc.so*|libm.so*|libdl.so*|libpthread*|librt.so*|libresolv.so*|libgcc_s.so*|libstdc++.so*|libz.so*|linux-vdso*|\
+      libGL.so*|libGLX.so*|libOpenGL.so*|libEGL.so*|libGLdispatch.so*|libdrm.so*|libgbm.so*|\
+      libX11.so*|libX11-xcb.so*|libxcb.so.1*|\
+      libfontconfig.so*|libfreetype.so*|\
+      libasound.so*|libudev.so*)
         continue ;; # core runtime and system graphics/display server drivers
     esac
     if [[ ! -e "$APPDIR/lib/$lib" && ! -e "$APPDIR/usr/lib/$lib" ]]; then
@@ -169,7 +177,7 @@ rm -f "$OUTPUT_PATH"
     --appdir "$APPDIR" \
     --desktop-file "$APPDIR/usr/share/applications/cctvvideodownloader.desktop" \
     --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/cctvvideodownloader.png" \
-    --custom-apprun "$APPDIR/AppRun" \
+    --custom-apprun "$WORK_DIR/AppRun" \
     --output appimage
 )
 
