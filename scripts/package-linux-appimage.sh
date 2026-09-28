@@ -151,7 +151,7 @@ for f in "$APPDIR"/bin/* "$APPDIR"/lib/libQt6*.so.6 $(find "$APPDIR/plugins" -na
       libGL.so*|libGLX.so*|libOpenGL.so*|libEGL.so*|libGLdispatch.so*|libdrm.so*|libgbm.so*|\
       libX11.so*|libX11-xcb.so*|libxcb.so.1*|\
       libfontconfig.so*|libfreetype.so*|\
-      libasound.so*|libudev.so*)
+      libasound.so*|libudev.so*|libSM.so*|libICE.so*)
         continue ;; # core runtime and system graphics/display server drivers
     esac
     if [[ ! -e "$APPDIR/lib/$lib" && ! -e "$APPDIR/usr/lib/$lib" ]]; then
