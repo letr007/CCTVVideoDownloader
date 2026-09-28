@@ -4,6 +4,6 @@ Name=CCTV Video Downloader
 Comment=Download videos from CCTV
 Exec=CCTVVideoDownloader
 Icon=cctvvideodownloader
-Categories=AudioVideo;Network;Qt;
+Categories=AudioVideo;Recorder;Qt;
 Terminal=false
 StartupNotify=true
