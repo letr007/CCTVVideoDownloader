@@ -1146,6 +1146,8 @@ private slots:
     void decryptWorker_success_canKeepDecryptedTs();
     void cctvH5e_type1FlipMask_supportsCurrentNalFamilies();
     void cctvH5e_type1FlipMask_supportsLegacySliceHeaderSubfamilies();
+    void cctvH5e_type1FlipMask_supportsSdHdrFamily();
+    void cctvH5e_type1ShortNal_passesThroughBelowGridMin();
     void cctvH5e_type5_newModeKeySkipsEpbInsideKeyWindow();
     void cctvH5e_type5_tailCellNeedsSeventeenBytes();
     void cctvH5e_epbDrop_usesPreDecryptPositions();
@@ -3861,6 +3863,37 @@ void CoreRegressionTests::cctvH5e_classicLayout_alignsGridOnRbspAcrossEpb()
     session.on_nal(enable, &enableLen);
 
     QCOMPARE(runSessionOnNal(session, ciphertext), plaintext);
+}
+
+void CoreRegressionTests::cctvH5e_type1FlipMask_supportsSdHdrFamily()
+{
+    // SD 450-tier shards (2010 4:3 corpus) carry `41 88 b2` headers: b2[0..2] drive
+    // s7/s6/s5 and the 9/10/12 block is fixed, unlike either neighbouring family.
+    const auto mask = [](uint8_t b0, uint8_t b1, uint8_t b2) {
+        const uint8_t header[3]{b0, b1, b2};
+        return cctv_h5e::type1_flip_mask_from_header(header);
+    };
+
+    QCOMPARE(mask(0x41, 0x88, 0x83), uint16_t(0x16C5));
+    QCOMPARE(mask(0x41, 0x88, 0x84), uint16_t(0x1625));
+    QCOMPARE(mask(0x41, 0x88, 0x85), uint16_t(0x16A5));
+}
+
+void CoreRegressionTests::cctvH5e_type1ShortNal_passesThroughBelowGridMin()
+{
+    // A type1 NAL shorter than 129 bytes never enters the worker grid, so it keeps
+    // both its cells and its EPBs (SD corpus has 113..127-byte P slices).
+    QByteArray nal = h5eTestNalBytes(0x61, 128);
+    nal[60] = '\0';
+    nal[61] = '\0';
+    nal[62] = '\x03';
+
+    cctv_h5e::Session session;
+    uint8_t enable[4] = {0x79, 0x01, 0x01, 0x06};
+    size_t enableLen = sizeof(enable);
+    session.on_nal(enable, &enableLen);
+
+    QCOMPARE(runSessionOnNal(session, nal), nal);
 }
 
 void CoreRegressionTests::cctvH5e_type5_newModeKeySkipsEpbInsideKeyWindow()

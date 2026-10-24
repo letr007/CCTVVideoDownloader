@@ -293,6 +293,22 @@ inline uint16_t type1_flip_mask_from_header(const uint8_t hdr[3]) {
         if ((b1 >> 0) & 1) setb(15);
         return m;
     }
+    // SD 450-tier family (2010 4:3 corpus, `41 88 b2`): b2[0..2] drive s7/s6/s5,
+    // the 9/10/12 block is fixed and s14 stays clear. Fitted on b2=83/84/85;
+    // the other b2 bits follow the same layout as the 0x61 family.
+    if (b0 == 0x41 && b1 == 0x88) {
+        if ((b2 >> 7) & 1) setb(0);
+        if ((b2 >> 6) & 1) setb(1);
+        if (1 ^ ((b2 >> 5) & 1)) setb(2);
+        if ((b2 >> 4) & 1) setb(3);
+        if ((b2 >> 3) & 1) setb(4);
+        if ((b2 >> 2) & 1) setb(5);
+        if ((b2 >> 1) & 1) setb(6);
+        if ((b2 >> 0) & 1) setb(7);
+        setb(9); setb(10); setb(12);
+        if ((b1 >> 0) & 1) setb(15);
+        return m;
+    }
     // Unknown family: no flips (same as 61e020 core only).
     return 0;
 }
@@ -347,12 +363,16 @@ inline size_t epb_adj_before(const std::vector<size_t>& epbs, size_t o) {
     return n;
 }
 
+// Worker grid entry threshold for type1 NALs (classic and new-mode alike):
+// shorter NALs pass through with no rewrite and no EPB drop.
+inline constexpr size_t kType1MinLen = 129;
+
 // Grid guard: require ``guard`` bytes remaining at RBSP cell start (default 17)
 // even though only 4 bytes are rewritten. Cell bytes via RBSP→EBSP map
 // (skip EPB 0x03); then drop still-intact 0x03. Returns new NAL length.
 inline size_t decrypt_type1_new(uint8_t* nal, size_t len, uint32_t stride = 511,
                                 size_t start = 64, size_t guard = kGridTailGuard) {
-    if (!nal || stride < 4 || len < 3) return len;
+    if (!nal || stride < 4 || len < kType1MinLen) return len;
     const uint8_t hdr[3] = {nal[0], nal[1], nal[2]};
     std::vector<size_t> epbs;
     std::vector<size_t> r2e;
@@ -380,13 +400,13 @@ inline size_t decrypt_type1_new(uint8_t* nal, size_t len, uint32_t stride = 511,
 // NALs on a legacy shard). Tail cell requires a full stride of RBSP remaining.
 // Output length shrinks when still-intact EPB 0x03 bytes are dropped.
 inline size_t decrypt_classic_grid(uint8_t* nal, size_t len) {
-    if (!nal || len < 48) return len;
+    if (!nal || len < kType1MinLen) return len;
     std::vector<size_t> epbs;
     std::vector<size_t> r2e;
     collect_epb_positions(nal, len, epbs);
     build_rbsp_map(nal, len, r2e);
     const size_t rbsp_len = r2e.size();
-    if (rbsp_len < 48) return len;
+    if (rbsp_len < kType1MinLen) return len;
     uint8_t key[16];
     for (size_t b = 0; b < 16; b++) key[b] = nal[r2e[16 + b]];
     bool anyCell = false;
