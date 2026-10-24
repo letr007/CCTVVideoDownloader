@@ -89,46 +89,88 @@ inline void decrypt_classic(uint8_t* nal, size_t len) {
     }
 }
 
+// Worker grid entry requires this many bytes remaining at a cell start.
+// type1 rewrites 4 bytes and type5 rewrites 8, yet both stop at the same margin.
+inline constexpr size_t kGridTailGuard = 17;
+
+// RBSP→EBSP position map (EPB 0x03 skipped). Worker indexes key bytes and grid
+// cells on RBSP, so a cell/key window that straddles an EPB must read through
+// this map instead of raw EBSP offsets.
+inline void build_rbsp_map(const uint8_t* nal, size_t len, std::vector<size_t>& r2e) {
+    r2e.clear();
+    r2e.reserve(len);
+    for (size_t i = 0; i < len; ) {
+        if (i + 2 < len && nal[i] == 0 && nal[i + 1] == 0 && nal[i + 2] == 3) {
+            r2e.push_back(i);
+            r2e.push_back(i + 1);
+            i += 3;
+        } else {
+            r2e.push_back(i);
+            i++;
+        }
+    }
+}
+
+// Collect EPB positions (start of 00 00 03).
+inline void collect_epb_positions(const uint8_t* nal, size_t len,
+                                  std::vector<size_t>& epbs) {
+    epbs.clear();
+    if (!nal || len < 3) return;
+    for (size_t i = 0; i + 2 < len; i++) {
+        if (nal[i] == 0 && nal[i + 1] == 0 && nal[i + 2] == 3) epbs.push_back(i);
+    }
+}
+
+// Drop the 0x03 at each recorded EPB position (from the end). Returns new length.
+// The worker drops by pre-decrypt position: a cell that rewrote the leading
+// 00 00 still gets its third byte removed, so `require_intact=false` matches it.
+// `require_intact=true` stays available for the plain-EBSP reference path; it
+// leaves the byte in place when a cell rewrote the 00 00 prefix.
+inline size_t drop_epb_03(uint8_t* nal, size_t len, const std::vector<size_t>& epbs,
+                          bool require_intact = true) {
+    if (!nal) return len;
+    size_t nlen = len;
+    for (auto it = epbs.rbegin(); it != epbs.rend(); ++it) {
+        size_t e = *it;
+        if (e + 2 >= nlen) continue;
+        if (require_intact && !(nal[e] == 0 && nal[e + 1] == 0 && nal[e + 2] == 3)) continue;
+        std::memmove(nal + e + 2, nal + e + 3, nlen - (e + 3));
+        nlen--;
+    }
+    return nlen;
+}
+
 // Type5 new-mode: key@5, start=64, stride S, EPB-aware (same as type1).
-// Worker grid guard needs 16 bytes at logical cell start; TEA only writes 8.
+// Worker grid guard needs 17 bytes at logical cell start; TEA only writes 8.
 // Cells are indexed on RBSP length via r2e (skip EPB 0x03), matching worker:
 // a cell that straddles an EPB must read its 8 ciphertext bytes from the
 // EBSP positions. Returns new NAL length after optional EPB 03 drop.
 inline size_t decrypt_type5_new(uint8_t* nal, size_t len, uint32_t stride) {
     if (!nal || len < 21 || stride < 8) return len;
-    const uint8_t* key = nal + 5;
     std::vector<size_t> epbs;
     std::vector<size_t> r2e;
-    r2e.reserve(len);
-    for (size_t i = 0; i + 2 < len; i++) {
-        if (nal[i] == 0 && nal[i + 1] == 0 && nal[i + 2] == 3) {
-            epbs.push_back(i);
-            r2e.push_back(i);
-            r2e.push_back(i + 1);
-            i += 2;
-        } else {
-            r2e.push_back(i);
-        }
-    }
+    collect_epb_positions(nal, len, epbs);
+    build_rbsp_map(nal, len, r2e);
     const size_t rbsp_len = r2e.size();
+    if (rbsp_len < 21) return len;
+    // TEA key lives at RBSP[5:21]; an EPB inside that window shifts the raw
+    // EBSP bytes and would corrupt every cell (CCTVVideoDownloader#115).
+    uint8_t key[16];
+    for (size_t b = 0; b < 16; b++) key[b] = nal[r2e[5 + b]];
     uint8_t tmp[8];
+    bool anyCell = false;
     for (size_t k = 0;; k++) {
         size_t o = 64 + k * (size_t)stride;
-        if (o + 16 > rbsp_len || o + 8 > rbsp_len) break;
+        if (o + kGridTailGuard > rbsp_len || o + 8 > rbsp_len) break;
         for (size_t b = 0; b < 8; b++) tmp[b] = nal[r2e[o + b]];
         tea_decrypt_block(tmp, tmp, key);
         for (size_t b = 0; b < 8; b++) nal[r2e[o + b]] = tmp[b];
+        anyCell = true;
     }
-    if (epbs.empty()) return len;
-    size_t nlen = len;
-    for (auto it = epbs.rbegin(); it != epbs.rend(); ++it) {
-        size_t e = *it;
-        if (e + 2 < nlen && nal[e] == 0 && nal[e + 1] == 0 && nal[e + 2] == 3) {
-            std::memmove(nal + e + 2, nal + e + 3, nlen - (e + 3));
-            nlen--;
-        }
-    }
-    return nlen;
+    // EPB drop belongs to grid handling: a NAL too short for any cell is passed
+    // through untouched (worker leaves sub-grid type1/type5 as-is).
+    if (epbs.empty() || !anyCell) return len;
+    return drop_epb_03(nal, len, epbs, false);
 }
 
 inline bool is_type25_enable(const uint8_t* nal, size_t len) {
@@ -150,22 +192,25 @@ inline uint32_t type5_stride_f5(const uint8_t* key16) {
 
 // Convenience: NAL with header+RBSP, needs len >= 11 (pref >= 21).
 inline uint32_t type5_stride_from_nal(const uint8_t* nal, size_t len) {
-    if (!nal || len < 11) return 0;
+    if (!nal || len < 21) return 0;
+    // key[0..5] = RBSP[5..10] (TEA key head); EPB 0x03 is not part of RBSP.
+    std::vector<size_t> r2e;
+    build_rbsp_map(nal, len, r2e);
+    if (r2e.size() < 11) return 0;
     uint8_t key[6];
-    // key[0..3]=nal[5..8], key[4]=nal[9], key[5]=nal[10]
-    key[0] = nal[5];
-    key[1] = nal[6];
-    key[2] = nal[7];
-    key[3] = nal[8];
-    key[4] = (len > 9) ? nal[9] : 0;
-    key[5] = (len > 10) ? nal[10] : 0;
+    for (size_t b = 0; b < 6; b++) key[b] = nal[r2e[5 + b]];
     return type5_stride_f5(key);
 }
 
-// Type1 F1: same BASE/select as F5, key = nal[1:7].
+// Type1 F1: same BASE/select as F5, key = RBSP[1..6].
 inline uint32_t type1_stride_f1(const uint8_t* nal, size_t len) {
     if (!nal || len < 7) return 0;
-    return type5_stride_f5(nal + 1);
+    std::vector<size_t> r2e;
+    build_rbsp_map(nal, len, r2e);
+    if (r2e.size() < 7) return 0;
+    uint8_t key[6];
+    for (size_t b = 0; b < 6; b++) key[b] = nal[r2e[1 + b]];
+    return type5_stride_f5(key);
 }
 
 // ===== Type1 G + EPB helpers =====
@@ -293,16 +338,6 @@ inline void type1_decrypt_block_nal(uint8_t blk[4], const uint8_t nal_hdr[3]) {
     blk[3] = (uint8_t)((X >> 8) & 0xFF);
 }
 
-// Collect EPB positions (start of 00 00 03).
-inline void collect_epb_positions(const uint8_t* nal, size_t len,
-                                  std::vector<size_t>& epbs) {
-    epbs.clear();
-    if (!nal || len < 3) return;
-    for (size_t i = 0; i + 2 < len; i++) {
-        if (nal[i] == 0 && nal[i + 1] == 0 && nal[i + 2] == 3) epbs.push_back(i);
-    }
-}
-
 // Count EPBs with start index strictly before `o`.
 inline size_t epb_adj_before(const std::vector<size_t>& epbs, size_t o) {
     size_t n = 0;
@@ -312,42 +347,17 @@ inline size_t epb_adj_before(const std::vector<size_t>& epbs, size_t o) {
     return n;
 }
 
-// Drop the 0x03 of each still-present EPB (from the end). Returns new length.
-inline size_t drop_epb_03(uint8_t* nal, size_t len, const std::vector<size_t>& epbs) {
-    if (!nal) return len;
-    size_t nlen = len;
-    for (auto it = epbs.rbegin(); it != epbs.rend(); ++it) {
-        size_t e = *it;
-        if (e + 2 < nlen && nal[e] == 0 && nal[e + 1] == 0 && nal[e + 2] == 3) {
-            // delete byte at e+2
-            std::memmove(nal + e + 2, nal + e + 3, nlen - (e + 3));
-            nlen--;
-        }
-    }
-    return nlen;
-}
-
 // Grid guard: require ``guard`` bytes remaining at RBSP cell start (default 17)
 // even though only 4 bytes are rewritten. Cell bytes via RBSP→EBSP map
 // (skip EPB 0x03); then drop still-intact 0x03. Returns new NAL length.
 inline size_t decrypt_type1_new(uint8_t* nal, size_t len, uint32_t stride = 511,
-                                size_t start = 64, size_t guard = 17) {
+                                size_t start = 64, size_t guard = kGridTailGuard) {
     if (!nal || stride < 4 || len < 3) return len;
     const uint8_t hdr[3] = {nal[0], nal[1], nal[2]};
     std::vector<size_t> epbs;
-    collect_epb_positions(nal, len, epbs);
     std::vector<size_t> r2e;
-    r2e.reserve(len);
-    for (size_t i = 0; i < len; ) {
-        if (i + 2 < len && nal[i] == 0 && nal[i + 1] == 0 && nal[i + 2] == 3) {
-            r2e.push_back(i);
-            r2e.push_back(i + 1);
-            i += 3;
-        } else {
-            r2e.push_back(i);
-            i++;
-        }
-    }
+    collect_epb_positions(nal, len, epbs);
+    build_rbsp_map(nal, len, r2e);
     const size_t rbsp_len = r2e.size();
     for (size_t k = 0;; k++) {
         size_t o = start + k * (size_t)stride;
@@ -361,7 +371,7 @@ inline size_t decrypt_type1_new(uint8_t* nal, size_t len, uint32_t stride = 511,
         nal[r2e[o + 3]] = blk[3];
     }
     if (epbs.empty()) return len;
-    return drop_epb_03(nal, len, epbs);
+    return drop_epb_03(nal, len, epbs, false);
 }
 
 // Classic layout (type25 enable seen but 01 09 magic absent, e.g. legacy 2018
@@ -372,23 +382,14 @@ inline size_t decrypt_type1_new(uint8_t* nal, size_t len, uint32_t stride = 511,
 inline size_t decrypt_classic_grid(uint8_t* nal, size_t len) {
     if (!nal || len < 48) return len;
     std::vector<size_t> epbs;
-    collect_epb_positions(nal, len, epbs);
     std::vector<size_t> r2e;
-    r2e.reserve(len);
-    for (size_t i = 0; i < len; ) {
-        if (i + 2 < len && nal[i] == 0 && nal[i + 1] == 0 && nal[i + 2] == 3) {
-            r2e.push_back(i);
-            r2e.push_back(i + 1);
-            i += 3;
-        } else {
-            r2e.push_back(i);
-            i++;
-        }
-    }
+    collect_epb_positions(nal, len, epbs);
+    build_rbsp_map(nal, len, r2e);
     const size_t rbsp_len = r2e.size();
     if (rbsp_len < 48) return len;
     uint8_t key[16];
     for (size_t b = 0; b < 16; b++) key[b] = nal[r2e[16 + b]];
+    bool anyCell = false;
     for (size_t k = 0;; k++) {
         size_t o = 32 + k * 80;
         if (o + 80 > rbsp_len) break;
@@ -396,9 +397,12 @@ inline size_t decrypt_classic_grid(uint8_t* nal, size_t len) {
         for (size_t b = 0; b < 8; b++) blk[b] = nal[r2e[o + b]];
         tea_decrypt_block(blk, blk, key);
         for (size_t b = 0; b < 8; b++) nal[r2e[o + b]] = blk[b];
+        anyCell = true;
     }
-    if (epbs.empty()) return len;
-    return drop_epb_03(nal, len, epbs);
+    // A NAL shorter than one classic cell (32 + 80) is passed through untouched;
+    // dropping its EPBs would shorten it without decrypting anything.
+    if (epbs.empty() || !anyCell) return len;
+    return drop_epb_03(nal, len, epbs, false);
 }
 
 // ===== Session =====
@@ -411,7 +415,7 @@ struct Session {
     // without any type25 (e.g. plaintext fallback on the h5e path) stay intact.
     bool shouldDecrypt = false;
     size_t type1_start = 64;
-    size_t type1_guard = 17;
+    size_t type1_guard = kGridTailGuard;
     // Worker leaves type1 NALs shorter than this untouched (no grid, no EPB drop).
     size_t type1_min_len = 129;
 

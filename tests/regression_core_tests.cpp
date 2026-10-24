@@ -1146,6 +1146,10 @@ private slots:
     void decryptWorker_success_canKeepDecryptedTs();
     void cctvH5e_type1FlipMask_supportsCurrentNalFamilies();
     void cctvH5e_type1FlipMask_supportsLegacySliceHeaderSubfamilies();
+    void cctvH5e_type5_newModeKeySkipsEpbInsideKeyWindow();
+    void cctvH5e_type5_tailCellNeedsSeventeenBytes();
+    void cctvH5e_epbDrop_usesPreDecryptPositions();
+    void cctvH5e_classicShortNal_keepsEpbsUntouched();
     void cctvH5e_sessionGate_passesPlaintextThroughUntilType25Enable();
     void cctvH5e_sessionGate_classicDecryptionRequiresType25Enable();
     void cctvH5e_sessionGate_type25MagicEnablesNewModeDecryption();
@@ -3857,6 +3861,120 @@ void CoreRegressionTests::cctvH5e_classicLayout_alignsGridOnRbspAcrossEpb()
     session.on_nal(enable, &enableLen);
 
     QCOMPARE(runSessionOnNal(session, ciphertext), plaintext);
+}
+
+void CoreRegressionTests::cctvH5e_type5_newModeKeySkipsEpbInsideKeyWindow()
+{
+    // CCTVVideoDownloader#115: the type5 TEA key lives at RBSP[5:21]. An EPB
+    // inside that window shifts the raw EBSP bytes, so the key must be read
+    // through the RBSP map exactly like the grid cells.
+    QByteArray plaintext = h5eTestNalBytes(0x65, 2000);
+    // RBSP[15:18] = 00 00 01 becomes 00 00 03 01 in EBSP, placing an EPB inside
+    // the key window.
+    plaintext[15] = '\0';
+    plaintext[16] = '\0';
+    plaintext[17] = '\x01';
+
+    QByteArray ciphertext = plaintext;  // RBSP form, no EPB yet
+    const auto* rbspKey =
+        reinterpret_cast<const uint8_t*>(ciphertext.constData()) + 5;
+    const uint32_t stride = cctv_h5e::type5_stride_f5(rbspKey);
+    QVERIFY(stride >= 8);
+    auto* bytes = reinterpret_cast<uint8_t*>(ciphertext.data());
+    const size_t nalLength = static_cast<size_t>(ciphertext.size());
+    for (size_t off = 64; off + 16 <= nalLength; off += stride) {
+        cctv_h5e::tea_encrypt_block(bytes + off, bytes + off, rbspKey);
+    }
+    ciphertext.insert(17, '\x03');  // EBSP encoding of the 00 00 01 run
+
+    cctv_h5e::Session session;
+    uint8_t enable[4] = {0x79, 0x01, 0x01, 0x09};
+    size_t enableLen = sizeof(enable);
+    session.on_nal(enable, &enableLen);
+
+    // The still-present EPB 0x03 is dropped, returning the RBSP plaintext.
+    QCOMPARE(runSessionOnNal(session, ciphertext), plaintext);
+}
+
+void CoreRegressionTests::cctvH5e_type5_tailCellNeedsSeventeenBytes()
+{
+    // Worker stops its type5 grid when fewer than 17 bytes remain at the cell
+    // start: an 8-byte cell with a 16-byte tail stays ciphertext
+    // (CCTVVideoDownloader#115).
+    QByteArray plaintext(880, '\0');
+    plaintext[0] = static_cast<char>(0x65);
+    for (int i = 1; i < plaintext.size(); ++i) {
+        plaintext[i] = static_cast<char>(0x40 + (i % 60));
+    }
+    // Zero key -> le32(key[0..3]) == 0 -> idx 0 -> stride 160. Cells land at
+    // 64..704; the last grid entry is 864 with exactly 16 bytes remaining.
+    for (int i = 5; i < 21; ++i) {
+        plaintext[i] = '\0';
+    }
+
+    const uint32_t stride = cctv_h5e::type5_stride_f5(
+        reinterpret_cast<const uint8_t*>(plaintext.constData()) + 5);
+    QCOMPARE(stride, 160u);
+
+    QByteArray ciphertext = plaintext;
+    auto* bytes = reinterpret_cast<uint8_t*>(ciphertext.data());
+    for (size_t off = 64; off + 17 <= static_cast<size_t>(ciphertext.size()); off += stride) {
+        cctv_h5e::tea_encrypt_block(bytes + off, bytes + off, bytes + 5);
+    }
+
+    cctv_h5e::Session session;
+    uint8_t enable[4] = {0x79, 0x01, 0x01, 0x09};
+    size_t enableLen = sizeof(enable);
+    session.on_nal(enable, &enableLen);
+
+    QCOMPARE(runSessionOnNal(session, ciphertext), plaintext);
+}
+
+void CoreRegressionTests::cctvH5e_epbDrop_usesPreDecryptPositions()
+{
+    // The worker removes the 0x03 recorded at every pre-decrypt EPB position,
+    // even when a decrypted cell rewrote the leading 00 00 bytes. Keeping it
+    // would leave one extra byte in the NAL and desync the slice
+    // (CCTVVideoDownloader#115).
+    const QByteArray source = h5eTestNalBytes(0x41, 40);
+    std::vector<uint8_t> buffer(source.begin(), source.end());
+    buffer[20] = 0x00;
+    buffer[21] = 0x00;
+    buffer[22] = 0x03;
+    const std::vector<size_t> epbs{20};
+
+    QByteArray expected(source);
+    expected.remove(22, 1);
+
+    // Simulate a decrypted cell that overwrote the EPB prefix.
+    buffer[20] = 0x7F;
+    buffer[21] = 0xD9;
+    expected[20] = static_cast<char>(0x7F);
+    expected[21] = static_cast<char>(0xD9);
+
+    const size_t newLength = cctv_h5e::drop_epb_03(buffer.data(), buffer.size(), epbs, false);
+    QCOMPARE(static_cast<int>(newLength), expected.size());
+    QCOMPARE(QByteArray(reinterpret_cast<const char*>(buffer.data()),
+                        static_cast<int>(newLength)),
+             expected);
+}
+
+void CoreRegressionTests::cctvH5e_classicShortNal_keepsEpbsUntouched()
+{
+    // A classic-layout NAL shorter than one cell (32 + 80) is passed through
+    // untouched; dropping its EPBs would shorten it without decrypting
+    // anything (CCTVVideoDownloader#115, classic shard 120).
+    QByteArray nal = h5eTestNalBytes(0x61, 69);
+    nal[31] = '\0';
+    nal[32] = '\0';
+    nal[33] = '\x03';
+
+    cctv_h5e::Session session;
+    uint8_t enable[4] = {0x79, 0x01, 0x01, 0x06};
+    size_t enableLen = sizeof(enable);
+    session.on_nal(enable, &enableLen);
+
+    QCOMPARE(runSessionOnNal(session, nal), nal);
 }
 
 void CoreRegressionTests::decryptWorker_invalidCboxOutput_rejectsAndDoesNotPublish()
