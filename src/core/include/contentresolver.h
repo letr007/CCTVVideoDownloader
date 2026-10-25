@@ -50,6 +50,8 @@ private:
         FetchVariantPlaylist
     };
 
+    QSharedPointer<ImportResult> resolveSingleVideoFromUrlGuid(const QString& url);
+
     void startMediaRequest(quint64 requestId, const QUrl& url);
     void handleMediaReplyFinished(quint64 requestId, QNetworkReply* reply);
     void finishMediaResolveSuccess(quint64 requestId, const ContentParse::ResolvedMedia& media);

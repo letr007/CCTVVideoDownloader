@@ -37,6 +37,22 @@ QMap<int, VideoItem> fetchAlbumByModes(APIService& apiService, const QString& al
     return {};
 }
 
+// A URL guid is only a candidate; the content service decides if it is playable.
+QStringList guidCandidatesInUrl(const QString& url)
+{
+    static const QRegularExpression guidRegex(
+        QStringLiteral(R"((?<![0-9a-fA-F])[0-9a-f]{32}(?![0-9a-fA-F]))"));
+    QStringList candidates;
+    QRegularExpressionMatchIterator it = guidRegex.globalMatch(url);
+    while (it.hasNext() && candidates.size() < 2) {
+        const QString guid = it.next().captured(0).toLower();
+        if (!candidates.contains(guid)) {
+            candidates.append(guid);
+        }
+    }
+    return candidates;
+}
+
 } // namespace
 
 ContentResolver::ContentResolver(APIService& apiService, QObject* parent)
@@ -75,7 +91,8 @@ QSharedPointer<ImportResult> ContentResolver::resolvePlayColumnInfo(const QStrin
     }
 
     if (features.title.isEmpty() || features.itemId.isEmpty() || features.columnId.isEmpty()) {
-        return nullptr;
+        // Shell pages (App/share links) still carry the guid in the URL.
+        return resolveSingleVideoFromUrlGuid(url);
     }
 
     ImportResult importResult = makeImportResult(features);
@@ -83,6 +100,35 @@ QSharedPointer<ImportResult> ContentResolver::resolvePlayColumnInfo(const QStrin
         return nullptr;
     }
     return QSharedPointer<ImportResult>::create(importResult);
+}
+
+QSharedPointer<ImportResult> ContentResolver::resolveSingleVideoFromUrlGuid(const QString& url)
+{
+    const QStringList candidates = guidCandidatesInUrl(url);
+    for (const QString& guid : candidates) {
+        const QMap<int, VideoItem> videos = m_apiService.fetchSingleVideoByGuid(QStringLiteral("tvcctv"), guid);
+        if (videos.isEmpty()) {
+            continue;
+        }
+        const VideoItem& item = videos.first();
+        if (item.title.isEmpty()) {
+            continue;
+        }
+
+        Features features;
+        features.title = item.title;
+        features.itemId = guid;
+        features.columnId = guid;
+        features.guid = guid;
+        features.hasGuid = true;
+        features.kind = Kind::Episode;
+
+        const ImportResult result = makeImportResult(features);
+        if (result.isValid()) {
+            return QSharedPointer<ImportResult>::create(result);
+        }
+    }
+    return nullptr;
 }
 
 QMap<int, VideoItem> ContentResolver::resolveVideoList(const ProgrammeRecord& record,

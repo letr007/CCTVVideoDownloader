@@ -1305,6 +1305,8 @@ private slots:
     void apiservice_getVideoList_usesTvcctvSingleVideoLookup();
     void apiservice_getVideoList_usesCctv4kGuidFallback();
     void apiservice_startGetPlayColumnInfo_asyncSuccess_emitsResolvedData();
+    void contentresolver_resolvePlayColumnInfo_fallsBackToUrlGuidForShellPages();
+    void contentresolver_resolvePlayColumnInfo_rejectsUrlGuidTheServiceDoesNotKnow();
     void apiservice_startGetBrowseVideoList_asyncSuccess_preservesHighlightAndFragmentBrowseSemantics();
     void apiservice_startGetBrowseVideoList_programmeRecord_includesFragmentWhenAlbumUnavailable();
     void apiservice_startGetVideoInfo_asyncSuccess_parsesChannelAndLength();
@@ -5978,6 +5980,72 @@ var guid = '4a0c129380f14290a4d630d69de73ba3';
     QCOMPARE(imported.rawColumnId, QStringLiteral("4a0c129380f14290a4d630d69de73ba3"));
     QCOMPARE(imported.catalogId, QStringLiteral("4a0c129380f14290a4d630d69de73ba3"));
     QCOMPARE(manager.requestCount(), 1);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::contentresolver_resolvePlayColumnInfo_fallsBackToUrlGuidForShellPages()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QString guid = QStringLiteral("3c143e6fbf7943118c5ab55f33b28ad4");
+    const QUrl url(QStringLiteral("https://app.cctv.com/special/m/livevod/index.html?guid=%1&vtype=2&vsetId=VSET1jqllku6egeffh4g7h3r92").arg(guid));
+    const QByteArray shellHtml = R"(<html><head><title>央视影音</title><meta property="og:title" content="央视影音"/></head></html>)";
+
+    QUrl videoInfoUrl(QStringLiteral("https://zy.api.cntv.cn/video/videoinfoByGuid"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("tvcctv"));
+    query.addQueryItem(QStringLiteral("guid"), guid);
+    videoInfoUrl.setQuery(query);
+
+    manager.queueSuccess(url, shellHtml);
+    manager.queueSuccess(videoInfoUrl, QByteArray(R"({"vid":"3c143e6fbf7943118c5ab55f33b28ad4","title":"德国7-1库拉索"})"));
+
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    QSignalSpy resolvedSpy(&apiService, &APIService::playColumnInfoResolved);
+    QSignalSpy failedSpy(&apiService, &APIService::playColumnInfoFailed);
+    const quint64 requestId = apiService.startGetPlayColumnInfo(url.toString());
+
+    QVERIFY(resolvedSpy.wait(1000));
+    QCOMPARE(resolvedSpy.count(), 1);
+    QCOMPARE(failedSpy.count(), 0);
+
+    const QList<QVariant> args = resolvedSpy.takeFirst();
+    QCOMPARE(args.at(0).toULongLong(), requestId);
+    const ContentParse::ImportResult imported = args.at(1).value<ContentParse::ImportResult>();
+    QCOMPARE(imported.title, QStringLiteral("德国7-1库拉索"));
+    QCOMPARE(imported.rawItemId, guid);
+    QCOMPARE(imported.rawColumnId, guid);
+    QCOMPARE(imported.catalogId, guid);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::contentresolver_resolvePlayColumnInfo_rejectsUrlGuidTheServiceDoesNotKnow()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QString guid = QStringLiteral("55886a4867abb32598fc1eb70d76afe4");
+    const QUrl url(QStringLiteral("https://app.cctv.com/special/m/livevod/index.html?guid=%1").arg(guid));
+    const QByteArray shellHtml = R"(<html><head><title>央视影音</title><meta property="og:title" content="央视影音"/></head></html>)";
+
+    QUrl videoInfoUrl(QStringLiteral("https://zy.api.cntv.cn/video/videoinfoByGuid"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("serviceId"), QStringLiteral("tvcctv"));
+    query.addQueryItem(QStringLiteral("guid"), guid);
+    videoInfoUrl.setQuery(query);
+
+    manager.queueSuccess(url, shellHtml);
+    manager.queueSuccess(videoInfoUrl, QByteArray(R"({"data":{}})"));
+
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    QSignalSpy resolvedSpy(&apiService, &APIService::playColumnInfoResolved);
+    QSignalSpy failedSpy(&apiService, &APIService::playColumnInfoFailed);
+    apiService.startGetPlayColumnInfo(url.toString());
+
+    QVERIFY(failedSpy.wait(1000));
+    QCOMPARE(failedSpy.count(), 1);
+    QCOMPARE(resolvedSpy.count(), 0);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
 }
 
