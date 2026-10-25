@@ -1257,6 +1257,7 @@ private slots:
     void apiservice_processMonthData_preservesListLength();
     void apiservice_processTopicVideoData_marksFragments();
     void contentResolver_resolvesH5eVariantPlaylist();
+    void contentResolver_retriesMirrorHostWhenNodeReturnsForbidden();
     void contentResolver_prefersEncryptedH5eOverClearHls();
     void contentResolver_clearOnlyNetworkErrorTriesNextQuality();
     void contentResolver_resolves4KPlaylist();
@@ -4417,6 +4418,35 @@ https://cdn.example/segment-2.ts
         QStringLiteral("https://cdn.example/segment-2.ts")}));
     QCOMPARE(qvariant_cast<ContentParse::ResolvedMedia>(result.at(0)).encryptionMode, ContentParse::EncryptionMode::H5E);
     QVERIFY(!qvariant_cast<ContentParse::ResolvedMedia>(result.at(0)).is4K);
+    QCOMPARE(manager.unexpectedRequestCount(), 0);
+    APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
+}
+
+void CoreRegressionTests::contentResolver_retriesMirrorHostWhenNodeReturnsForbidden()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl infoUrl(QStringLiteral("https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid=mirror-guid"));
+    const QString h5ePath = QStringLiteral("/asp/h5e/hls/main/0303000a/3/default/mirror-guid/main.m3u8?maxbr=2048");
+    const QUrl primaryUrl(QStringLiteral("https://dh5qq01.v.cntv.cn") + h5ePath);
+    const QUrl mirrorUrl(QStringLiteral("https://dh5wx.cntv.kfcbest.com") + h5ePath);
+    const QUrl variantUrl(QStringLiteral("https://dh5wx.cntv.kfcbest.com/asp/h5e/hls/2000/0303000a/3/default/mirror-guid/2000.m3u8"));
+
+    manager.queueSuccess(infoUrl, QStringLiteral(R"({"manifest":{"hls_h5e_url":"%1"}})").arg(primaryUrl.toString()).toUtf8());
+    manager.queueError(primaryUrl, QNetworkReply::ContentAccessDenied, QStringLiteral("server replied: Forbidden"));
+    manager.queueSuccess(mirrorUrl, QByteArray("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2048000\n/asp/h5e/hls/2000/0303000a/3/default/mirror-guid/2000.m3u8\n"));
+    manager.queueSuccess(variantUrl, QByteArray("#EXTM3U\nsegment-1.ts\n"));
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+
+    ContentParse::ContentResolver resolver(apiService);
+    QSignalSpy resolvedSpy(&resolver, &ContentParse::ContentResolver::mediaResolved);
+    resolver.startResolveMedia(QStringLiteral("mirror-guid"), QStringLiteral("0"));
+
+    QVERIFY(resolvedSpy.wait(2000));
+    const ContentParse::ResolvedMedia media = qvariant_cast<ContentParse::ResolvedMedia>(resolvedSpy.takeFirst().at(0));
+    QCOMPARE(media.segmentUrls, QStringList({
+        QStringLiteral("https://dh5wx.cntv.kfcbest.com/asp/h5e/hls/2000/0303000a/3/default/mirror-guid/segment-1.ts")}));
+    QCOMPARE(media.encryptionMode, ContentParse::EncryptionMode::H5E);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
     APIServiceTestAdapter::clearTestNetworkAccessManager(apiService);
 }

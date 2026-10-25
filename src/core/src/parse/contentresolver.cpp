@@ -37,6 +37,38 @@ QMap<int, VideoItem> fetchAlbumByModes(APIService& apiService, const QString& al
     return {};
 }
 
+// The same h5e path serves identical bytes from every scheduler node, so a node
+// answering 403 can be replaced by another host.
+const QStringList& h5eMirrorHosts()
+{
+    static const QStringList hosts = {
+        QStringLiteral("dh5wx.cntv.kfcbest.com"),
+        QStringLiteral("dh5wswx02.v.cntv.cn"),
+        QStringLiteral("dh5qq01.v.cntv.cn"),
+        QStringLiteral("dh5ws01.v.cntv.cn"),
+        QStringLiteral("dh5.cntv.cdn20.com"),
+    };
+    return hosts;
+}
+
+QStringList h5eMirrorUrls(const QString& playlistUrl)
+{
+    const QUrl url(playlistUrl);
+    if (!url.path().contains(QStringLiteral("/asp/h5e/"))) {
+        return {};
+    }
+    QStringList mirrors;
+    for (const QString& host : h5eMirrorHosts()) {
+        if (host.compare(url.host(), Qt::CaseInsensitive) == 0) {
+            continue;
+        }
+        QUrl mirror(url);
+        mirror.setHost(host);
+        mirrors.append(mirror.toString());
+    }
+    return mirrors;
+}
+
 // A URL guid is only a candidate; the content service decides if it is playable.
 QStringList guidCandidatesInUrl(const QString& url)
 {
@@ -187,6 +219,7 @@ void ContentResolver::startResolveMedia(const QString& guid, const QString& qual
 
     m_pendingQuality = quality;
     m_pendingMasterPlaylistUrl.clear();
+    m_pendingMasterMirrors.clear();
     m_pendingEncryptedPlaylistUrl.clear();
     m_pendingClearQualities.clear();
     m_pendingSelectedVariantIsHighQuality = false;
@@ -212,6 +245,7 @@ void ContentResolver::cancelResolveMedia()
     m_mediaResolveStage = MediaResolveStage::None;
     m_pendingQuality.clear();
     m_pendingMasterPlaylistUrl.clear();
+    m_pendingMasterMirrors.clear();
     m_pendingEncryptedPlaylistUrl.clear();
     m_pendingClearQualities.clear();
     m_pendingSelectedVariantIsHighQuality = false;
@@ -257,6 +291,7 @@ void ContentResolver::handleMediaReplyFinished(quint64 requestId, QNetworkReply*
             m_mediaResolveStage = MediaResolveStage::None;
             m_pendingQuality.clear();
             m_pendingMasterPlaylistUrl.clear();
+            m_pendingMasterMirrors.clear();
             m_pendingEncryptedPlaylistUrl.clear();
             m_pendingClearQualities.clear();
             m_pendingSelectedVariantIsHighQuality = false;
@@ -276,6 +311,9 @@ void ContentResolver::handleMediaReplyFinished(quint64 requestId, QNetworkReply*
             finishMediaResolveFailure(requestId, QStringLiteral("网络请求失败: %1").arg(reply->errorString()));
             return;
         }
+        if (stage == MediaResolveStage::FetchMasterPlaylist && retryMasterPlaylistMirror(requestId)) {
+            return;
+        }
         const QString errorMessage = QStringLiteral("网络请求失败: %1").arg(reply->errorString());
         reply->deleteLater();
         finishMediaResolveFailure(requestId, errorMessage);
@@ -292,6 +330,9 @@ void ContentResolver::handleMediaReplyFinished(quint64 requestId, QNetworkReply*
             return;
         }
         if (stage == MediaResolveStage::FetchClearPlaylist && fallbackToEncryptedPlaylist(requestId)) {
+            return;
+        }
+        if (stage == MediaResolveStage::FetchMasterPlaylist && retryMasterPlaylistMirror(requestId)) {
             return;
         }
         finishMediaResolveFailure(requestId, QStringLiteral("网络响应为空: %1").arg(requestUrl));
@@ -344,6 +385,7 @@ void ContentResolver::handleMediaReplyFinished(quint64 requestId, QNetworkReply*
                 }
                 if (!normalizedEncryptedPlaylistUrl.isEmpty()) {
                     m_pendingMasterPlaylistUrl = normalizedEncryptedPlaylistUrl;
+            m_pendingMasterMirrors = h5eMirrorUrls(m_pendingMasterPlaylistUrl);
                     m_mediaResolveStage = MediaResolveStage::FetchMasterPlaylist;
                     startMediaRequest(requestId, QUrl(m_pendingMasterPlaylistUrl));
                     return;
@@ -355,6 +397,7 @@ void ContentResolver::handleMediaReplyFinished(quint64 requestId, QNetworkReply*
         const QString normalizedEncryptedPlaylistUrl = encryptedPlaylistUrlFrom(root);
         if (!normalizedEncryptedPlaylistUrl.isEmpty()) {
             m_pendingMasterPlaylistUrl = normalizedEncryptedPlaylistUrl;
+            m_pendingMasterMirrors = h5eMirrorUrls(m_pendingMasterPlaylistUrl);
             m_mediaResolveStage = MediaResolveStage::FetchMasterPlaylist;
             startMediaRequest(requestId, QUrl(m_pendingMasterPlaylistUrl));
             return;
@@ -446,6 +489,7 @@ void ContentResolver::finishMediaResolveSuccess(quint64 requestId, const Content
     m_mediaResolveStage = MediaResolveStage::None;
     m_pendingQuality.clear();
     m_pendingMasterPlaylistUrl.clear();
+    m_pendingMasterMirrors.clear();
     m_pendingEncryptedPlaylistUrl.clear();
     m_pendingClearQualities.clear();
     m_pendingSelectedVariantIsHighQuality = false;
@@ -461,6 +505,7 @@ void ContentResolver::finishMediaResolveFailure(quint64 requestId, const QString
     m_mediaResolveStage = MediaResolveStage::None;
     m_pendingQuality.clear();
     m_pendingMasterPlaylistUrl.clear();
+    m_pendingMasterMirrors.clear();
     m_pendingEncryptedPlaylistUrl.clear();
     m_pendingClearQualities.clear();
     m_pendingSelectedVariantIsHighQuality = false;
@@ -634,12 +679,24 @@ QString ContentResolver::encryptedPlaylistUrlFrom(const QJsonObject& root) const
     return normalizeEncryptedPlaylistUrl(encryptedPlaylistUrl);
 }
 
+bool ContentResolver::retryMasterPlaylistMirror(quint64 requestId)
+{
+    if (m_pendingMasterMirrors.isEmpty()) {
+        return false;
+    }
+    m_pendingMasterPlaylistUrl = m_pendingMasterMirrors.takeFirst();
+    m_mediaResolveStage = MediaResolveStage::FetchMasterPlaylist;
+    startMediaRequest(requestId, QUrl(m_pendingMasterPlaylistUrl));
+    return true;
+}
+
 bool ContentResolver::fallbackToEncryptedPlaylist(quint64 requestId)
 {
     if (m_pendingEncryptedPlaylistUrl.isEmpty()) {
         return false;
     }
     m_pendingMasterPlaylistUrl = m_pendingEncryptedPlaylistUrl;
+    m_pendingMasterMirrors = h5eMirrorUrls(m_pendingMasterPlaylistUrl);
     m_pendingEncryptedPlaylistUrl.clear();
     m_mediaResolveStage = MediaResolveStage::FetchMasterPlaylist;
     startMediaRequest(requestId, QUrl(m_pendingMasterPlaylistUrl));

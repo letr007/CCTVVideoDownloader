@@ -52,6 +52,7 @@ private:
 
     QSharedPointer<ImportResult> resolveSingleVideoFromUrlGuid(const QString& url);
 
+    bool retryMasterPlaylistMirror(quint64 requestId);
     void startMediaRequest(quint64 requestId, const QUrl& url);
     void handleMediaReplyFinished(quint64 requestId, QNetworkReply* reply);
     void finishMediaResolveSuccess(quint64 requestId, const ContentParse::ResolvedMedia& media);
@@ -75,6 +76,7 @@ private:
 
     APIService& m_apiService;
     QPointer<QNetworkReply> m_pendingMediaReply;
+    QStringList m_pendingMasterMirrors;
     quint64 m_activeMediaResolveId = 0;
     quint64 m_nextMediaResolveId = 0;
     MediaResolveStage m_mediaResolveStage = MediaResolveStage::None;
