@@ -96,7 +96,12 @@ ParseResult parseArguments(const QStringList& arguments)
     }
 
     const QStringList positional = parser.positionalArguments();
-    if (positional.isEmpty() || (positional.first() != QStringLiteral("list") && positional.first() != QStringLiteral("download"))) {
+    if (positional.isEmpty()) {
+        result.output = parser.helpText();
+        result.shouldExit = true;
+        return result;
+    }
+    if (positional.first() != QStringLiteral("list") && positional.first() != QStringLiteral("download")) {
         return usageError(QStringLiteral("command must be list or download"));
     }
     if (positional.size() > 2) {

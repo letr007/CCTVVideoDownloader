@@ -152,6 +152,7 @@ private slots:
     void keepsNonInteractiveProgressLineBased();
     void mapsExitCodes();
     void executableHelpSucceeds();
+    void executablePrintsHelpWithoutArguments();
     void executableRejectsInvalidCommand();
     void executableRejectsInvalidGuid();
     void executableSilencesQtLogsByDefault();
@@ -480,6 +481,17 @@ void CliTests::executableHelpSucceeds()
     const QByteArray standardOutput = process.readAllStandardOutput();
     QVERIFY(standardOutput.contains("Usage:"));
     QVERIFY(standardOutput.contains("--debug"));
+}
+
+void CliTests::executablePrintsHelpWithoutArguments()
+{
+    QProcess process;
+    runCli(process, {});
+    QCOMPARE(process.exitStatus(), QProcess::NormalExit);
+    QCOMPARE(process.exitCode(), 0);
+    const QByteArray standardOutput = process.readAllStandardOutput();
+    QVERIFY(standardOutput.contains("Usage:"));
+    QVERIFY(standardOutput.contains("list or download"));
 }
 
 void CliTests::executableRejectsInvalidCommand()
