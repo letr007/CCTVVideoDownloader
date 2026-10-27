@@ -313,9 +313,8 @@ bool TSMerger::validatePacket(const std::vector<uint8_t>& data, size_t offset) {
 
 void TSMerger::identifyPMTPID(const std::vector<uint8_t>& data, size_t offset) {
     if (data.size() >= offset + 20) {
-        // PAT 包中，第13-14字节包含第一个节目的 PMT_PID
-        pmtPid = ((data[offset + 13] & 0x1F) << 8) |
-            data[offset + 14];
+        pmtPid = ((data[offset + 15] & 0x1F) << 8) |
+            data[offset + 16];
         pmtIdentified = true;
 
         qDebug() << "识别到PMT PID:" << pmtPid;
