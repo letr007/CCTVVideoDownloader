@@ -124,6 +124,36 @@ struct NativeDecryptResult
 	QString message;
 };
 
+// 视频 PES 起点，用作分块边界，保证每块从完整 PES 开始。
+std::vector<qint64> collectVideoPesStarts(QFile& file, uint16_t vpid)
+{
+	std::vector<qint64> starts;
+	// 包对齐的扫描缓冲，顺序读避免 seek 与缓冲混用导致的错位。
+	constexpr qint64 kScanBytes = 188 * 22000;
+	QByteArray scan(static_cast<int>(kScanBytes), Qt::Uninitialized);
+	file.seek(0);
+	qint64 base = 0;
+	qint64 got = 0;
+	while ((got = file.read(scan.data(), kScanBytes)) > 0) {
+		const auto* bytes = reinterpret_cast<const uint8_t*>(scan.constData());
+		for (qint64 off = 0; off + 188 <= got; off += 188) {
+			const uint8_t* packet = bytes + off;
+			if (packet[0] != 0x47) {
+				continue;
+			}
+			if ((((packet[1] & 0x1F) << 8) | packet[2]) != vpid) {
+				continue;
+			}
+			if ((packet[1] & 0x40) == 0) {
+				continue;
+			}
+			starts.push_back(base + off);
+		}
+		base += got;
+	}
+	return starts;
+}
+
 NativeDecryptResult decryptTsFileInPlace(const QString& tsPath,
 	const std::function<bool()>& cancellationRequested)
 {
@@ -136,90 +166,81 @@ NativeDecryptResult decryptTsFileInPlace(const QString& tsPath,
 		return result;
 	}
 
-	QFile inputFile(tsPath);
-	if (!inputFile.open(QIODevice::ReadOnly)) {
+	QFile file(tsPath);
+	if (!file.open(QIODevice::ReadWrite)) {
 		result.code = QStringLiteral("input_unreadable");
-		result.message = QStringLiteral("无法读取加密 TS: %1").arg(tsPath);
+		result.message = QStringLiteral("无法读写加密 TS: %1").arg(tsPath);
 		return result;
 	}
 
-	const QByteArray encrypted = inputFile.readAll();
-	inputFile.close();
-	if (encrypted.isEmpty()) {
+	const qint64 fileSize = file.size();
+	if (fileSize < 188) {
 		result.code = QStringLiteral("input_empty");
 		result.message = QStringLiteral("加密 TS 为空: %1").arg(tsPath);
 		return result;
 	}
 
-	if (cancellationRequested && cancellationRequested()) {
-		result.cancelled = true;
-		result.code = QStringLiteral("cancelled");
-		result.message = QStringLiteral("cancelled");
+	const std::vector<qint64> pesStarts = collectVideoPesStarts(file, 0x100);
+	if (pesStarts.empty()) {
+		result.code = QStringLiteral("native_decrypt_failed");
+		result.message = QStringLiteral("未找到视频 PES: %1").arg(tsPath);
 		return result;
 	}
 
-	std::vector<uint8_t> buffer(static_cast<size_t>(encrypted.size()));
-	memcpy(buffer.data(), encrypted.constData(), buffer.size());
-
-	// decrypt_ts_inplace decrypts in-place and keeps the TS byte length stable
-	// (PES shrink is absorbed into adaptation-field stuffing). Its return value is
-	// the NAL count processed — NOT an output byte length. Resizing to that value
-	// truncates a full program down to a few hundred KB / sub-second clip.
+	// Chunk on PES boundaries so memory stays flat; the decryptor keeps the
+	// byte length unchanged, which allows writing each chunk back in place.
+	constexpr qint64 kChunkBytes = 64LL << 20;
 	cctv_h5e::Session session;
-	const size_t inputLen = buffer.size();
-	const size_t nalCount = cctv_h5e::decrypt_ts_inplace(buffer.data(), buffer.size(), session, 0x100);
+	size_t nalCount = 0;
+	std::vector<uint8_t> chunk;
+	for (size_t index = 0; index < pesStarts.size();) {
+		if (cancellationRequested && cancellationRequested()) {
+			result.cancelled = true;
+			result.code = QStringLiteral("cancelled");
+			result.message = QStringLiteral("cancelled");
+			return result;
+		}
+
+		const qint64 begin = pesStarts.at(index);
+		size_t next = index + 1;
+		while (next < pesStarts.size() && pesStarts.at(next) - begin < kChunkBytes) {
+			++next;
+		}
+		const qint64 end = next < pesStarts.size() ? pesStarts.at(next) : fileSize;
+		const size_t chunkLen = static_cast<size_t>(end - begin);
+
+		chunk.resize(chunkLen);
+		file.seek(begin);
+		if (file.read(reinterpret_cast<char*>(chunk.data()), static_cast<qint64>(chunkLen)) != static_cast<qint64>(chunkLen)) {
+			result.code = QStringLiteral("input_unreadable");
+			result.message = QStringLiteral("读取加密 TS 失败: %1").arg(tsPath);
+			return result;
+		}
+
+		const size_t before = chunk.size();
+		nalCount += cctv_h5e::decrypt_ts_inplace(chunk.data(), chunk.size(), session, 0x100);
+		if (chunk.size() != before) {
+			result.code = QStringLiteral("native_decrypt_failed");
+			result.message = QStringLiteral("原生 h5e 解密异常改变了 TS 长度");
+			return result;
+		}
+
+		file.seek(begin);
+		if (file.write(reinterpret_cast<const char*>(chunk.data()), static_cast<qint64>(chunkLen)) != static_cast<qint64>(chunkLen)) {
+			result.code = QStringLiteral("output_write_failed");
+			result.message = QStringLiteral("解密结果写入不完整");
+			return result;
+		}
+		index = next;
+	}
+
 	if (nalCount == 0) {
 		result.code = QStringLiteral("native_decrypt_failed");
 		result.message = QStringLiteral("原生 h5e 解密失败（未处理任何视频 NAL）");
 		return result;
 	}
-	if (buffer.size() != inputLen) {
-		result.code = QStringLiteral("native_decrypt_failed");
-		result.message = QStringLiteral("原生 h5e 解密异常改变了 TS 长度");
-		return result;
-	}
 	qInfo() << "原生 h5e 解密完成, NAL 数:" << static_cast<qulonglong>(nalCount)
-		<< "TS 字节:" << static_cast<qulonglong>(buffer.size());
-
-	if (cancellationRequested && cancellationRequested()) {
-		result.cancelled = true;
-		result.code = QStringLiteral("cancelled");
-		result.message = QStringLiteral("cancelled");
-		return result;
-	}
-
-	const QString tempPath = tsPath + QStringLiteral(".h5e.tmp");
-	QFile::remove(tempPath);
-	QFile outputFile(tempPath);
-	if (!outputFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-		result.code = QStringLiteral("output_unwritable");
-		result.message = QStringLiteral("无法写入解密临时文件: %1").arg(tempPath);
-		return result;
-	}
-
-	const qint64 written = outputFile.write(reinterpret_cast<const char*>(buffer.data()),
-		static_cast<qint64>(buffer.size()));
-	outputFile.close();
-	if (written != static_cast<qint64>(buffer.size())) {
-		QFile::remove(tempPath);
-		result.code = QStringLiteral("output_write_failed");
-		result.message = QStringLiteral("解密结果写入不完整");
-		return result;
-	}
-
-	if (!QFile::remove(tsPath) || !QFile::rename(tempPath, tsPath)) {
-		// Best-effort fallback: copy then remove temp.
-		if (QFile::exists(tsPath)) {
-			QFile::remove(tsPath);
-		}
-		if (!QFile::copy(tempPath, tsPath)) {
-			QFile::remove(tempPath);
-			result.code = QStringLiteral("output_replace_failed");
-			result.message = QStringLiteral("无法用解密结果替换 result.ts");
-			return result;
-		}
-		QFile::remove(tempPath);
-	}
+		<< "TS 字节:" << static_cast<qulonglong>(fileSize);
 
 	result.ok = true;
 	result.code = QStringLiteral("ok");
