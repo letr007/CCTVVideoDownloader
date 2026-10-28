@@ -213,7 +213,8 @@ Features parsePage(const QString& html, const QString& url)
         features.columnId = features.guid;
     }
     const QString pageHost = pageUrl.host();
-    const bool isLegacyEventHost = pageHost.compare(QStringLiteral("sports.cctv.com"), Qt::CaseInsensitive) == 0
+    const bool isLegacyEventHost = QRegularExpression(QStringLiteral(R"(^sports\.cctv\.(com|cn)$)"),
+             QRegularExpression::CaseInsensitiveOption).match(pageHost).hasMatch()
         || QRegularExpression(QStringLiteral(R"(^\d{4}\.cctv\.com$)"),
              QRegularExpression::CaseInsensitiveOption).match(pageHost).hasMatch();
     if (isLegacyEventHost
