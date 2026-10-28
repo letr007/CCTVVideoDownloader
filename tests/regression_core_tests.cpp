@@ -1290,6 +1290,7 @@ private slots:
     void programmePersistence_restoresVCctvProgrammeStrategy();
     void apiservice_getPlayColumnInfo_importsLegacyGuidWithoutSemicolon();
     void contentparse_legacySportsProfileOwnsCatalogIdentity();
+    void contentparse_legacySportsProfileCoversCnMirrors();
     void apiservice_getVideoList_routesLegacyYearDomainToSingleVideo();
     void programmePersistence_reimportUpgradesLegacyRecord();
     void programmePersistence_reimportUpgradesProjectedLegacyRecord();
@@ -5551,6 +5552,30 @@ var guid = '%1';
     const ContentParse::ProgrammeRecord record = ContentParse::makeProgrammeRecord(result);
     QCOMPARE(record.columnId, QStringLiteral("TOPC9964025095711882"));
     QCOMPARE(record.catalogId, guid);
+}
+
+void CoreRegressionTests::contentparse_legacySportsProfileCoversCnMirrors()
+{
+    const QString guid = QStringLiteral("06645fff52a645068d2dba87937ff5e7");
+    const QString html = QStringLiteral(R"(
+<script>
+var commentTitle = 'Legacy Sports';
+var itemid1 = 'VIDE0tOb7LbbAcQsiTpDpZwf111222';
+var column_id = 'TOPC9964025095711882';
+var guid = '%1';
+</script>)").arg(guid);
+
+    const QStringList urls{
+        QStringLiteral("https://sports.cctv.cn/2011/12/22/VIDE0tOb7LbbAcQsiTpDpZwf111222.shtml"),
+        QStringLiteral("https://2016.cctv.cn/2016/08/18/VIDEFXKSsL0eOPfC4Z3GqpIv160818.shtml"),
+    };
+    for (const QString& url : urls) {
+        const ContentParse::Features features = ContentParse::parsePage(html, url);
+        QVERIFY2(features.profile == ContentParse::PageProfile::LegacySportsEpisode, qPrintable(url));
+        const ContentParse::Plan plan = ContentParse::makePlan(features);
+        QCOMPARE(plan.catalogStrategy, ContentParse::CatalogStrategy::SingleVideo);
+        QCOMPARE(plan.catalogId, guid);
+    }
 }
 
 void CoreRegressionTests::apiservice_getVideoList_routesLegacyYearDomainToSingleVideo()

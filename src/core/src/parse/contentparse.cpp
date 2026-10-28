@@ -213,10 +213,10 @@ Features parsePage(const QString& html, const QString& url)
         features.columnId = features.guid;
     }
     const QString pageHost = pageUrl.host();
-    const bool isLegacyEventHost = QRegularExpression(QStringLiteral(R"(^sports\.cctv\.(com|cn)$)"),
-             QRegularExpression::CaseInsensitiveOption).match(pageHost).hasMatch()
-        || QRegularExpression(QStringLiteral(R"(^\d{4}\.cctv\.com$)"),
-             QRegularExpression::CaseInsensitiveOption).match(pageHost).hasMatch();
+    static const QRegularExpression legacyEventHostRegex(
+        QStringLiteral(R"(^(?:sports\.cctv\.(?:com|cn)|\d{4}\.cctv\.c(?:om|n))$)"),
+        QRegularExpression::CaseInsensitiveOption);
+    const bool isLegacyEventHost = legacyEventHostRegex.match(pageHost).hasMatch();
     if (isLegacyEventHost
         && isVidE(features.itemId)
         && isTopc(features.columnId)
