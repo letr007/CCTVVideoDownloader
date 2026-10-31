@@ -244,6 +244,7 @@ ImportResult makeImportResult(const Features& features)
     result.catalogId = makePlan(features).catalogId;
     result.pageGuid = features.guid;
     result.profile = features.profile;
+    result.kind = features.kind;
     return result;
 }
 

@@ -2,8 +2,53 @@
 #include "apiservice.h"
 
 #include <QDialogButtonBox>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QStyle>
+
+#include <optional>
+
+namespace {
+
+std::optional<ImportMode> g_testImportMode;
+
+} // namespace
+
+void setTestImportMode(ImportMode mode)
+{
+	g_testImportMode = mode;
+}
+
+void clearTestImportMode()
+{
+	g_testImportMode.reset();
+}
+
+ImportMode askImportMode(QWidget* parent, const ContentParse::ImportResult& result)
+{
+	if (g_testImportMode.has_value()) {
+		return *g_testImportMode;
+	}
+
+	QMessageBox box(parent);
+	box.setWindowTitle(QStringLiteral("导入单集视频"));
+	box.setText(QStringLiteral("「%1」是单集播放页。").arg(result.title));
+	box.setInformativeText(QStringLiteral(
+		"下载本页视频会直接开始下载，不加入节目列表；解析视频列表可按栏目或专辑批量选择。"));
+	QPushButton* downloadButton = box.addButton(QStringLiteral("下载本页视频"), QMessageBox::ActionRole);
+	QPushButton* listButton = box.addButton(QStringLiteral("解析视频列表"), QMessageBox::AcceptRole);
+	box.addButton(QStringLiteral("取消"), QMessageBox::RejectRole);
+	box.setDefaultButton(listButton);
+	box.exec();
+
+	if (box.clickedButton() == downloadButton) {
+		return ImportMode::DownloadPageVideo;
+	}
+	if (box.clickedButton() == listButton) {
+		return ImportMode::ListCatalogue;
+	}
+	return ImportMode::Cancelled;
+}
 
 Import::Import(QWidget* parent)
     : QDialog(parent)
@@ -60,6 +105,25 @@ void Import::handlePlayColumnInfoResolved(quint64 requestId, const ContentParse:
 		ui.label_status->style()->polish(ui.label_status);
 		qWarning() << "获取数据失败";
 		return;
+	}
+
+	if (ContentParse::pageVideoOutsideCatalog(data))
+	{
+		const ImportMode mode = askImportMode(this, data);
+		if (mode == ImportMode::Cancelled)
+		{
+			ui.label_status->setText(QStringLiteral("已取消导入。"));
+			ui.label_status->setProperty("severity", "info");
+			ui.label_status->style()->unpolish(ui.label_status);
+			ui.label_status->style()->polish(ui.label_status);
+			return;
+		}
+		if (mode == ImportMode::DownloadPageVideo)
+		{
+			emit pageVideoDownloadRequested(data.pageGuid, data.title);
+			accept();
+			return;
+		}
 	}
 
 	const ProgrammePersistResult persisted = persistProgrammeImport(data);

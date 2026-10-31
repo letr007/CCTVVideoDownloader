@@ -70,6 +70,9 @@ private slots:
 private:
     void updateImportAvailability();
     bool isInlineImportPending() const;
+    void requestPageVideoDownload(const QString& guid, const QString& title);
+    void handlePageVideoResolved(quint64 requestId, const QMap<int, VideoItem>& videos);
+    void startSingleVideoDownload(const VideoItem& video);
     void handleBrowseVideoListResolved(quint64 requestId, const QMap<int, VideoItem>& videos);
     void handlePreviewImageResolved(quint64 requestId, const QString& url, const QImage& image);
     void handleVideoInfoResolved(quint64 requestId, const QString& guid, const QString& channel, qint64 length);
@@ -85,6 +88,7 @@ private:
     quint64 m_pendingImageRequestId = 0;
     quint64 m_pendingVideoInfoRequestId = 0;
     quint64 m_pendingInlineImportRequestId = 0;
+    quint64 m_pendingPageVideoRequestId = 0;
     bool m_importDialogActive = false;
     bool m_pendingVideoListShowHighlights = false;
     QString m_pendingPreviewImageUrl;

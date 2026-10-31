@@ -33,6 +33,18 @@ void configureMonthPicker(QDateEdit* dateEdit)
         dateEdit->minimumDate(), dateEdit->maximumDate(), dateEdit));
 }
 
+DownloadJob buildDownloadJob(const VideoItem& video)
+{
+    DownloadJob job;
+    job.request.url = video.guid;
+    job.request.videoTitle = video.title;
+    job.request.quality = readQuality();
+    job.request.savePath = readSavePath();
+    job.request.threadCount = std::max(1, readThreadNum());
+    job.request.transcodeToMp4 = readTranscode();
+    return job;
+}
+
 } // namespace
 
 
@@ -168,6 +180,7 @@ void CCTVVideoDownloader::signalConnect()
     connect(&ImageLoader::instance(), &ImageLoader::imageResolved, this, &CCTVVideoDownloader::handlePreviewImageResolved);
     connect(&APIService::instance(), &APIService::videoInfoResolved, this, &CCTVVideoDownloader::handleVideoInfoResolved);
     connect(&APIService::instance(), &APIService::videoInfoFailed, this, &CCTVVideoDownloader::handleVideoInfoFailed);
+    connect(&APIService::instance(), &APIService::pageVideoResolved, this, &CCTVVideoDownloader::handlePageVideoResolved);
     connect(&APIService::instance(), &APIService::playColumnInfoResolved, this, &CCTVVideoDownloader::handleInlineImportColumnInfoResolved);
     connect(&APIService::instance(), &APIService::playColumnInfoFailed, this, &CCTVVideoDownloader::handleInlineImportColumnInfoFailed);
     ui.tableWidget_Config->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -599,6 +612,7 @@ void CCTVVideoDownloader::openImportDialog()
     updateImportAvailability();
     Import importDialog(this);
     connect(&importDialog, &Import::importFinished, this, &CCTVVideoDownloader::flashProgrammeList);
+    connect(&importDialog, &Import::pageVideoDownloadRequested, this, &CCTVVideoDownloader::requestPageVideoDownload);
     importDialog.exec();
     m_importDialogActive = false;
     updateImportAvailability();
@@ -609,10 +623,6 @@ void CCTVVideoDownloader::openDownloadDialog()
 {
     qInfo() << "打开下载对话框";
 
-    QString savePath = readSavePath();
-    int threadNum = readThreadNum();
-    const QString quality = readQuality();
-    const bool transcodeToMp4 = readTranscode();
     QList<int> selectedIndexes;
     QList<DownloadJob> jobs;
 
@@ -623,14 +633,7 @@ void CCTVVideoDownloader::openDownloadDialog()
             return false;
         }
 
-        DownloadJob job;
-        job.request.url = it->guid;
-        job.request.videoTitle = it->title;
-        job.request.quality = quality;
-        job.request.savePath = savePath;
-        job.request.threadCount = std::max(1, threadNum);
-        job.request.transcodeToMp4 = transcodeToMp4;
-        jobs.append(job);
+        jobs.append(buildDownloadJob(it.value()));
         return true;
     };
 
@@ -642,7 +645,7 @@ void CCTVVideoDownloader::openDownloadDialog()
         }
     }
 
-    qInfo() << "选中" << selectedIndexes.size() << "个视频进行下载，保存路径:" << savePath << "线程数:" << threadNum;
+    qInfo() << "选中" << selectedIndexes.size() << "个视频进行下载";
 
     if (selectedIndexes.empty()) {
         qInfo() << "未选中批量下载，使用单个视频下载";
@@ -671,6 +674,40 @@ void CCTVVideoDownloader::openDownloadDialog()
         : m_downloadCoordinator->startBatch(jobs);
     if (!started && !m_downloadCoordinator->isBusy()) {
         QMessageBox::warning(this, "错误", "下载任务启动失败，请稍后重试。");
+    }
+}
+
+void CCTVVideoDownloader::requestPageVideoDownload(const QString& guid, const QString& title)
+{
+    qInfo() << "解析单集视频 - guid:" << guid << "标题:" << title;
+    statusBar()->showMessage(QStringLiteral("正在解析视频：%1").arg(title), 0);
+    m_pendingPageVideoRequestId = APIService::instance().startGetPageVideo(guid);
+}
+
+void CCTVVideoDownloader::handlePageVideoResolved(quint64 requestId, const QMap<int, VideoItem>& videos)
+{
+    if (requestId != m_pendingPageVideoRequestId) {
+        return;
+    }
+    m_pendingPageVideoRequestId = 0;
+    statusBar()->clearMessage();
+
+    if (videos.isEmpty()) {
+        qWarning() << "单集视频解析失败：未获取到视频信息";
+        QMessageBox::warning(this, QStringLiteral("无法解析视频"),
+            QStringLiteral("未能获取这条视频的信息，可能已下架或服务暂时不可用。"));
+        return;
+    }
+
+    startSingleVideoDownload(videos.first());
+}
+
+void CCTVVideoDownloader::startSingleVideoDownload(const VideoItem& video)
+{
+    m_downloadProgressWindow->open();
+    const bool started = m_downloadCoordinator->startSingle(buildDownloadJob(video));
+    if (!started && !m_downloadCoordinator->isBusy()) {
+        QMessageBox::warning(this, QStringLiteral("错误"), QStringLiteral("下载任务启动失败，请稍后重试。"));
     }
 }
 
@@ -753,6 +790,19 @@ void CCTVVideoDownloader::handleInlineImportColumnInfoResolved(quint64 requestId
         statusBar()->showMessage(QStringLiteral("导入失败：未获取到有效节目信息"), 5000);
         qWarning() << "内联导入获取数据失败";
         return;
+    }
+
+    if (ContentParse::pageVideoOutsideCatalog(data)) {
+        const ImportMode mode = askImportMode(this, data);
+        if (mode == ImportMode::Cancelled) {
+            statusBar()->showMessage(QStringLiteral("已取消导入"), 3000);
+            return;
+        }
+        if (mode == ImportMode::DownloadPageVideo) {
+            ui.lineEdit_import->clear();
+            requestPageVideoDownload(data.pageGuid, data.title);
+            return;
+        }
     }
 
     const ProgrammePersistResult persisted = persistProgrammeImport(data);

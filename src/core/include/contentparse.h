@@ -58,6 +58,7 @@ struct ImportResult {
     QString catalogId;
     QString pageGuid;
     PageProfile profile = PageProfile::Standard;
+    Kind kind = Kind::Unknown;
 
     bool isValid() const
     {
@@ -65,6 +66,13 @@ struct ImportResult {
             && !catalogId.isEmpty();
     }
 };
+
+// 单集页的目录会展开成栏目/专辑，本页视频不在其中
+inline bool pageVideoOutsideCatalog(const ImportResult& result)
+{
+    return result.kind == Kind::Episode && !result.pageGuid.isEmpty()
+        && result.catalogId != result.pageGuid;
+}
 
 struct ProgrammeRecord {
     QString storageKey;

@@ -1333,6 +1333,7 @@ private slots:
     void importDialog_staleRequestIdIgnored_resolveDoesNotPersist();
     void importDialog_staleRequestIdIgnored_failureDoesNotResetBusy();
     void importDialog_asyncClose_closesOnlyAfterPersistence();
+    void importDialog_singleEpisodePage_choosesDownloadOrCatalogue();
 
 private:
     void initializeSettingsSandbox();
@@ -9774,6 +9775,60 @@ var guid = '4a0c129380f14290a4d630d69de73ba7';
 
     QCOMPARE(manager.requestCount(), 1);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
+}
+
+void CoreRegressionTests::importDialog_singleEpisodePage_choosesDownloadOrCatalogue()
+{
+    APIService& apiService = APIService::instance();
+    FakeNetworkAccessManager manager;
+    const QUrl url(QStringLiteral("https://tv.cctv.cn/2011/08/16/VIDE1336929662017714.shtml"));
+    const QByteArray html = R"(
+<html><head><script>
+var commentTitle = "单集测试";
+var itemid1="VIDE1336929662017714";
+var column_id = "TOPC1451533782742171";
+var guid = "002e74f78b6a49eab6b1cd41fbdfc41b";
+</script></head></html>
+)";
+    manager.queueSuccess(url, html);
+    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+    initializeSettingsSandbox();
+
+    Import downloadDialog(nullptr);
+    auto* downloadLineEdit = downloadDialog.findChild<QLineEdit*>(QStringLiteral("lineEdit"));
+    QVERIFY(downloadLineEdit != nullptr);
+    downloadLineEdit->setText(url.toString());
+
+    QSignalSpy downloadSpy(&downloadDialog, &Import::pageVideoDownloadRequested);
+    setTestImportMode(ImportMode::DownloadPageVideo);
+    downloadDialog.ImportProgrammeFromUrl();
+    QVERIFY(downloadSpy.wait(1000));
+    QCOMPARE(downloadSpy.count(), 1);
+    QCOMPARE(downloadSpy.at(0).at(0).toString(), QStringLiteral("002e74f78b6a49eab6b1cd41fbdfc41b"));
+    QCOMPARE(downloadDialog.result(), QDialog::Accepted);
+
+    g_settings->sync();
+    g_settings->beginGroup(QStringLiteral("programme"));
+    QCOMPARE(g_settings->childKeys().size(), 0);
+    g_settings->endGroup();
+
+    manager.queueSuccess(url, html);
+    Import listDialog(nullptr);
+    auto* listLineEdit = listDialog.findChild<QLineEdit*>(QStringLiteral("lineEdit"));
+    QVERIFY(listLineEdit != nullptr);
+    listLineEdit->setText(url.toString());
+
+    QSignalSpy resolvedSpy(&apiService, &APIService::playColumnInfoResolved);
+    setTestImportMode(ImportMode::ListCatalogue);
+    listDialog.ImportProgrammeFromUrl();
+    QVERIFY(resolvedSpy.wait(1000));
+    QCOMPARE(listDialog.result(), QDialog::Accepted);
+
+    g_settings->sync();
+    g_settings->beginGroup(QStringLiteral("programme"));
+    QCOMPARE(g_settings->childKeys().size(), 1);
+    g_settings->endGroup();
+    clearTestImportMode();
 }
 
 int main(int argc, char* argv[])

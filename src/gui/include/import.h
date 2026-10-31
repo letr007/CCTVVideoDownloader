@@ -6,6 +6,16 @@
 #include "ui_import.h"
 #include "config.h"
 
+enum class ImportMode {
+	DownloadPageVideo,
+	ListCatalogue,
+	Cancelled
+};
+
+ImportMode askImportMode(QWidget* parent, const ContentParse::ImportResult& result);
+void setTestImportMode(ImportMode mode);
+void clearTestImportMode();
+
 class Import : public QDialog
 {
 	Q_OBJECT
@@ -24,4 +34,5 @@ private:
 
 signals:
 	void importFinished();
+	void pageVideoDownloadRequested(const QString& guid, const QString& title);
 };
