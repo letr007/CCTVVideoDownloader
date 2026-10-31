@@ -1,7 +1,6 @@
 #include "../include/cctvvideodownloader.h"
 #include "../include/about.h"
 #include "../include/setting.h"
-#include "../include/import.h"
 #include "../include/imageloader.h"
 #include "apiservice.h"
 #include "downloadcoordinator.h"
@@ -24,6 +23,34 @@
 #include <QSizePolicy>
 
 namespace {
+
+enum class ImportMode {
+    DownloadPageVideo,
+    ListCatalogue,
+    Cancelled
+};
+
+ImportMode askImportMode(QWidget* parent, const ContentParse::ImportResult& result)
+{
+    QMessageBox box(parent);
+    box.setWindowTitle(QStringLiteral("导入单集视频"));
+    box.setText(QStringLiteral("「%1」是单集播放页。").arg(result.title));
+    box.setInformativeText(QStringLiteral(
+        "下载本页视频会直接开始下载，不加入节目列表；解析视频列表可按栏目或专辑批量选择。"));
+    QPushButton* downloadButton = box.addButton(QStringLiteral("下载本页视频"), QMessageBox::ActionRole);
+    QPushButton* listButton = box.addButton(QStringLiteral("解析视频列表"), QMessageBox::AcceptRole);
+    box.addButton(QStringLiteral("取消"), QMessageBox::RejectRole);
+    box.setDefaultButton(listButton);
+    box.exec();
+
+    if (box.clickedButton() == downloadButton) {
+        return ImportMode::DownloadPageVideo;
+    }
+    if (box.clickedButton() == listButton) {
+        return ImportMode::ListCatalogue;
+    }
+    return ImportMode::Cancelled;
+}
 
 void configureMonthPicker(QDateEdit* dateEdit)
 {
@@ -165,7 +192,6 @@ void CCTVVideoDownloader::signalConnect()
     connect(ui.actionabout, &QAction::triggered, this, &CCTVVideoDownloader::openAboutDialog); // 关于
     connect(ui.actionsetting, &QAction::triggered, this, &CCTVVideoDownloader::openSettingDialog); // 设置
     connect(ui.settings, &QPushButton::clicked, this, &CCTVVideoDownloader::openSettingDialog); // 设置
-    connect(ui.actionimport, &QAction::triggered, this, &CCTVVideoDownloader::openImportDialog); // 导入
     connect(ui.actionfile, &QAction::triggered, this, &CCTVVideoDownloader::openSaveDir); // 打开视频保存位置
     connect(ui.flash_program, &QPushButton::clicked, this, &CCTVVideoDownloader::flashProgrammeList); // 刷新节目
     connect(ui.mainSplitter, &QSplitter::splitterMoved, this, &CCTVVideoDownloader::updatePreviewImage);
@@ -599,26 +625,6 @@ void CCTVVideoDownloader::openSaveDir()
     }
 }
 
-void CCTVVideoDownloader::openImportDialog()
-{
-    if (isInlineImportPending()) {
-        statusBar()->showMessage(QStringLiteral("请等待内联导入完成"), 3000);
-        qInfo() << "内联导入进行中，忽略打开导入对话框请求";
-        return;
-    }
-
-    qInfo() << "打开导入对话框";
-    m_importDialogActive = true;
-    updateImportAvailability();
-    Import importDialog(this);
-    connect(&importDialog, &Import::importFinished, this, &CCTVVideoDownloader::flashProgrammeList);
-    connect(&importDialog, &Import::pageVideoDownloadRequested, this, &CCTVVideoDownloader::requestPageVideoDownload);
-    importDialog.exec();
-    m_importDialogActive = false;
-    updateImportAvailability();
-    qInfo() << "导入对话框已关闭";
-}
-
 void CCTVVideoDownloader::openDownloadDialog()
 {
     qInfo() << "打开下载对话框";
@@ -747,19 +753,13 @@ bool CCTVVideoDownloader::isInlineImportPending() const
 
 void CCTVVideoDownloader::updateImportAvailability()
 {
-    const bool inlineImportEnabled = !m_importDialogActive && !isInlineImportPending();
+    const bool inlineImportEnabled = !isInlineImportPending();
     ui.lineEdit_import->setEnabled(inlineImportEnabled);
     ui.btn_import->setEnabled(inlineImportEnabled);
-    ui.actionimport->setEnabled(!isInlineImportPending());
 }
 
 void CCTVVideoDownloader::onImportLinkSubmitted()
 {
-    if (m_importDialogActive) {
-        statusBar()->showMessage(QStringLiteral("请先关闭导入对话框"), 3000);
-        return;
-    }
-
     if (isInlineImportPending()) {
         statusBar()->showMessage(QStringLiteral("正在导入节目..."), 3000);
         return;

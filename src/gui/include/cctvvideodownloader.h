@@ -45,8 +45,6 @@ public:
 
     void openSaveDir();
 
-    void openImportDialog();
-
     void openDownloadDialog();
 
     void ImportProgrammeFromUrl();
@@ -89,7 +87,6 @@ private:
     quint64 m_pendingVideoInfoRequestId = 0;
     quint64 m_pendingInlineImportRequestId = 0;
     quint64 m_pendingPageVideoRequestId = 0;
-    bool m_importDialogActive = false;
     bool m_pendingVideoListShowHighlights = false;
     QString m_pendingPreviewImageUrl;
     QString m_pendingVideoInfoGuid;

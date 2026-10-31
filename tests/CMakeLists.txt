@@ -8,16 +8,13 @@ qt_add_executable(core_regression_tests
     ${PROJECT_SOURCE_DIR}/src/gui/src/downloadmodel.cpp
     ${PROJECT_SOURCE_DIR}/src/gui/src/downloaddialog.cpp
     ${PROJECT_SOURCE_DIR}/src/gui/src/downloadprogresswindow.cpp
-    ${PROJECT_SOURCE_DIR}/src/gui/src/import.cpp
     ${PROJECT_SOURCE_DIR}/src/gui/src/monthcalendarwidget.cpp
-    ${PROJECT_SOURCE_DIR}/src/gui/ui/import.ui
     ${PROJECT_SOURCE_DIR}/src/gui/include/imageloader.h
     ${PROJECT_SOURCE_DIR}/src/gui/include/setting.h
     ${PROJECT_SOURCE_DIR}/src/gui/include/theme.h
     ${PROJECT_SOURCE_DIR}/src/gui/include/downloadmodel.h
     ${PROJECT_SOURCE_DIR}/src/gui/include/downloaddialog.h
     ${PROJECT_SOURCE_DIR}/src/gui/include/downloadprogresswindow.h
-    ${PROJECT_SOURCE_DIR}/src/gui/include/import.h
     ${PROJECT_SOURCE_DIR}/src/gui/include/monthcalendarwidget.h
 )
 

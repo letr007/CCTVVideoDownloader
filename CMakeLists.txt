@@ -96,7 +96,6 @@ set(GUI_SOURCES
     src/gui/src/downloadmodel.cpp
     src/gui/src/downloadprogresswindow.cpp
     src/gui/src/imageloader.cpp
-    src/gui/src/import.cpp
     src/gui/src/main.cpp
     src/gui/src/monthcalendarwidget.cpp
     src/gui/src/setting.cpp
@@ -108,7 +107,6 @@ set(GUI_SOURCES
     src/gui/include/downloadmodel.h
     src/gui/include/downloadprogresswindow.h
     src/gui/include/imageloader.h
-    src/gui/include/import.h
     src/gui/include/monthcalendarwidget.h
     src/gui/include/setting.h
     src/gui/include/theme.h
@@ -118,7 +116,6 @@ set(GUI_SOURCES
     src/gui/ui/ctvd.ui
     src/gui/ui/ctvd_setting.ui
     src/gui/ui/dialog.ui
-    src/gui/ui/import.ui
 
     src/gui/resources/cctvvideodownloader.qrc
     src/gui/resources/resources.qrc

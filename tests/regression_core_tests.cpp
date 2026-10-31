@@ -60,7 +60,6 @@
 #include "downloadjob.h"
 #include "downloadprogresswindow.h"
 #include "tsmerger.h"
-#include "import.h"
 #include "imageloader.h"
 #include "fakes/fake_networkaccessmanager.h"
 #include "fakes/fake_networkreply.h"
@@ -1326,14 +1325,7 @@ private slots:
     void fakeNetworkAccessManager_queueErrorAndUnexpectedRequestFailDeterministically();
     void fakeNetworkAccessManager_delayedFinish_waitsUntilQueuedCompletion();
 
-    // ── Import dialog tests ───────────────────────────────
-    void importDialog_successPath_persistsProgramme();
-    void importDialog_duplicateImport_doesNotAddExtraEntry();
-    void importDialog_failurePath_resetsBusyState();
-    void importDialog_staleRequestIdIgnored_resolveDoesNotPersist();
-    void importDialog_staleRequestIdIgnored_failureDoesNotResetBusy();
-    void importDialog_asyncClose_closesOnlyAfterPersistence();
-    void importDialog_singleEpisodePage_choosesDownloadOrCatalogue();
+    void contentParse_pageVideoOutsideCatalog_flagsEpisodePagesWithSeparateCatalogue();
 
 private:
     void initializeSettingsSandbox();
@@ -9518,317 +9510,22 @@ void CoreRegressionTests::cctvVideoDownloader_openDownloadDialog_usesCoordinator
     QVERIFY(source.contains(QStringLiteral("m_downloadProgressWindow->open();")));
 }
 
-// ── Import dialog tests ──────────────────────────────────────
-
-void CoreRegressionTests::importDialog_successPath_persistsProgramme()
+void CoreRegressionTests::contentParse_pageVideoOutsideCatalog_flagsEpisodePagesWithSeparateCatalogue()
 {
-    APIService& apiService = APIService::instance();
-    FakeNetworkAccessManager manager;
-    const QUrl url(QStringLiteral("https://tv.cctv.com/cctv4k/test-persist.shtml"));
-    const QByteArray html = R"(
-<html><head><script>
-var guid = '4a0c129380f14290a4d630d69de73ba4';
-</script></head></html>
-)";
-    manager.queueSuccess(url, html);
-    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
+    const ContentParse::ImportResult episode = ContentParse::makeImportResult(ContentParse::parsePage(
+        QStringLiteral("<script>var itemid1=\"VIDE1336929662017714\";var column_id=\"TOPC1451533782742171\";var guid=\"002e74f78b6a49eab6b1cd41fbdfc41b\";</script>"),
+        QStringLiteral("https://tv.cctv.cn/2011/08/16/VIDE1336929662017714.shtml")));
+    QVERIFY(ContentParse::pageVideoOutsideCatalog(episode));
 
-    initializeSettingsSandbox();
+    const ContentParse::ImportResult album = ContentParse::makeImportResult(ContentParse::parsePage(
+        QStringLiteral("<script>var itemid1=\"VIDA1234567890123456789\";var column_id=\"TOPC1451533782742171\";var guid=\"002e74f78b6a49eab6b1cd41fbdfc41b\";</script>"),
+        QStringLiteral("https://tv.cctv.com/album/VIDA1234567890123456789.shtml")));
+    QVERIFY(!ContentParse::pageVideoOutsideCatalog(album));
 
-    Import importDialog(nullptr);
-    auto* lineEdit = importDialog.findChild<QLineEdit*>("lineEdit");
-    QVERIFY(lineEdit != nullptr);
-    lineEdit->setText(url.toString());
-
-    QSignalSpy resolvedSpy(&apiService, &APIService::playColumnInfoResolved);
-    importDialog.ImportProgrammeFromUrl();
-
-    QVERIFY(resolvedSpy.wait(1000));
-    QCOMPARE(resolvedSpy.count(), 1);
-
-    const QList<QVariant> resultArgs = resolvedSpy.takeFirst();
-    const ContentParse::ImportResult imported = resultArgs.at(1).value<ContentParse::ImportResult>();
-    QCOMPARE(imported.title, QStringLiteral("CCTV-4K"));
-    QCOMPARE(imported.rawItemId, QStringLiteral("4a0c129380f14290a4d630d69de73ba4"));
-    QCOMPARE(imported.rawColumnId, QStringLiteral("4a0c129380f14290a4d630d69de73ba4"));
-    QCOMPARE(imported.catalogId, QStringLiteral("4a0c129380f14290a4d630d69de73ba4"));
-
-    QCOMPARE(manager.requestCount(), 1);
-    QCOMPARE(manager.unexpectedRequestCount(), 0);
-
-    QVERIFY(lineEdit->isEnabled());
-
-    g_settings->sync();
-    g_settings->beginGroup("programme");
-    const QStringList keys = g_settings->childKeys();
-    g_settings->endGroup();
-    QCOMPARE(keys.size(), 1);
-
-    g_settings->beginGroup("programme");
-    const QByteArray storedData = g_settings->value(keys.first()).toByteArray();
-    g_settings->endGroup();
-    const QByteArray decodedData = QByteArray::fromBase64(storedData);
-    const QJsonDocument doc = QJsonDocument::fromJson(decodedData);
-    QVERIFY(doc.isObject());
-    const QJsonObject obj = doc.object();
-    QCOMPARE(obj.value(QStringLiteral("name")).toString(), QStringLiteral("CCTV-4K"));
-    QCOMPARE(obj.value(QStringLiteral("itemid")).toString(), QStringLiteral("4a0c129380f14290a4d630d69de73ba4"));
-    QCOMPARE(obj.value(QStringLiteral("columnid")).toString(), QStringLiteral("4a0c129380f14290a4d630d69de73ba4"));
-}
-
-void CoreRegressionTests::importDialog_duplicateImport_doesNotAddExtraEntry()
-{
-    APIService& apiService = APIService::instance();
-    FakeNetworkAccessManager manager;
-    const QUrl url(QStringLiteral("https://tv.cctv.com/cctv4k/test-dup.shtml"));
-    const QByteArray html = R"(
-<html><head><script>
-var guid = '4a0c129380f14290a4d630d69de73ba5';
-</script></head></html>
-)";
-    manager.queueSuccess(url, html);
-    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
-
-    initializeSettingsSandbox();
-
-    Import importDialog(nullptr);
-    auto* lineEdit = importDialog.findChild<QLineEdit*>("lineEdit");
-    QVERIFY(lineEdit != nullptr);
-    lineEdit->setText(url.toString());
-
-    QSignalSpy resolvedSpy(&apiService, &APIService::playColumnInfoResolved);
-    importDialog.ImportProgrammeFromUrl();
-
-    QVERIFY(resolvedSpy.wait(1000));
-    QCOMPARE(resolvedSpy.count(), 1);
-
-    const QList<QVariant> firstArgs = resolvedSpy.takeFirst();
-    const quint64 firstRequestId = firstArgs.at(0).toULongLong();
-    const ContentParse::ImportResult firstData = firstArgs.at(1).value<ContentParse::ImportResult>();
-
-    g_settings->sync();
-    g_settings->beginGroup("programme");
-    QCOMPARE(g_settings->childKeys().size(), 1);
-    g_settings->endGroup();
-
-    // Call handlePlayColumnInfoResolved directly with the matching
-    // request ID to exercise the duplicate-detection branch.
-    importDialog.handlePlayColumnInfoResolved(firstRequestId, firstData);
-
-    g_settings->sync();
-    g_settings->beginGroup("programme");
-    QCOMPARE(g_settings->childKeys().size(), 1);
-    g_settings->endGroup();
-
-    QCOMPARE(manager.requestCount(), 1);
-    QCOMPARE(manager.unexpectedRequestCount(), 0);
-}
-
-void CoreRegressionTests::importDialog_failurePath_resetsBusyState()
-{
-    APIService& apiService = APIService::instance();
-    FakeNetworkAccessManager manager;
-    const QUrl url(QStringLiteral("https://tv.cctv.com/fail-test.shtml"));
-
-    manager.queueError(url, QNetworkReply::ContentNotFoundError, QStringLiteral("404 not found"));
-    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
-
-    initializeSettingsSandbox();
-
-    Import importDialog(nullptr);
-    auto* lineEdit = importDialog.findChild<QLineEdit*>("lineEdit");
-    auto* buttonBox = importDialog.findChild<QDialogButtonBox*>("buttonBox");
-    QVERIFY(lineEdit != nullptr);
-    QVERIFY(buttonBox != nullptr);
-    lineEdit->setText(url.toString());
-
-    QSignalSpy failedSpy(&apiService, &APIService::playColumnInfoFailed);
-    importDialog.ImportProgrammeFromUrl();
-
-    QVERIFY(!lineEdit->isEnabled());
-    QVERIFY(!buttonBox->isEnabled());
-
-    QVERIFY(failedSpy.wait(1000));
-    QCOMPARE(failedSpy.count(), 1);
-
-    QVERIFY(lineEdit->isEnabled());
-    QVERIFY(buttonBox->isEnabled());
-
-    g_settings->sync();
-    g_settings->beginGroup("programme");
-    QCOMPARE(g_settings->childKeys().size(), 0);
-    g_settings->endGroup();
-
-    QCOMPARE(manager.requestCount(), 1);
-    QCOMPARE(manager.unexpectedRequestCount(), 0);
-}
-
-void CoreRegressionTests::importDialog_staleRequestIdIgnored_resolveDoesNotPersist()
-{
-    initializeSettingsSandbox();
-
-    Import importDialog(nullptr);
-    auto* lineEdit = importDialog.findChild<QLineEdit*>("lineEdit");
-    QVERIFY(lineEdit != nullptr);
-
-    // m_pendingPlayColumnInfoRequestId starts at 0; requestId != 0
-    // should be filtered out by the request-ID guard.
-    ContentParse::ImportResult data;
-    data.title = QStringLiteral("StaleName");
-    data.rawItemId = QStringLiteral("stale-guid");
-    data.rawColumnId = QStringLiteral("stale-column");
-    data.catalogId = QStringLiteral("stale-column");
-    importDialog.handlePlayColumnInfoResolved(42, data);
-
-    QVERIFY(lineEdit->isEnabled());
-
-    g_settings->sync();
-    g_settings->beginGroup("programme");
-    QCOMPARE(g_settings->childKeys().size(), 0);
-    g_settings->endGroup();
-}
-
-void CoreRegressionTests::importDialog_staleRequestIdIgnored_failureDoesNotResetBusy()
-{
-    APIService& apiService = APIService::instance();
-    FakeNetworkAccessManager manager;
-    const QUrl url(QStringLiteral("https://tv.cctv.com/cctv4k/stale-busy.shtml"));
-    const QByteArray html = R"(
-<html><head><script>
-var guid = '4a0c129380f14290a4d630d69de73ba6';
-</script></head></html>
-)";
-    manager.queueSuccess(url, html);
-    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
-
-    initializeSettingsSandbox();
-
-    Import importDialog(nullptr);
-    auto* lineEdit = importDialog.findChild<QLineEdit*>("lineEdit");
-    auto* buttonBox = importDialog.findChild<QDialogButtonBox*>("buttonBox");
-    QVERIFY(lineEdit != nullptr);
-    QVERIFY(buttonBox != nullptr);
-    lineEdit->setText(url.toString());
-
-    importDialog.ImportProgrammeFromUrl();
-    QVERIFY(!lineEdit->isEnabled());
-    QVERIFY(!buttonBox->isEnabled());
-
-    // Stale failure notification with mismatched request ID:
-    // handler should return early without calling setBusy(false).
-    importDialog.handlePlayColumnInfoFailed(999, QStringLiteral("stale error message"));
-    QVERIFY(!lineEdit->isEnabled());
-    QVERIFY(!buttonBox->isEnabled());
-
-    QSignalSpy resolvedSpy(&apiService, &APIService::playColumnInfoResolved);
-    QVERIFY(resolvedSpy.wait(1000));
-    QCOMPARE(resolvedSpy.count(), 1);
-
-    QVERIFY(lineEdit->isEnabled());
-    QVERIFY(buttonBox->isEnabled());
-
-    QCOMPARE(manager.requestCount(), 1);
-    QCOMPARE(manager.unexpectedRequestCount(), 0);
-}
-
-void CoreRegressionTests::importDialog_asyncClose_closesOnlyAfterPersistence()
-{
-    APIService& apiService = APIService::instance();
-    FakeNetworkAccessManager manager;
-    const QUrl url(QStringLiteral("https://tv.cctv.com/cctv4k/test-close-persist.shtml"));
-    const QByteArray html = R"(
-<html><head><script>
-var guid = '4a0c129380f14290a4d630d69de73ba7';
-</script></head></html>
-)";
-    manager.queueSuccess(url, html);
-    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
-
-    initializeSettingsSandbox();
-
-    Import importDialog(nullptr);
-    auto* lineEdit = importDialog.findChild<QLineEdit*>("lineEdit");
-    QVERIFY(lineEdit != nullptr);
-    lineEdit->setText(url.toString());
-
-    // Dialog should NOT be in Accepted state before OK is clicked
-    QCOMPARE(importDialog.result(), QDialog::Rejected);
-
-    QSignalSpy resolvedSpy(&apiService, &APIService::playColumnInfoResolved);
-    importDialog.ImportProgrammeFromUrl();
-
-    // Dialog should NOT be in Accepted state while async request is in flight
-    QCOMPARE(importDialog.result(), QDialog::Rejected);
-
-    QVERIFY(resolvedSpy.wait(1000));
-    QCOMPARE(resolvedSpy.count(), 1);
-
-    // Verify data was persisted
-    g_settings->sync();
-    g_settings->beginGroup("programme");
-    const QStringList keys = g_settings->childKeys();
-    g_settings->endGroup();
-    QCOMPARE(keys.size(), 1);
-
-    // Dialog should be in Accepted state after successful persistence
-    QCOMPARE(importDialog.result(), QDialog::Accepted);
-
-    QCOMPARE(manager.requestCount(), 1);
-    QCOMPARE(manager.unexpectedRequestCount(), 0);
-}
-
-void CoreRegressionTests::importDialog_singleEpisodePage_choosesDownloadOrCatalogue()
-{
-    APIService& apiService = APIService::instance();
-    FakeNetworkAccessManager manager;
-    const QUrl url(QStringLiteral("https://tv.cctv.cn/2011/08/16/VIDE1336929662017714.shtml"));
-    const QByteArray html = R"(
-<html><head><script>
-var commentTitle = "单集测试";
-var itemid1="VIDE1336929662017714";
-var column_id = "TOPC1451533782742171";
-var guid = "002e74f78b6a49eab6b1cd41fbdfc41b";
-</script></head></html>
-)";
-    manager.queueSuccess(url, html);
-    APIServiceTestAdapter::setTestNetworkAccessManager(apiService, &manager);
-    initializeSettingsSandbox();
-
-    Import downloadDialog(nullptr);
-    auto* downloadLineEdit = downloadDialog.findChild<QLineEdit*>(QStringLiteral("lineEdit"));
-    QVERIFY(downloadLineEdit != nullptr);
-    downloadLineEdit->setText(url.toString());
-
-    QSignalSpy downloadSpy(&downloadDialog, &Import::pageVideoDownloadRequested);
-    setTestImportMode(ImportMode::DownloadPageVideo);
-    downloadDialog.ImportProgrammeFromUrl();
-    QVERIFY(downloadSpy.wait(1000));
-    QCOMPARE(downloadSpy.count(), 1);
-    QCOMPARE(downloadSpy.at(0).at(0).toString(), QStringLiteral("002e74f78b6a49eab6b1cd41fbdfc41b"));
-    QCOMPARE(downloadDialog.result(), QDialog::Accepted);
-
-    g_settings->sync();
-    g_settings->beginGroup(QStringLiteral("programme"));
-    QCOMPARE(g_settings->childKeys().size(), 0);
-    g_settings->endGroup();
-
-    manager.queueSuccess(url, html);
-    Import listDialog(nullptr);
-    auto* listLineEdit = listDialog.findChild<QLineEdit*>(QStringLiteral("lineEdit"));
-    QVERIFY(listLineEdit != nullptr);
-    listLineEdit->setText(url.toString());
-
-    QSignalSpy resolvedSpy(&apiService, &APIService::playColumnInfoResolved);
-    setTestImportMode(ImportMode::ListCatalogue);
-    listDialog.ImportProgrammeFromUrl();
-    QVERIFY(resolvedSpy.wait(1000));
-    QCOMPARE(listDialog.result(), QDialog::Accepted);
-
-    g_settings->sync();
-    g_settings->beginGroup(QStringLiteral("programme"));
-    QCOMPARE(g_settings->childKeys().size(), 1);
-    g_settings->endGroup();
-    clearTestImportMode();
+    const ContentParse::ImportResult singleVideo = ContentParse::makeImportResult(ContentParse::parsePage(
+        QStringLiteral("<script>var itemid1=\"VIDE1336929662017714\";var column_id=\"002e74f78b6a49eab6b1cd41fbdfc41b\";var guid=\"002e74f78b6a49eab6b1cd41fbdfc41b\";</script>"),
+        QStringLiteral("https://tv.cctv.cn/2011/08/16/VIDE1336929662017714.shtml")));
+    QVERIFY(!ContentParse::pageVideoOutsideCatalog(singleVideo));
 }
 
 int main(int argc, char* argv[])
