@@ -41,20 +41,21 @@ cleanup() {
 trap cleanup EXIT
 
 APPDIR="$WORK_DIR/AppDir"
-mkdir -p "$APPDIR/bin" "$APPDIR/lib" "$APPDIR/usr/lib"
+mkdir -p "$APPDIR"
 
-# Seed AppDir with the CLI binary; symlink under usr/bin for linuxdeploy.
-cp "$INSTALL_DIR/bin/cctv-dl" "$APPDIR/bin/cctv-dl"
+# Seed the AppDir with the deployed install tree. Qt's deploy script defines
+# that layout (bin/ with qt.conf, lib/, plugins/) and the CLI locates its
+# plugins through the prefix declared in qt.conf, so the tree moves as a unit.
+cp -a "$INSTALL_DIR"/. "$APPDIR"/
 chmod +x "$APPDIR/bin/cctv-dl"
-mkdir -p "$APPDIR/usr/bin"
-ln -s ../../bin/cctv-dl "$APPDIR/usr/bin/cctv-dl"
 
-# Stage Qt libraries in lib/ (the CLI's $ORIGIN/../lib RUNPATH resolves there)
-# and also under usr/lib where linuxdeploy scans for the dependency closure.
-if [[ -d "$INSTALL_DIR/lib" ]]; then
-  cp -a "$INSTALL_DIR/lib"/. "$APPDIR/lib/"
-  cp -a "$INSTALL_DIR/lib"/. "$APPDIR/usr/lib/"
-fi
+# usr/lib is linuxdeploy's working directory: it resolves the dependency
+# closure from there, including libraries that only exist in this tree (Qt's
+# bundled ICU, for one). The CLI's $ORIGIN/../lib RUNPATH keeps resolving from
+# lib/, so the results are merged back below.
+mkdir -p "$APPDIR/usr/lib" "$APPDIR/usr/bin"
+cp -a "$INSTALL_DIR/lib"/. "$APPDIR/usr/lib/"
+ln -sfn ../../bin/cctv-dl "$APPDIR/usr/bin/cctv-dl"
 
 TOOLS_DIR="$WORK_DIR/tools"
 mkdir -p "$TOOLS_DIR"
@@ -71,8 +72,14 @@ chmod +x "$TOOLS_DIR/linuxdeploy.AppImage"
 )
 LINUXDEPLOY="$TOOLS_DIR/linuxdeploy-root/AppRun"
 
-# Recursively collect dependencies for the executable and every bundled library.
-"$LINUXDEPLOY" --appdir "$APPDIR" --executable "$APPDIR/usr/bin/cctv-dl"
+# Collect the closure for the executable, the bundled Qt libraries and the
+# deployed plugins, so dependencies of the plugins are staged as well.
+EXTRA_LIB_ARGS=()
+while IFS= read -r -d '' sofile; do
+  EXTRA_LIB_ARGS+=(--library "$sofile")
+done < <(find "$APPDIR/plugins" "$APPDIR/lib" -name '*.so*' -type f -print0 2>/dev/null)
+
+"$LINUXDEPLOY" --appdir "$APPDIR" --executable "$APPDIR/usr/bin/cctv-dl" "${EXTRA_LIB_ARGS[@]}"
 
 # Merge newly collected libraries into <prefix>/lib. Files already present keep
 # the staged copy; the real version is preferred over linuxdeploy's dedup copy.
@@ -96,13 +103,25 @@ for extra in libgpg-error.so.0 libcom_err.so.2; do
   fi
 done
 
-# Drop the staging layout; only bin/, lib/ and qt.conf survive in the archive.
+# Drop the staging layout; the archive ships bin/ (including qt.conf), lib/
+# and plugins/.
 rm -rf "$APPDIR/usr" "$APPDIR/AppRun" "$APPDIR/.DirIcon"
 
-# Sanity: every non-core dependency of the binary and Qt libs must resolve in lib/.
+# A missing qt.conf or TLS plugin turns every HTTPS request into
+# "TLS initialization failed" at runtime, so the archive has to carry both.
+if [[ ! -f "$APPDIR/bin/qt.conf" ]]; then
+  echo "error: bin/qt.conf missing from the CLI archive" >&2
+  exit 1
+fi
+if [[ -z "$(find "$APPDIR/plugins/tls" -maxdepth 1 -name '*.so' -print -quit 2>/dev/null)" ]]; then
+  echo "error: Qt TLS plugin missing from the CLI archive" >&2
+  exit 1
+fi
+
+# Sanity: every non-core dependency of the entry point, the bundled libraries
+# and the plugins must resolve in lib/.
 MISSING=""
-for f in "$APPDIR"/bin/* "$APPDIR"/lib/libQt6*.so.6; do
-  [[ -f "$f" ]] || continue
+while IFS= read -r -d '' f; do
   while read -r lib; do
     [[ -z "$lib" ]] && continue
     case "$lib" in
@@ -113,7 +132,7 @@ for f in "$APPDIR"/bin/* "$APPDIR"/lib/libQt6*.so.6; do
       MISSING="$MISSING $lib"
     fi
   done < <(readelf -d "$f" 2>/dev/null | sed -n 's/.*NEEDED.*\[\(.*\)\]/\1/p')
-done
+done < <(printf '%s\0' "$APPDIR/bin/cctv-dl"; find "$APPDIR" -type f -name '*.so*' -print0)
 if [[ -n "$MISSING" ]]; then
   echo "error: unresolved library dependencies:$MISSING" >&2
   exit 1
