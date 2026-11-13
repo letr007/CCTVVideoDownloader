@@ -13,7 +13,6 @@
 #include <QtNetwork/QNetworkReply>
 #include <QtNetwork/QNetworkRequest>
 #include <QtNetwork/QSslConfiguration>
-#include <QtNetwork/QSslSocket>
 #include <QEventLoop>
 #include <QThread>
 #include <QTimer>
@@ -196,15 +195,17 @@ QNetworkRequest APIService::buildNetworkRequest(const QUrl& url, const QHash<QSt
 {
     QNetworkRequest request(url);
 
-    QSslConfiguration sslConfig = request.sslConfiguration();
-    sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+    // Certificate verification stays at Qt's default (AutoVerifyPeer). The only
+    // relaxation is this endpoint, which still rejects OpenSSL 3's default
+    // renegotiation policy and fails the handshake without the legacy option.
     if (url.scheme() == QStringLiteral("https")
         && url.host() == QStringLiteral("media.app.cctv.com")
         && url.port(443) == 443
         && url.path() == QStringLiteral("/vapi/video/vplist.do")) {
+        QSslConfiguration sslConfig = request.sslConfiguration();
         sslConfig.setSslOption(QSsl::SslOptionDisableLegacyRenegotiation, false);
+        request.setSslConfiguration(sslConfig);
     }
-    request.setSslConfiguration(sslConfig);
     request.setHeader(QNetworkRequest::UserAgentHeader, "Lavf/60.10.100");
 
     for (auto it = headers.begin(); it != headers.end(); ++it) {
@@ -236,15 +237,7 @@ QByteArray APIService::sendNetworkRequest(QNetworkAccessManager* networkAccessMa
     QNetworkRequest request = buildNetworkRequest(url, headers);
 
     QNetworkReply* reply = networkAccessManager->get(request);
-    // 连接SSL错误处理，忽略SSL错误
-    QObject::connect(reply, &QNetworkReply::errorOccurred,
-        [reply](QNetworkReply::NetworkError error) {
-            if (error == QNetworkReply::SslHandshakeFailedError) {
-                qWarning() << "SSL握手失败，尝试忽略错误:" << reply->errorString();
-                reply->ignoreSslErrors();
-            }
-        });
-    
+
     QEventLoop loop;
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     loop.exec();
@@ -1175,11 +1168,6 @@ quint64 APIService::startGetVideoInfo(const QString& guid)
     url.setQuery(query);
 
     QNetworkReply* reply = networkAccessManager()->get(buildNetworkRequest(url));
-    connect(reply, &QNetworkReply::errorOccurred, [reply](QNetworkReply::NetworkError error) {
-        if (error == QNetworkReply::SslHandshakeFailedError) {
-            reply->ignoreSslErrors();
-        }
-    });
     connect(reply, &QNetworkReply::finished, this, [this, requestId, guid, reply]() {
         const bool matchesActiveRequest = [this, requestId]() {
             QMutexLocker locker(&m_mutex);

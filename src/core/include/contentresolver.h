@@ -67,7 +67,6 @@ private:
     int selectVariantIndex(const QString& requestedQuality, const QVector<MediaVariant>& variants) const;
     bool isHighQualityVariant(const MediaVariant& variant) const;
     QStringList buildTsUrls(const QByteArray& playlistData, const QString& playlistUrl) const;
-    QString normalizeEncryptedPlaylistUrl(QString url) const;
     QString clearVariantUrl(const QString& hlsUrl, const QString& quality) const;
     QStringList qualityFallbacks(const QString& quality) const;
     bool isCctv16Channel(const QString& playChannel) const;

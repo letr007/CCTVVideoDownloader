@@ -264,12 +264,6 @@ void ContentResolver::startMediaRequest(quint64 requestId, const QUrl& url)
 
     QNetworkReply* reply = m_apiService.networkAccessManager()->get(m_apiService.buildNetworkRequest(url));
     m_pendingMediaReply = reply;
-    connect(reply, &QNetworkReply::errorOccurred, this,
-        [reply](QNetworkReply::NetworkError error) {
-            if (error == QNetworkReply::SslHandshakeFailedError) {
-                reply->ignoreSslErrors();
-            }
-        });
     connect(reply, &QNetworkReply::finished, this, [this, requestId, reply]() {
         handleMediaReplyFinished(requestId, reply);
     });
@@ -648,16 +642,6 @@ QStringList ContentResolver::qualityFallbacks(const QString& quality) const
     return index < 0 ? QStringList() : qualities.mid(index);
 }
 
-QString ContentResolver::normalizeEncryptedPlaylistUrl(QString url) const
-{
-    const QRegularExpression expression(QStringLiteral("https://[^/]+/asp/enc2/"));
-    const QRegularExpressionMatch match = expression.match(url);
-    if (match.hasMatch()) {
-        url.replace(match.captured(0), QStringLiteral("https://drm.cntv.vod.dnsv1.com/asp/enc2/"));
-    }
-    return url;
-}
-
 bool ContentResolver::isCctv16Channel(const QString& playChannel) const
 {
     // 匹配 CCTV-16 且后面不紧跟数字，避免误伤类似 CCTV-160 的邻号（实际不存在，但保持保守）。
@@ -676,7 +660,10 @@ QString ContentResolver::encryptedPlaylistUrlFrom(const QJsonObject& root) const
     if (encryptedPlaylistUrl.isEmpty()) {
         encryptedPlaylistUrl = manifest.value(QStringLiteral("hls_enc2_url")).toString();
     }
-    return normalizeEncryptedPlaylistUrl(encryptedPlaylistUrl);
+    // The playlist host is used as served. The former rewrite to
+    // drm.cntv.vod.dnsv1.com cannot be fetched with certificate verification on:
+    // that CDN answers with a cert covering *.cctv.com / *.cntv.cn only.
+    return encryptedPlaylistUrl;
 }
 
 bool ContentResolver::retryMasterPlaylistMirror(quint64 requestId)

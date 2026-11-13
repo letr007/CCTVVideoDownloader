@@ -30,6 +30,8 @@
 #include <QMutexLocker>
 #include <QThread>
 #include <QTimer>
+#include <QSslConfiguration>
+#include <QSslSocket>
 #include <QToolButton>
 #include <atomic>
 #include <cmath>
@@ -1320,6 +1322,7 @@ private slots:
     void apiservice_buildTopicVideoListUrl_buildsFragmentQuery();
     void apiservice_sendNetworkRequest_fakeSuccess_returnsDeterministicBody();
     void apiservice_sendNetworkRequest_fakeError_returnsEmptyData();
+    void apiservice_buildNetworkRequest_keepsCertificateVerification();
 
     void fakeNetworkReply_success_emitsReadyReadProgressAndFinished();
     void fakeNetworkReply_abort_marksCancelledAndFinishes();
@@ -6457,6 +6460,26 @@ void CoreRegressionTests::apiservice_sendNetworkRequest_fakeError_returnsEmptyDa
     QCOMPARE(manager.requestCount(), 1);
     QCOMPARE(manager.unexpectedRequestCount(), 0);
     QCOMPARE(manager.requestedUrls().constFirst(), url);
+}
+
+void CoreRegressionTests::apiservice_buildNetworkRequest_keepsCertificateVerification()
+{
+    // GHSA-c26x-765w-8hwc: outbound requests must keep TLS certificate
+    // verification. The vplist endpoint only relaxes renegotiation, a handshake
+    // compatibility switch that still rejects untrusted certificates.
+    APIService& apiService = APIService::instance();
+
+    const QNetworkRequest plain = APIServiceTestAdapter::buildNetworkRequest(
+        apiService, QUrl(QStringLiteral("https://api.cntv.cn/NewVideo/getVideoListByColumn")));
+    const QSslConfiguration plainSsl = plain.sslConfiguration();
+    QVERIFY(plainSsl.peerVerifyMode() != QSslSocket::VerifyNone);
+    QVERIFY(plainSsl.testSslOption(QSsl::SslOptionDisableLegacyRenegotiation));
+
+    const QNetworkRequest vplist = APIServiceTestAdapter::buildNetworkRequest(
+        apiService, QUrl(QStringLiteral("https://media.app.cctv.com/vapi/video/vplist.do?pid=0000")));
+    const QSslConfiguration vplistSsl = vplist.sslConfiguration();
+    QVERIFY(vplistSsl.peerVerifyMode() != QSslSocket::VerifyNone);
+    QVERIFY(!vplistSsl.testSslOption(QSsl::SslOptionDisableLegacyRenegotiation));
 }
 
 void CoreRegressionTests::fakeNetworkReply_success_emitsReadyReadProgressAndFinished()

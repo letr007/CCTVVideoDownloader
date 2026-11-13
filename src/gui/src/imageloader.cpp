@@ -9,7 +9,6 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QSslConfiguration>
-#include <QSslSocket>
 #include <QThread>
 #include <QTimer>
 #include <QUrl>
@@ -53,23 +52,18 @@ QByteArray ImageLoader::sendNetworkRequest(const QUrl& url)
 #endif
 
     QNetworkRequest request(url);
-    QSslConfiguration sslConfig = request.sslConfiguration();
-    sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+    // Same relaxation as APIService::buildNetworkRequest, no verification bypass.
     if (url.scheme() == QStringLiteral("https")
         && url.host() == QStringLiteral("media.app.cctv.com")
         && url.port(443) == 443
         && url.path() == QStringLiteral("/vapi/video/vplist.do")) {
+        QSslConfiguration sslConfig = request.sslConfiguration();
         sslConfig.setSslOption(QSsl::SslOptionDisableLegacyRenegotiation, false);
+        request.setSslConfiguration(sslConfig);
     }
-    request.setSslConfiguration(sslConfig);
     request.setHeader(QNetworkRequest::UserAgentHeader, "Lavf/60.10.100");
 
     QNetworkReply* reply = manager->get(request);
-    connect(reply, &QNetworkReply::errorOccurred, [reply](QNetworkReply::NetworkError error) {
-        if (error == QNetworkReply::SslHandshakeFailedError) {
-            reply->ignoreSslErrors();
-        }
-    });
     QEventLoop loop;
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     loop.exec();
