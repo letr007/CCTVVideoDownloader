@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             compiler: clang
             qt_host: mac
             qt_arch: clang_64

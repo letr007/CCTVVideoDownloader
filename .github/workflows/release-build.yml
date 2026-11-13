@@ -27,11 +27,12 @@ jobs:
             package_kind: windows
             package_arch: x64
           - name: macOS arm64
-            os: macos-14
+            os: macos-15
             qt_host: mac
             qt_arch: clang_64
             package_kind: macos
             package_arch: arm64
+            macos_target: "14.0"
           - name: Linux x86_64
             os: ubuntu-22.04
             qt_host: linux
@@ -52,6 +53,9 @@ jobs:
       FFVER: "7.1.1"
       FFMPEG_MIN_ROOT: ${{ github.workspace }}/third_party/ffmpeg-min
       PACKAGE_ID: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+      # The macos-15 SDK defaults its deployment target to 15.0; keep the bundle
+      # runnable on macOS 14 like the releases built on macos-14.
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_target }}
 
     steps:
       - uses: actions/checkout@v4
