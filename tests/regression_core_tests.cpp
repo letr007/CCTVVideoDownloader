@@ -1156,6 +1156,7 @@ private slots:
     void cctvH5e_sessionGate_type25MagicEnablesNewModeDecryption();
     void cctvH5e_sessionGate_type25MagicSwitchesLayoutsBothWays();
     void cctvH5e_classicLayout_alignsGridOnRbspAcrossEpb();
+    void cctvH5e_tsRebuild_padsResidualWhenAfCannotAbsorb();
     void decryptWorker_invalidCboxOutput_rejectsAndDoesNotPublish();
     void decryptWorker_crashExitWithZeroExitCode_emitsProcessFailure();
     void decryptWorker_cancelDuringProcess_emitsCancelledAndDoesNotPublish();
@@ -3860,6 +3861,75 @@ void CoreRegressionTests::cctvH5e_classicLayout_alignsGridOnRbspAcrossEpb()
     session.on_nal(enable, &enableLen);
 
     QCOMPARE(runSessionOnNal(session, ciphertext), plaintext);
+}
+
+void CoreRegressionTests::cctvH5e_tsRebuild_padsResidualWhenAfCannotAbsorb()
+{
+    // GHSA-627c-p5x3-f26r: a packet whose adaptation field is already 182 bytes
+    // long cannot give any payload back, so EPB removal can shrink the rebuilt
+    // PES by more than the AF stuffing can absorb. The copy pass used to underflow
+    // on `new_pes.size() - off` and read past the PES buffer; the residual payload
+    // now gets 0xFF stuffing instead.
+    constexpr size_t kEpbCount = 221;
+
+    const auto putPacket = [](QByteArray& ts, bool pusi, int afc, int cc,
+                              const QByteArray& payload) {
+        QByteArray packet(188, '\x11');
+        packet[0] = 0x47;
+        packet[1] = static_cast<char>((pusi ? 0x40 : 0x00) | 0x01);  // pid 0x100
+        packet[2] = 0x00;
+        packet[3] = static_cast<char>((afc << 4) | (cc & 0x0F));
+        if (afc == 1) {
+            packet.replace(4, payload.size(), payload);
+        } else {
+            packet[4] = static_cast<char>(182);
+            packet[5] = 0x00;
+            packet.replace(6, 181, QByteArray(181, '\xFF'));
+            packet.replace(187, payload.size(), payload);
+        }
+        ts.append(packet);
+    };
+
+    QByteArray type1(1, '\x41');
+    for (size_t i = 0; i < kEpbCount; i++) type1.append(QByteArray::fromHex("000003"));
+    type1.append('\x00');
+    QCOMPARE(type1.size(), 665);
+
+    QByteArray pesPayload;
+    pesPayload.append(QByteArray::fromHex("000001e00000800000"));  // PES header, no ext
+    pesPayload.append(QByteArray::fromHex("000001"));
+    pesPayload.append(QByteArray::fromHex("79010109"));  // type25 new-mode enable
+    pesPayload.append(QByteArray::fromHex("000001"));
+    pesPayload.append(type1.left(165));
+
+    QByteArray ts;
+    putPacket(ts, true, 1, 0, pesPayload);
+    for (int i = 0; i < 500; i++)
+        putPacket(ts, false, 3, i + 1, type1.mid(165 + i, 1));
+    putPacket(ts, true, 1, 0, QByteArray(1, '\x00'));  // PUSI flushes the crafted PES
+    QCOMPARE(ts.size(), 502 * 188);
+
+    cctv_h5e::Session session;
+    const size_t nals =
+        cctv_h5e::decrypt_ts_inplace(reinterpret_cast<uint8_t*>(ts.data()),
+                                     static_cast<size_t>(ts.size()), session);
+    QCOMPARE(nals, size_t(2));
+
+    // 221 EPBs against 183 reclaimable bytes: 38 payload bytes are pure stuffing.
+    int paddedSpans = 0;
+    int firstPaddedPacket = -1;
+    for (int p = 0; p < ts.size() / 188; p++) {
+        const auto* packet = reinterpret_cast<const uint8_t*>(ts.constData()) + p * 188;
+        if (packet[0] != 0x47 || packet[1] != 0x01 || packet[2] != 0x00) continue;
+        const int afc = (packet[3] & 0x30) >> 4;
+        if (afc == 0 || afc == 2) continue;
+        const size_t pi = (afc == 1) ? 4 : static_cast<size_t>(5 + packet[4]);
+        if (packet[pi] != 0xFF) continue;
+        paddedSpans++;
+        if (firstPaddedPacket < 0) firstPaddedPacket = p;
+    }
+    QCOMPARE(paddedSpans, 38);
+    QCOMPARE(firstPaddedPacket, 463);
 }
 
 void CoreRegressionTests::cctvH5e_type1FlipMask_supportsSdHdrFamily()

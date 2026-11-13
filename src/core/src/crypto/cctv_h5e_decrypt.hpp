@@ -637,18 +637,17 @@ inline size_t decrypt_ts_inplace(uint8_t* data, size_t len, Session& session,
             size_t pkt_off = std::get<0>(sp);
             size_t pi = std::get<1>(sp);
             size_t pl = std::get<2>(sp);
-            size_t chunk = new_pes.size() - off;
+            // AF growth cannot always absorb the whole shrink: a packet whose AF is
+            // already 182 bytes long has no room left, so the rebuilt PES can end
+            // before the last span. Pad the leftover payload instead of reading past
+            // new_pes (GHSA-627c-p5x3-f26r).
+            size_t chunk = off < new_pes.size() ? new_pes.size() - off : 0;
             if (chunk > pl) chunk = pl;
             if (chunk > 0)
                 std::memcpy(data + pkt_off + pi, new_pes.data() + off, chunk);
-            if (chunk < pl) {
-                // residual (should be rare if AF absorb worked)
+            if (chunk < pl)
                 std::memset(data + pkt_off + pi + chunk, 0xFF, pl - chunk);
-            }
             off += pl;
-            if (off >= new_pes.size()) {
-                // clear any further payloads already handled by AF shrink
-            }
         }
 
         pes.clear();
